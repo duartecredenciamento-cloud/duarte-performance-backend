@@ -1,0 +1,19 @@
+# Bancos de dados locais (nunca commitar dados reais/sensíveis)
+*.db
+*.sqlite
+*.sqlite3
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+
+# Variáveis de ambiente / segredos
+.env
+
+# Uploads/evidências e logs locais (não devem ir pro repositório)
+armazenamento_evidencias/
+uploads/
+*.log
