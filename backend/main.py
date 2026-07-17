@@ -16,8 +16,14 @@ app.add_middleware(
 
 # 👥 BANCO DE DADOS EM MEMÓRIA (Substitua pelos seus dados de produção)
 # Configurei seu CPF de teste para você logar de primeira com a senha 123
+# 👥 Substitua os 11 números abaixo pelo seu CPF real de acesso
 USUARIOS_DB = {
-    "12345678901": {"nome": "Erick Admin", "senha": "123", "role": "Admin Master", "cpf": "12345678901"}
+    "50500164878": {
+        "nome": "Erick", 
+        "senha": "Duarte123#", 
+        "role": "Admin Master", 
+        "cpf": "50500164878"
+    }
 }
 
 CRONOGRAMA_DB = [
