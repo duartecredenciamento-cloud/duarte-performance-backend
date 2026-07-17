@@ -1,23 +1,43 @@
-from database import SessionLocal
-import models
-import auth
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+import uvicorn
+import os
 
-db = SessionLocal()
+app = FastAPI(title="Duarte Performance Backend")
 
-# CPF e Senha do Admin Master
-cpf_admin = "00000000000"   # Altere se quiser
-senha = "Duarte123#"        # Senha que você vai usar para logar
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-# Verifica se já existe
-if not db.query(models.UserModel).filter(models.UserModel.cpf == cpf_admin).first():
-    usuario = models.UserModel(
-        cpf=cpf_admin,
-        nome="Administrador Geral",
-        password_hash=auth.obter_hash_senha(senha),
-        role="Admin Master"
-    )
-    db.add(usuario)
-    db.commit()
-    print(f"✅ Admin criado com sucesso!\nCPF: {cpf_admin}\nSenha: {senha}")
-else:
-    print("Usuário admin já existe.")
+@app.get("/")
+def root():
+    return {
+        "status": "online",
+        "mensagem": "Backend rodando",
+        "login": "CPF: 00000000000 | Senha: Duarte123#"
+    }
+
+@app.post("/token")
+def login():
+    return {
+        "access_token": "token-de-teste",
+        "token_type": "bearer",
+        "nome": "Administrador Geral",
+        "role": "Admin Master"
+    }
+
+@app.get("/registros/")
+def registros():
+    return [{"id": 1, "operador_nome": "Teste", "cliente_nome": "FR FISIO", "status": "Realizado Total"}]
+
+@app.get("/cronograma/")
+def cronograma():
+    return [{"id": 1, "operador": "Karine", "dia_semana": "Segunda", "cliente": "FR FISIO"}]
+
+if __name__ == "__main__":
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
