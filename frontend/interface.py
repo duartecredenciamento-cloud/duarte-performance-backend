@@ -9,6 +9,7 @@ st.set_page_config(page_title="Duarte Performance", page_icon="🟠", layout="wi
 
 API_URL = "https://duarte-performance-backend.onrender.com"
 
+
 # Sessão
 if "token" not in st.session_state: st.session_state.token = None
 if "username" not in st.session_state: st.session_state.username = None
