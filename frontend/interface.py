@@ -264,7 +264,6 @@ elif menu == "🗓️ Escala Semanal":
         for col in ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"]:
             todas_atividades.extend(df_op[col].dropna().tolist())
             
-        # Limpa termos vazios, marcações de folga ou suporte geral para não gerar alarmes falsos
         atividades_filtradas = [
             at.strip().upper() for at in todas_atividades 
             if at.strip() and at.strip().upper() not in ["", "X", "FÉRIAS", "SUPORTE", "SUPORTE/WHATSAPP"]
@@ -279,6 +278,36 @@ elif menu == "🗓️ Escala Semanal":
     if duplicados_encontrados:
         st.warning(f"⚠ **Sinalização de Duplicidade Semanal:**\n\n" + "\n".join([f"- {item}" for item in set(duplicados_encontrados)]))
         
+    # --- Estilização Avançada via Pandas Styler (Cores Identificadas na Planilha) ---
+    def aplicar_estilos_celula(val):
+        val_upper = str(val).strip().upper()
+        if val_upper == "FÉRIAS":
+            return 'background-color: #E0F2FE; color: #0369A1; font-weight: bold; text-align: center;'  # Azul claro soft
+        elif val_upper in ["PRIME", "INST. VER", "HOSP. AMATO"]:
+            return 'color: #DC2626; font-weight: bold;'  # Destaque em Vermelho conforme a planilha real
+        elif "SUPORTE" in val_upper:
+            return 'color: #475569; background-color: #F1F5F9; font-style: italic;'  # Cinza discreto para suporte
+        elif val_upper in ["MANHÃ", "TARDE"]:
+            return 'color: #64748B; font-style: italic; font-size: 12px; text-align: center;'
+        elif val_upper == "X":
+            return 'color: #94A3B8; text-align: center;'
+        return 'color: #1E293B;'
+
+    # Aplica o mapeamento visual no DataFrame
+    df_estilizado = df_escala.style.applymap(aplicar_estilos_celula)
+    
+    # Renderiza a tabela rica com suporte a estilos e largura total na tela
+    st.dataframe(df_estilizado, use_container_width=True, hide_index=True)
+    
+    if role in ["Admin Master", "Gestor"]:
+        with st.expander("⚙️ Painel de Distribuição de Contas (Nível Gestão)"):
+            c1, c2, c3, c4 = st.columns(4)
+            c1.selectbox("Selecionar Operador", df_escala["Operador"].unique())
+            c2.selectbox("Turno", ["MANHÃ", "TARDE"])
+            c3.selectbox("Dia de Destino", ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"])
+            c4.text_input("Inserir Novo Cliente / Atividade")
+            st.button("Atualizar Matriz do Mês", type="primary")
+        
     # Exibição limpa e responsiva do Grid igual ao Excel
     st.dataframe(df_escala, use_container_width=True, hide_index=True)
     
@@ -291,18 +320,18 @@ elif menu == "🗓️ Escala Semanal":
             c4.text_input("Inserir Novo Cliente / Atividade")
             st.button("Atualizar Matriz do Mês", type="primary")
 
-# --- ABA 3: RELATÓRIOS OPERACIONAIS (VINCULADA CORRETAMENTE) ---
+# --- ABA 3: RELATÓRIOS OPERACIONAIS (TOTALMENTE ESTILIZADA) ---
 elif menu == "📑 Relatórios Operacionais":
-    st.markdown("<h1 style='color: #0F172A; font-weight: 800;'>Relatório Principal de Produtividade</h1>", unsafe_allow_html=True)
-    st.markdown("<p style='color: #64748B;'>Filtros avançados e extração de dados auditáveis de telefonia, e-mails e rotinas.</p>", unsafe_allow_html=True)
+    st.markdown("<h1 style='color: #0F172A; font-weight: 800; letter-spacing:-0.5px;'>Relatório Principal de Produtividade</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='color: #64748B;'>Filtros avançados e extração de dados auditáveis de telefonia, e-mails e rotinas operacionais.</p>", unsafe_allow_html=True)
     
-    # Filtros baseados nos requisitos do Word e nos operadores reais
+    # Filtros modernos alinhados no topo
     f1, f2, f3 = st.columns(3)
     f1.date_input("Período Histórico")
     f2.selectbox("Filtrar por Operador", ["Todos", "LARISSA", "KARINE", "NEIA", "VITÓRIA - I", "SILVANA", "JULIA", "EDVANIA", "VITORIA REDE", "MARIA EDUARDA"])
     f3.selectbox("Status de SLA", ["Todos", "Realizado Total", "Realizado Parcial", "Não Realizado"])
     
-    # Layout estruturado com o formato exato exigido no escopo do Word e dados reais
+    # Base de dados estruturada com os padrões reais do negócio
     df_principal = pd.DataFrame([
         {"Data": "10/08/2026", "Dia": "Segunda", "Cliente": "EV-CITI", "Operador": "LARISSA", "Status": "Realizado Total", "Observação": "Atendimento concluído dentro do SLA corporativo."},
         {"Data": "10/08/2026", "Dia": "Segunda", "Cliente": "HOSP. AMATO", "Operador": "SILVANA", "Status": "Realizado Total", "Observação": "Inserção em sistema efetuada com sucesso."},
@@ -311,8 +340,36 @@ elif menu == "📑 Relatórios Operacionais":
         {"Data": "12/08/2026", "Dia": "Quarta", "Cliente": "TRIDES", "Operador": "SILVANA", "Status": "Não Realizado", "Observação": "Falta de envio dos relatórios operacionais por parte do cliente."}
     ])
     
-    # Exibição da tabela limpa para o usuário
-    st.dataframe(df_principal, use_container_width=True, hide_index=True)
+    # --- Motor de Estilização Visual Avançada ---
+    def colorir_relatorio(row):
+        styles = [''] * len(row)
+        status = str(row['Status']).strip()
+        
+        # Define a cor de fundo e da fonte baseada no status do SLA
+        if status == "Realizado Total":
+            bg_color = "background-color: #ECFDF5; color: #065F46; font-weight: 500;"  # Verde Esmeralda Soft
+        elif status == "Realizado Parcial":
+            bg_color = "background-color: #FFFBEB; color: #92400E; font-weight: 500;"  # Amarelo/Laranja Soft
+        elif status == "Não Realizado":
+            bg_color = "background-color: #FEF2F2; color: #991B1B; font-weight: bold;"  # Vermelho Crítico Soft
+        else:
+            bg_color = ""
+            
+        # Aplica o estilo destacado na coluna de Status
+        status_idx = row.index.get_loc('Status')
+        styles[status_idx] = bg_color
+        
+        # Deixa os nomes dos operadores em caixa alta e negrito discreto
+        op_idx = row.index.get_loc('Operador')
+        styles[op_idx] = 'font-weight: 600; color: #1E293B;'
+        
+        return styles
+
+    # Aplica o mapeamento de estilo linha por linha
+    df_relatorio_estilizado = df_principal.style.apply(colorir_relatorio, axis=1)
+    
+    # Renderização da tabela interativa com design profissional
+    st.dataframe(df_relatorio_estilizado, use_container_width=True, hide_index=True)
     
     # Gerador de Arquivo Excel dinâmico em memória para download imediato
     towrite = io.BytesIO()
@@ -321,14 +378,14 @@ elif menu == "📑 Relatórios Operacionais":
     
     st.markdown("<br>", unsafe_allow_html=True)
     st.download_button(
-        label="📥 EXPORTAR PARA EXCEL (.XLSX)",
+        label="📥 EXPORTAR PLANILHA CONSOLIDADA (.XLSX)",
         data=towrite.getvalue(),
         file_name=f"Duarte_Performance_{datetime.now().strftime('%d%m%Y')}.xlsx",
         mime="application/vnd.ms-excel",
         type="primary",
         use_container_width=True
     )
-# --- ABA 4: AUDITORIA E ACESSOS ---
+
 # --- ABA 4: AUDITORIA E ACESSOS ---
 elif menu == "🔐 Auditoria e Acessos":
     st.markdown("<h1 style='color: #0F172A; font-weight: 800; letter-spacing:-0.5px;'>Módulo de Auditoria e Segurança (LGPD)</h1>", unsafe_allow_html=True)
@@ -363,12 +420,12 @@ elif menu == "🔐 Auditoria e Acessos":
     
     st.caption("🔒 Os logs gerados nesta plataforma cumprem os requisitos de auditoria previstos na LGPD e não podem ser apagados ou editados por operadores[cite: 2].")
 
-# --- ABA 5: LANÇAR EXECUÇÃO DIÁRIA (VINCULADA CORRETAMENTE) ---
+# --- ABA 5: LANÇAR EXECUÇÃO DIÁRIA (DINÂMICA E CORRIGIDA) ---
 elif menu == "📝 Lançar Execução Diária":
     st.markdown("<h1 style='color: #0F172A; font-weight: 800; letter-spacing:-0.5px;'>Apontamento de Execução Diária</h1>", unsafe_allow_html=True)
     st.markdown("<p style='color: #64748B;'>Registre suas atividades operacionais com validação dinâmica e anexo de evidências.</p>", unsafe_allow_html=True)
     
-    # Header tecnológico com dados da sessão atualizados
+    # Header tecnológico
     st.markdown(
         f"""
         <div style="background: #F8FAFC; border: 1px solid #E2E8F0; padding: 12px 16px; border-radius: 8px; margin-bottom: 20px;">
@@ -380,51 +437,50 @@ elif menu == "📝 Lançar Execução Diária":
         unsafe_allow_html=True
     )
     
-    with st.form("formulario_execucao_completo"):
-        c_alt1, c_alt2 = st.columns(2)
-        
-        # Lista atualizada com base nos clientes reais da matriz
-        lista_clientes = [
-            "Selecione...", "EV-CITI", "CONVACARE", "IMC", "PRIME", "CLINICA AMINO", 
-            "REGULAÇÃO", "RALG", "ATIVAMENTE", "EDITAIS", "HOSP. AMATO", "CLIN COFFI", 
-            "TRIDES", "LAB. BRUNO", "PRO-EXAME", "CLINICA VIVENCY", "MEDLIGTH", 
-            "INST. VER", "CANTAREIRA", "CLINICA ROSANA", "FR FISIO", "CIE FISIO - SJC", 
-            "CLINICA FARFALLA", "UNICLIN - LAB PG", "CLINICA TOPÁZIO", "FISIO LIFE", 
-            "EMS BETESDA", "MULHER MODERNA", "SUPORTE"
-        ]
-        
-        cliente_sel = c_alt1.selectbox("Selecione o Cliente Trabalhado", lista_clientes)
-        status_sel = c_alt2.selectbox("Status Final do Trabalho", ["Selecione...", "Realizado Total", "Realizado Parcial", "Não Realizado"])
-        
-        # Lógica Condicional Dinâmica e Clean para a Justificativa
-        obs_texto = ""
-        if status_sel in ["Realizado Parcial", "Não Realizado"]:
-            st.markdown(
-                f"""
-                <div style="background: #FFFBEB; border-left: 4px solid #F59E0B; padding: 12px; border-radius: 4px; margin: 15px 0 5px 0;">
-                    <strong style="color: #B45309;">⚠ Justificativa Obrigatória</strong><br>
-                    <span style="color: #78350F; font-size: 13px;">Explique detalhadamente o motivo do status ser <b>{status_sel}</b>.</span>
-                </div>
-                """, 
-                unsafe_allow_html=True
-            )
-            obs_texto = st.text_area("Detalhamento Operacional da Ocorrência", height=120, placeholder="Ex: Aguardando envio de documentação complementar por parte do prestador para finalização do cadastro...")
-        
-        st.markdown("#### 📎 Comprovações e Evidências")
-        arquivo_evidencia = st.file_uploader("Arraste ou selecione o print da sua tela/sistema", type=["png", "jpg", "jpeg", "pdf", "xlsx"])
-        
-        if arquivo_evidencia is not None and arquivo_evidencia.type in ["image/png", "image/jpeg"]:
-            with st.expander("👁️ Visualizar Print Carregado", expanded=True):
-                st.image(arquivo_evidencia, caption="Evidência Capturada", use_container_width=True)
-                
-        st.markdown("<br>", unsafe_allow_html=True)
-        
-        # Botão de envio principal
-        if st.form_submit_button("🚀 ENVIAR APONTAMENTO DIÁRIO", type="primary", use_container_width=True):
-            if cliente_sel == "Selecione..." or status_sel == "Selecione...":
-                st.error("Por favor, selecione o cliente e o status antes de salvar.")
-            elif status_sel in ["Realizado Parcial", "Não Realizado"] and not obs_texto.strip():
-                st.error("A justificativa detalhada é estritamente obrigatória para auditoria interna.")
-            else:
-                st.success("Perfeito! Apontamento gravado com sucesso no ecossistema de dados.")
-                st.balloons()
+    # Colocando os selects FORA do form para habilitar a reatividade instantânea
+    c_alt1, c_alt2 = st.columns(2)
+    
+    lista_clientes = [
+        "Selecione...", "EV-CITI", "CONVACARE", "IMC", "PRIME", "CLINICA AMINO", 
+        "REGULAÇÃO", "RALG", "ATIVAMENTE", "EDITAIS", "HOSP. AMATO", "CLIN COFFI", 
+        "TRIDES", "LAB. BRUNO", "PRO-EXAME", "CLINICA VIVENCY", "MEDLIGTH", 
+        "INST. VER", "CANTAREIRA", "CLINICA ROSANA", "FR FISIO", "CIE FISIO - SJC", 
+        "CLINICA FARFALLA", "UNICLIN - LAB PG", "CLINICA TOPÁZIO", "FISIO LIFE", 
+        "EMS BETESDA", "MULHER MODERNA", "SUPORTE"
+    ]
+    
+    cliente_sel = c_alt1.selectbox("Selecione o Cliente Trabalhado", lista_clientes, key="cliente_diario")
+    status_sel = c_alt2.selectbox("Status Final do Trabalho", ["Selecione...", "Realizado Total", "Realizado Parcial", "Não Realizado"], key="status_diario")
+    
+    # Agora sim! Mudou o select, o Streamlit intercepta aqui e desenha a caixa na hora
+    obs_texto = ""
+    if status_sel in ["Realizado Parcial", "Não Realizado"]:
+        st.markdown(
+            f"""
+            <div style="background: #FFFBEB; border-left: 4px solid #F59E0B; padding: 12px; border-radius: 4px; margin: 15px 0 5px 0; animation: fadeIn 0.5s;">
+                <strong style="color: #B45309;">⚠ Justificativa Obrigatória</strong><br>
+                <span style="color: #78350F; font-size: 13px;">Explique detalhadamente o motivo do status ser <b>{status_sel}</b>.</span>
+            </div>
+            """, 
+            unsafe_allow_html=True
+        )
+        obs_texto = st.text_area("Detalhamento Operacional da Ocorrência", height=120, placeholder="Ex: Aguardando envio de documentação complementar por parte do prestador para finalização do cadastro...", key="justificativa_diaria")
+    
+    st.markdown("#### 📎 Comprovações e Evidências")
+    arquivo_evidencia = st.file_uploader("Arraste ou selecione o print da sua tela/sistema", type=["png", "jpg", "jpeg", "pdf", "xlsx"], key="evidencia_diaria")
+    
+    if arquivo_evidencia is not None and arquivo_evidencia.type in ["image/png", "image/jpeg"]:
+        with st.expander("👁️ Visualizar Print Carregado", expanded=True):
+            st.image(arquivo_evidencia, caption="Evidência Capturada", use_container_width=True)
+            
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # O botão fica num form simples ou isolado para submeter os estados atuais das variáveis acima
+    if st.button("🚀 ENVIAR APONTAMENTO DIÁRIO", type="primary", use_container_width=True):
+        if cliente_sel == "Selecione..." or status_sel == "Selecione...":
+            st.error("Por favor, selecione o cliente e o status antes de salvar.")
+        elif status_sel in ["Realizado Parcial", "Não Realizado"] and not obs_texto.strip():
+            st.error("A justificativa detalhada é estritamente obrigatória para auditoria interna.")
+        else:
+            st.success("Perfeito! Apontamento gravado com sucesso no ecossistema de dados.")
+            st.balloons()
