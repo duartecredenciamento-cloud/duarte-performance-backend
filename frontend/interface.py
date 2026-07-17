@@ -294,7 +294,7 @@ elif menu == "🗓️ Escala Semanal":
         return 'color: #1E293B;'
 
     # Aplica o mapeamento visual no DataFrame
-    df_estilizado = df_escala.style.applymap(aplicar_estilos_celula)
+    df_estilizado = df_escala.style.map(aplicar_estilos_celula)
     
     # Renderiza a tabela rica com suporte a estilos e largura total na tela
     st.dataframe(df_estilizado, use_container_width=True, hide_index=True)
