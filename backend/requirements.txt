@@ -4,3 +4,4 @@ sqlalchemy>=2.0.35
 python-jose[cryptography]
 python-dotenv
 psycopg2-binary
+passlib[bcrypt]
