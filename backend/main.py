@@ -19,23 +19,20 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from jose import JWTError, jwt
 
-# Importações locais do projeto
 from database import engine, get_db
 import models
 import schemas
 import auth
 
-# Força a criação/atualização de todas as tabelas no PostgreSQL ao iniciar
 models.Base.metadata.create_all(bind=engine)
 
-# Diretório para armazenamento físico das evidências de execução
 UPLOAD_DIR = "./armazenamento_evidencias"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 app = FastAPI(
     title="Duarte Performance - Backend Corporativo",
     description="API de controle operacional com trilhas de auditoria, LGPD e banco PostgreSQL",
-    version="4.1"
+    version="5.0"
 )
 
 app.add_middleware(
@@ -47,9 +44,13 @@ app.add_middleware(
 )
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
-
-# Papéis que têm permissão de gestão (criar/editar/remover cronograma, editar apontamento)
 PAPEIS_GESTAO = ["Admin Master", "Gestor"]
+
+
+def sanitizar_username(raw: str) -> str:
+    """Deixa só letras/números/underscore, minúsculo, sem espaço (ex: 'Erick Duarte' -> 'erick_duarte')."""
+    raw = (raw or "").strip().lower().replace(" ", "_")
+    return "".join(c for c in raw if c.isalnum() or c == "_")
 
 
 # =====================================================
@@ -60,7 +61,7 @@ def registrar_log(
     acao: str,
     detalhes: str,
     request: Request,
-    cpf: Optional[str] = None,
+    login: Optional[str] = None,
     nome: Optional[str] = None
 ):
     ip_cliente = request.headers.get("X-Forwarded-For", request.client.host if request.client else "IP_DESCONHECIDO")
@@ -68,7 +69,7 @@ def registrar_log(
         ip_cliente = ip_cliente.split(",")[0].strip()
 
     log_entry = models.AuditoriaModel(
-        usuario_cpf=cpf,
+        usuario_login=login,
         usuario_nome=nome,
         ip_origem=ip_cliente,
         acao=acao,
@@ -92,16 +93,15 @@ def obter_usuario_atual(
     )
     try:
         payload = jwt.decode(token, auth.SECRET_KEY, algorithms=[auth.ALGORITHM])
-        cpf: str = payload.get("sub")
-        if cpf is None:
+        username: str = payload.get("sub")
+        if username is None:
             raise erro_auth
     except JWTError:
         raise erro_auth
 
-    user = db.query(models.UserModel).filter(models.UserModel.cpf == cpf).first()
+    user = db.query(models.UserModel).filter(models.UserModel.username == username).first()
     if user is None:
         raise erro_auth
-
     return user
 
 
@@ -114,7 +114,7 @@ def exigir_papel_gestao(current_user: models.UserModel):
 
 
 # =====================================================
-# ENDPOINT: AUTENTICAÇÃO / LOGIN POR CPF SANITIZADO
+# ENDPOINT: AUTENTICAÇÃO (usuário + senha, sem CPF)
 # =====================================================
 @app.post("/token")
 def login(
@@ -122,24 +122,23 @@ def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db)
 ):
-    cpf_limpo = "".join(filter(str.isdigit, form_data.username))
-
-    user = db.query(models.UserModel).filter(models.UserModel.cpf == cpf_limpo).first()
+    username_limpo = sanitizar_username(form_data.username)
+    user = db.query(models.UserModel).filter(models.UserModel.username == username_limpo).first()
 
     if not user or not auth.verificar_senha(form_data.password, user.password_hash):
         registrar_log(
             db=db, acao="LOGIN_FAILED",
-            detalhes=f"Tentativa falha de login para o CPF: {cpf_limpo}",
-            request=request, cpf=cpf_limpo
+            detalhes=f"Tentativa falha de login para o usuário: {username_limpo}",
+            request=request, login=username_limpo
         )
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="CPF ou Senha incorretos.")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuário ou senha incorretos.")
 
-    token_jwt = auth.criar_token_acesso(data={"sub": user.cpf, "role": user.role})
+    token_jwt = auth.criar_token_acesso(data={"sub": user.username, "role": user.role})
 
     registrar_log(
         db=db, acao="LOGIN_SUCCESS",
-        detalhes=f"Usuário {user.nome} autenticado com o perfil: {user.role}",
-        request=request, cpf=user.cpf, nome=user.nome
+        detalhes=f"Usuário '{user.username}' autenticado com o perfil: {user.role}",
+        request=request, login=user.username, nome=user.nome
     )
 
     return {
@@ -147,8 +146,77 @@ def login(
         "token_type": "bearer",
         "role": user.role,
         "nome": user.nome,
-        "cpf": user.cpf
+        "username": user.username,
+        "perfil_completo": user.perfil_completo
     }
+
+
+# =====================================================
+# ENDPOINT: CADASTRO PÚBLICO (a própria pessoa cria a conta)
+# =====================================================
+@app.post("/cadastro/")
+def cadastro_publico(
+    request: Request,
+    dados: schemas.UserSignupPublic,
+    db: Session = Depends(get_db)
+):
+    if db.query(models.UserModel).filter(models.UserModel.username == dados.username).first():
+        raise HTTPException(status_code=400, detail="Este nome de usuário já está em uso.")
+
+    novo_usuario = models.UserModel(
+        username=dados.username,
+        password_hash=auth.obter_hash_senha(dados.password),
+        nome=dados.nome,
+        email=dados.email,
+        telefone=dados.telefone,
+        role="Operador",  # cadastro público sempre entra como Operador; promoção é manual pelo Admin
+        perfil_completo=True
+    )
+    db.add(novo_usuario)
+    db.commit()
+    db.refresh(novo_usuario)
+
+    registrar_log(
+        db=db, acao="CADASTRO_PUBLICO",
+        detalhes=f"Novo colaborador autocadastrado: {novo_usuario.nome} ({novo_usuario.username})",
+        request=request, login=novo_usuario.username, nome=novo_usuario.nome
+    )
+
+    # Já devolve token de acesso, pra pessoa entrar direto sem precisar logar de novo
+    token_jwt = auth.criar_token_acesso(data={"sub": novo_usuario.username, "role": novo_usuario.role})
+    return {
+        "access_token": token_jwt,
+        "token_type": "bearer",
+        "role": novo_usuario.role,
+        "nome": novo_usuario.nome,
+        "username": novo_usuario.username,
+        "perfil_completo": novo_usuario.perfil_completo
+    }
+
+
+# =====================================================
+# ENDPOINT: COMPLETAR PERFIL (primeiro acesso de conta criada pelo Admin)
+# =====================================================
+@app.put("/usuarios/me", response_model=schemas.UserOut)
+def completar_perfil(
+    request: Request,
+    dados: schemas.UserProfileComplete,
+    db: Session = Depends(get_db),
+    current_user: models.UserModel = Depends(obter_usuario_atual)
+):
+    current_user.nome = dados.nome
+    current_user.email = dados.email
+    current_user.telefone = dados.telefone
+    current_user.perfil_completo = True
+    db.commit()
+    db.refresh(current_user)
+
+    registrar_log(
+        db=db, acao="PERFIL_COMPLETADO",
+        detalhes=f"Usuário '{current_user.username}' completou o perfil (nome: {dados.nome}).",
+        request=request, login=current_user.username, nome=current_user.nome
+    )
+    return current_user
 
 
 # =====================================================
@@ -174,15 +242,9 @@ def listar_cronograma(
         chave = (item.operador, item.cliente)
         is_duplicado = contagem_atribucoes[chave] > 1
         resposta_enriquecida.append({
-            "id": item.id,
-            "operador": item.operador,
-            "dia_semana": item.dia_semana,
-            "atividade": item.atividade,
-            "cliente": item.cliente,
-            "periodo": item.periodo,
-            "data_limite": item.data_limite,
-            "status_prazo": item.status_prazo,
-            "duplicado": is_duplicado
+            "id": item.id, "operador": item.operador, "dia_semana": item.dia_semana,
+            "atividade": item.atividade, "cliente": item.cliente, "periodo": item.periodo,
+            "data_limite": item.data_limite, "status_prazo": item.status_prazo, "duplicado": is_duplicado
         })
     return resposta_enriquecida
 
@@ -214,7 +276,7 @@ def criar_escala_semanal(
     registrar_log(
         db=db, acao="CREATE_CRONOGRAMA",
         detalhes=f"Definiu atividade de {dados.cliente} para {dados.operador} na {dados.dia_semana}. Duplicidade: {houve_duplicidade}",
-        request=request, cpf=current_user.cpf, nome=current_user.nome
+        request=request, login=current_user.username, nome=current_user.nome
     )
     return {"status": "sucesso", "item": novo_item, "alerta_duplicidade": houve_duplicidade}
 
@@ -227,27 +289,21 @@ def editar_ou_mover_cronograma(
     db: Session = Depends(get_db),
     current_user: models.UserModel = Depends(obter_usuario_atual)
 ):
-    """Edita qualquer campo do item (usado tanto para corrigir dados quanto para
-    'mover' um cliente de um operador/dia para outro, já que mover é só trocar
-    os campos operador/dia_semana de um item existente)."""
     exigir_papel_gestao(current_user)
-
     item = db.query(models.CronogramaModel).filter(models.CronogramaModel.id == item_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Item do cronograma não encontrado.")
 
     valores_antigos = f"operador={item.operador}, cliente={item.cliente}, dia={item.dia_semana}"
-
     for campo, valor in dados.dict(exclude_unset=True).items():
         setattr(item, campo, valor)
-
     db.commit()
     db.refresh(item)
 
     registrar_log(
         db=db, acao="EDIT_CRONOGRAMA",
         detalhes=f"Editou/moveu o item #{item_id}. Antes: {valores_antigos} | Depois: operador={item.operador}, cliente={item.cliente}, dia={item.dia_semana}",
-        request=request, cpf=current_user.cpf, nome=current_user.nome
+        request=request, login=current_user.username, nome=current_user.nome
     )
     return item
 
@@ -260,7 +316,6 @@ def remover_cronograma(
     current_user: models.UserModel = Depends(obter_usuario_atual)
 ):
     exigir_papel_gestao(current_user)
-
     item = db.query(models.CronogramaModel).filter(models.CronogramaModel.id == item_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Item do cronograma não encontrado.")
@@ -268,7 +323,7 @@ def remover_cronograma(
     registrar_log(
         db=db, acao="DELETE_CRONOGRAMA",
         detalhes=f"Removeu {item.cliente} de {item.operador} ({item.dia_semana})",
-        request=request, cpf=current_user.cpf, nome=current_user.nome
+        request=request, login=current_user.username, nome=current_user.nome
     )
     db.delete(item)
     db.commit()
@@ -321,7 +376,7 @@ def lancar_execucao_diaria(
     registrar_log(
         db=db, acao="CREATE_REGISTRO",
         detalhes=f"Lançou status '{status}' para o cliente '{cliente_nome}'",
-        request=request, cpf=current_user.cpf, nome=current_user.nome
+        request=request, login=current_user.username, nome=current_user.nome
     )
     return novo_registro
 
@@ -334,29 +389,25 @@ def editar_apontamento(
     db: Session = Depends(get_db),
     current_user: models.UserModel = Depends(obter_usuario_atual)
 ):
-    """Usado pela aba 'Editor de Apontamentos' para corrigir um lançamento feito errado."""
     exigir_papel_gestao(current_user)
-
     registro = db.query(models.RegistroModel).filter(models.RegistroModel.id == registro_id).first()
     if not registro:
         raise HTTPException(status_code=404, detail="Apontamento não encontrado.")
 
     valores_antigos = f"cliente={registro.cliente_nome}, status={registro.status}, justificativa={registro.justificativa}"
-
     if dados.cliente_nome is not None:
         registro.cliente_nome = dados.cliente_nome
     if dados.status is not None:
         registro.status = dados.status
     if dados.justificativa is not None:
         registro.justificativa = dados.justificativa
-
     db.commit()
     db.refresh(registro)
 
     registrar_log(
         db=db, acao="EDIT_REGISTRO",
         detalhes=f"Editou o apontamento #{registro_id}. Antes: {valores_antigos}",
-        request=request, cpf=current_user.cpf, nome=current_user.nome
+        request=request, login=current_user.username, nome=current_user.nome
     )
     return registro
 
@@ -367,14 +418,7 @@ def marcar_pendentes_como_nao_informado(
     db: Session = Depends(get_db),
     current_user: models.UserModel = Depends(obter_usuario_atual)
 ):
-    """
-    Para cada item do cronograma referente ao dia da semana de HOJE que ainda
-    não tenha um registro lançado hoje, cria automaticamente um registro com
-    status 'Não Informado'. Pensado para ser chamado 1x ao final do dia —
-    idealmente por um Render Cron Job, e não só quando alguém abre uma tela.
-    """
     exigir_papel_gestao(current_user)
-
     dias_pt = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
     dia_hoje = dias_pt[datetime.now().weekday()]
     hoje = datetime.now().date()
@@ -388,23 +432,20 @@ def marcar_pendentes_como_nao_informado(
             models.RegistroModel.cliente_nome == item.cliente,
             func.date(models.RegistroModel.data_registro) == hoje
         ).first()
-
         if not ja_lancado:
             db.add(models.RegistroModel(
                 operador_nome=item.operador, cliente_nome=item.cliente,
                 status="Não Informado", justificativa=None, aprovado_gestor="Pendente"
             ))
             criados += 1
-
     db.commit()
 
     if criados:
         registrar_log(
             db=db, acao="AUTO_MARCAR_PENDENTES",
             detalhes=f"{criados} apontamento(s) marcado(s) automaticamente como 'Não Informado' para {dia_hoje}.",
-            request=request, cpf=current_user.cpf, nome=current_user.nome
+            request=request, login=current_user.username, nome=current_user.nome
         )
-
     return {"status": "sucesso", "marcados_como_nao_informado": criados}
 
 
@@ -423,21 +464,30 @@ def listar_usuarios(
 @app.post("/usuarios/", response_model=schemas.UserOut)
 def cadastrar_colaborador(
     request: Request,
-    novo_usuario: schemas.UserCreate,
+    novo_usuario: schemas.UserAdminCreate,
     db: Session = Depends(get_db),
     current_user: models.UserModel = Depends(obter_usuario_atual)
 ):
     if current_user.role != "Admin Master":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Apenas o Admin Master pode cadastrar colaboradores no sistema.")
 
-    cpf_limpo = "".join(filter(str.isdigit, novo_usuario.cpf))
-    if db.query(models.UserModel).filter(models.UserModel.cpf == cpf_limpo).first():
-        raise HTTPException(status_code=400, detail="Este CPF já está cadastrado no sistema.")
+    if db.query(models.UserModel).filter(models.UserModel.username == novo_usuario.username).first():
+        raise HTTPException(status_code=400, detail="Este nome de usuário já está em uso.")
 
     senha_hasheada = auth.obter_hash_senha(novo_usuario.password)
+    # Se o Admin já preencheu o nome na hora, consideramos o perfil completo;
+    # senão, a pessoa é obrigada a completar (nome/email/telefone) no primeiro login.
+    perfil_ja_completo = bool(novo_usuario.nome)
+
     usuario_db = models.UserModel(
-        cpf=cpf_limpo, nome=novo_usuario.nome, password_hash=senha_hasheada,
-        role=novo_usuario.role, departamento_id=novo_usuario.departamento_id
+        username=novo_usuario.username,
+        password_hash=senha_hasheada,
+        nome=novo_usuario.nome,
+        email=novo_usuario.email,
+        telefone=novo_usuario.telefone,
+        role=novo_usuario.role,
+        departamento_id=novo_usuario.departamento_id,
+        perfil_completo=perfil_ja_completo
     )
     db.add(usuario_db)
     db.commit()
@@ -445,8 +495,8 @@ def cadastrar_colaborador(
 
     registrar_log(
         db=db, acao="CREATE_USER",
-        detalhes=f"Cadastrou o colaborador {usuario_db.nome} (CPF: {cpf_limpo}) com perfil {usuario_db.role}",
-        request=request, cpf=current_user.cpf, nome=current_user.nome
+        detalhes=f"Cadastrou o colaborador '{usuario_db.username}' com perfil {usuario_db.role}",
+        request=request, login=current_user.username, nome=current_user.nome
     )
     return usuario_db
 
@@ -464,7 +514,7 @@ def deletar_colaborador(
     usuario = db.query(models.UserModel).filter(models.UserModel.id == usuario_id).first()
     if not usuario:
         raise HTTPException(status_code=404, detail="Usuário não localizado.")
-    if usuario.cpf == current_user.cpf:
+    if usuario.username == current_user.username:
         raise HTTPException(status_code=400, detail="Operação inválida. Você não pode deletar a si mesmo.")
 
     db.delete(usuario)
@@ -472,8 +522,8 @@ def deletar_colaborador(
 
     registrar_log(
         db=db, acao="DELETE_USER",
-        detalhes=f"Removeu o colaborador {usuario.nome} (CPF: {usuario.cpf}) do sistema",
-        request=request, cpf=current_user.cpf, nome=current_user.nome
+        detalhes=f"Removeu o colaborador '{usuario.username}' do sistema",
+        request=request, login=current_user.username, nome=current_user.nome
     )
     return {"status": "sucesso", "mensagem": "Colaborador removido com sucesso."}
 

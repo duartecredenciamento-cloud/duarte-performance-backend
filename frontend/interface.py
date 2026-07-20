@@ -40,11 +40,28 @@ st.markdown("""
         border-right: 1px solid rgba(255, 255, 255, 0.05);
     }
     [data-testid="stSidebar"] * { color: #F8FAFC !important; }
-    .login-card {
-        background: var(--bg-card); padding: 50px; border-radius: 24px;
-        box-shadow: 0 10px 40px -10px rgba(15,23,42,0.1); max-width: 480px;
-        margin: auto; border: 1px solid var(--border-color);
+
+    /* ===================== CARD DE LOGIN / CADASTRO / PERFIL (compacto) =====================
+       Usa st.container(key="...") em vez de <div> solto, porque só assim o Streamlit
+       realmente prende os campos dentro da caixa (senão o CSS não encosta neles). */
+    .st-key-login_box, .st-key-profile_box {
+        max-width: 380px;
+        margin: 6vh auto 0 auto;
+        background: var(--bg-card);
+        border: 1px solid var(--border-color);
+        border-radius: 16px;
+        padding: 32px 28px 24px 28px;
+        box-shadow: 0 10px 30px -12px rgba(15,23,42,0.12);
     }
+    .st-key-login_box [data-testid="stVerticalBlock"],
+    .st-key-profile_box [data-testid="stVerticalBlock"] { gap: 0.4rem !important; }
+    .st-key-login_box div[data-testid="stTextInput"],
+    .st-key-profile_box div[data-testid="stTextInput"] { margin-bottom: 2px; }
+    .st-key-login_box div[data-testid="stTextInput"] label,
+    .st-key-profile_box div[data-testid="stTextInput"] label { font-size: 12.5px !important; margin-bottom: 2px !important; }
+    .st-key-login_box button, .st-key-profile_box button { margin-top: 6px; }
+    .st-key-login_box [data-baseweb="tab-list"] { gap: 4px; margin-bottom: 12px; }
+
     div[data-baseweb="input"], div[data-baseweb="base-input"], div[data-baseweb="textarea"] {
         background-color: #FFFFFF !important; border-radius: 10px !important; border: 1.5px solid #CBD5E1 !important;
     }
@@ -78,7 +95,7 @@ st.markdown("""
 # Papeis que tem permissao de gestao (editar cronograma, editar apontamento, ver auditoria)
 PAPEIS_GESTAO = ["Admin Master", "Gestor"]
 
-for key in ["token", "username", "role", "cpf"]:
+for key in ["token", "username", "nome", "role", "perfil_completo"]:
     if key not in st.session_state:
         st.session_state[key] = None
 
@@ -118,50 +135,114 @@ def limpar_cache_cronograma():
     carregar_cronograma_cache.clear()
 
 
-# ===================== 2. TELA DE LOGIN =====================
+# ===================== 2. TELA DE LOGIN / CADASTRO (compacta) =====================
 if not st.session_state.token:
-    st.markdown("<div style='padding-top: 10vh;'>", unsafe_allow_html=True)
-    with st.container():
-        st.markdown("<div class='login-card'>", unsafe_allow_html=True)
-        st.markdown("<h1 style='text-align:center;color:#0F172A;font-weight:900;margin:0;'>Duarte Performance</h1>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align:center;color:#64748B;font-size:14px;margin-bottom:30px;'>Departamento de Credenciamento</p>", unsafe_allow_html=True)
+    with st.container(key="login_box"):
+        st.markdown(
+            "<h2 style='text-align:center;color:#0F172A;font-weight:900;margin:0 0 2px 0;'>Duarte Performance</h2>"
+            "<p style='text-align:center;color:#94A3B8;font-size:13px;margin:0 0 16px 0;'>Departamento de Credenciamento</p>",
+            unsafe_allow_html=True
+        )
 
-        cpf_input = st.text_input("CPF Corporativo (Apenas Números)", placeholder="Digite seu CPF")
-        senha_input = st.text_input("Senha de Acesso", type="password", placeholder="Digite sua senha")
+        tab_login, tab_signup = st.tabs(["Entrar", "Criar Conta"])
 
-        st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("🔑 ACESSAR PLATAFORMA", type="primary", use_container_width=True):
-            cpf_limpo = ''.join(filter(str.isdigit, cpf_input))
-            if not cpf_limpo or not senha_input:
-                st.warning("Por favor, preencha todos os campos corporativos.")
-            else:
-                try:
-                    resp = requests.post(f"{API_URL}/token", data={"username": cpf_limpo, "password": senha_input}, timeout=10)
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        st.session_state.update({
-                            "token": data["access_token"],
-                            "username": data.get("nome", cpf_limpo),
-                            "role": data.get("role", "Operador"),
-                            "cpf": cpf_limpo
-                        })
-                        st.success("Autenticação realizada com sucesso!")
-                        time.sleep(0.5)
-                        st.rerun()
-                    else:
-                        st.error("CPF ou senha incorretos.")
-                except Exception:
-                    # NUNCA logar por fallback local. Se a API estiver fora do ar, o
-                    # usuário precisa saber disso, não ser jogado dentro do sistema
-                    # como Admin Master fingindo que deu certo.
-                    st.error("⚠️ Não foi possível conectar ao servidor. Tente novamente em instantes.")
-        st.markdown("</div>", unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
+        with tab_login:
+            username_input = st.text_input("Usuário", placeholder="ex: erick_duarte", key="login_username")
+            senha_input = st.text_input("Senha", type="password", placeholder="••••••••", key="login_senha")
+
+            if st.button("Acessar Plataforma", type="primary", use_container_width=True):
+                if not username_input or not senha_input:
+                    st.warning("Preencha usuário e senha.")
+                else:
+                    try:
+                        resp = requests.post(f"{API_URL}/token", data={"username": username_input, "password": senha_input}, timeout=10)
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            st.session_state.update({
+                                "token": data["access_token"],
+                                "username": data.get("username"),
+                                "nome": data.get("nome"),
+                                "role": data.get("role", "Operador"),
+                                "perfil_completo": data.get("perfil_completo", True)
+                            })
+                            st.rerun()
+                        else:
+                            st.error("Usuário ou senha incorretos.")
+                    except Exception:
+                        # NUNCA logar por fallback local. Se a API estiver fora do ar, o
+                        # usuário precisa saber disso, não ser jogado dentro do sistema
+                        # como Admin Master fingindo que deu certo.
+                        st.error("⚠️ Não foi possível conectar ao servidor.")
+
+        with tab_signup:
+            nome_signup = st.text_input("Nome Completo", key="signup_nome")
+            username_signup = st.text_input("Usuário", placeholder="ex: erick_duarte", key="signup_username")
+            email_signup = st.text_input("E-mail (opcional)", key="signup_email")
+            telefone_signup = st.text_input("WhatsApp (opcional)", key="signup_telefone")
+            senha_signup = st.text_input("Senha", type="password", key="signup_senha")
+            senha_confirma = st.text_input("Confirmar Senha", type="password", key="signup_senha2")
+
+            if st.button("Criar Minha Conta", type="primary", use_container_width=True):
+                if not all([nome_signup, username_signup, senha_signup, senha_confirma]):
+                    st.warning("Nome, usuário e senha são obrigatórios.")
+                elif senha_signup != senha_confirma:
+                    st.error("As senhas não conferem.")
+                else:
+                    payload = {
+                        "username": username_signup, "password": senha_signup, "nome": nome_signup,
+                        "email": email_signup or None, "telefone": telefone_signup or None
+                    }
+                    try:
+                        resp = requests.post(f"{API_URL}/cadastro/", json=payload, timeout=10)
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            st.session_state.update({
+                                "token": data["access_token"],
+                                "username": data.get("username"),
+                                "nome": data.get("nome"),
+                                "role": data.get("role", "Operador"),
+                                "perfil_completo": data.get("perfil_completo", True)
+                            })
+                            st.rerun()
+                        elif resp.status_code == 400:
+                            st.error(resp.json().get("detail", "Este usuário já existe."))
+                        else:
+                            st.error(f"Erro ao criar conta: {resp.text}")
+                    except Exception:
+                        st.error("⚠️ Não foi possível conectar ao servidor.")
     st.stop()
 
 
+# ===================== 2.1. COMPLETAR PERFIL (compacta) =====================
+if not st.session_state.perfil_completo:
+    with st.container(key="profile_box"):
+        st.markdown(
+            "<h2 style='text-align:center;color:#0F172A;font-weight:900;margin:0 0 2px 0;'>Complete seu Perfil</h2>"
+            "<p style='text-align:center;color:#94A3B8;font-size:13px;margin:0 0 16px 0;'>Sua conta foi criada pelo Admin. Confirme seus dados antes de continuar.</p>",
+            unsafe_allow_html=True
+        )
+
+        nome_completar = st.text_input("Nome Completo", key="completar_nome")
+        email_completar = st.text_input("E-mail (opcional)", key="completar_email")
+        telefone_completar = st.text_input("WhatsApp (opcional)", key="completar_telefone")
+
+        if st.button("Salvar e Continuar", type="primary", use_container_width=True):
+            if not nome_completar:
+                st.warning("O nome completo é obrigatório.")
+            else:
+                payload = {"nome": nome_completar, "email": email_completar or None, "telefone": telefone_completar or None}
+                resp = api_put_json("/usuarios/me", payload)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    st.session_state.nome = data.get("nome")
+                    st.session_state.perfil_completo = True
+                    st.rerun()
+                else:
+                    st.error(f"Erro ao salvar perfil: {resp.text}")
+    st.stop()
+
 # ===================== 3. CONTEXTO DO PERFIL (SIDEBAR) =====================
-nome_usuario = (st.session_state.username or "").upper()
+nome_usuario = (st.session_state.nome or st.session_state.username or "").upper()
 partes_nome = nome_usuario.split()
 iniciais = "".join([n[0] for n in partes_nome[:2]]) if len(partes_nome) > 1 else nome_usuario[0:2]
 role = st.session_state.role
@@ -174,11 +255,12 @@ st.sidebar.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# Menu dinâmico: Editor de Apontamentos e Auditoria só aparecem pra quem tem permissão
+# Menu dinâmico: Editor de Apontamentos, Gestão de Equipe e Auditoria só aparecem pra quem tem permissão
 menus_disponiveis = ["📊 Dashboard Gerencial", "🗓️ Escala Semanal", "📑 Relatórios Operacionais", "📝 Lançar Execução Diária"]
 if role in PAPEIS_GESTAO:
     menus_disponiveis.append("✏️ Editor de Apontamentos")
 if role == "Admin Master":
+    menus_disponiveis.append("👥 Gestão de Equipe")
     menus_disponiveis.append("🔐 Auditoria e Acessos")
 
 st.sidebar.markdown("<p style='color: #64748B; font-size: 11px; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 10px; margin-left: 5px;'>Navegação Principal</p>", unsafe_allow_html=True)
@@ -489,12 +571,12 @@ elif menu == "📝 Lançar Execução Diária":
         <div style="background: #F8FAFC; border: 1px solid #E2E8F0; padding: 12px 16px; border-radius: 8px; margin-bottom: 20px;">
             <span style="color: #64748B; font-size: 14px;">🕒 <b>Registro Auditado:</b> {datetime.now().strftime('%d/%m/%Y')} ({dia_hoje})</span>
             <span style="color: #E2E8F0; margin: 0 10px;">|</span>
-            <span style="color: #64748B; font-size: 14px;">👤 <b>Operador:</b> {(st.session_state.username or "").upper()}</span>
+            <span style="color: #64748B; font-size: 14px;">👤 <b>Operador:</b> {(st.session_state.nome or "").upper()}</span>
         </div>
     """, unsafe_allow_html=True)
 
     df_crono = carregar_cronograma()
-    clientes_do_dia = utils.clientes_do_operador_no_dia(df_crono, st.session_state.username or "", dia_hoje)
+    clientes_do_dia = utils.clientes_do_operador_no_dia(df_crono, st.session_state.nome or "", dia_hoje)
 
     lista_clientes = ["Selecione..."] + clientes_do_dia + ["Suporte", "Outro (não está na escala de hoje)"]
     if not clientes_do_dia:
@@ -544,7 +626,7 @@ elif menu == "📝 Lançar Execução Diária":
             st.error("A justificativa detalhada é estritamente obrigatória para auditoria interna.")
         else:
             payload = {
-                "operador_nome": st.session_state.username,
+                "operador_nome": st.session_state.nome,
                 "cliente_nome": cliente_final,
                 "status": status_sel,
                 "justificativa": obs_texto or ""
@@ -621,6 +703,69 @@ elif menu == "✏️ Editor de Apontamentos":
             st.error(f"Erro ao verificar pendências: {resp.text}")
 
 
+# --- ABA GESTÃO DE EQUIPE (Admin Master cria contas: username, senha provisória, papel, departamento) ---
+elif menu == "👥 Gestão de Equipe":
+    st.markdown("<h1 style='color: #0F172A; font-weight: 800;'>Gestão de Equipe</h1>", unsafe_allow_html=True)
+    if role != "Admin Master":
+        st.error("🔒 Acesso restrito ao Admin Master.")
+        st.stop()
+
+    tab_add, tab_list = st.tabs(["➕ Adicionar Membro", "📋 Lista de Equipe"])
+
+    with tab_add:
+        st.caption(
+            "Você pode cadastrar só o essencial (usuário, senha provisória, papel) e deixar "
+            "Nome/E-mail/WhatsApp em branco — a pessoa completa isso sozinha no primeiro login dela."
+        )
+        resp_deptos = api_get("/departamentos/")
+        deptos = resp_deptos.json() if resp_deptos.status_code == 200 else []
+        opcoes_depto = {d["nome"]: d["id"] for d in deptos} if deptos else {}
+
+        with st.form("form_add_membro"):
+            c1, c2 = st.columns(2)
+            username_novo = c1.text_input("Usuário (login)", placeholder="ex: erick_duarte")
+            senha_provisoria = c2.text_input("Senha Provisória", type="password")
+            c3, c4 = st.columns(2)
+            role_novo = c3.selectbox("Cargo", ["Operador", "Gestor", "Admin Master"])
+            depto_novo = c4.selectbox("Departamento", ["(Nenhum)"] + list(opcoes_depto.keys()))
+            st.markdown("###### Opcional — pode deixar em branco pra pessoa completar depois")
+            c5, c6, c7 = st.columns(3)
+            nome_novo = c5.text_input("Nome Completo (opcional)")
+            email_novo = c6.text_input("E-mail (opcional)")
+            telefone_novo = c7.text_input("WhatsApp (opcional)")
+
+            if st.form_submit_button("Adicionar à Equipe", type="primary"):
+                if not username_novo or not senha_provisoria:
+                    st.warning("Usuário e senha provisória são obrigatórios.")
+                else:
+                    payload = {
+                        "username": username_novo, "password": senha_provisoria, "role": role_novo,
+                        "departamento_id": opcoes_depto.get(depto_novo),
+                        "nome": nome_novo or None, "email": email_novo or None, "telefone": telefone_novo or None
+                    }
+                    resp = api_post_json("/usuarios/", payload)
+                    if resp.status_code == 200:
+                        st.success(f"Colaborador '{username_novo}' adicionado com sucesso!")
+                        st.rerun()
+                    elif resp.status_code == 400:
+                        st.error(resp.json().get("detail", "Este usuário já existe."))
+                    else:
+                        st.error(f"Erro ao cadastrar: {resp.text}")
+
+    with tab_list:
+        resp_usuarios = api_get("/usuarios/")
+        if resp_usuarios.status_code == 200 and resp_usuarios.json():
+            df_equipe = pd.DataFrame(resp_usuarios.json())
+            df_equipe["perfil_completo"] = df_equipe["perfil_completo"].map({True: "✅ Completo", False: "⏳ Pendente"})
+            df_equipe = df_equipe.rename(columns={
+                "username": "Usuário", "nome": "Nome", "email": "E-mail", "telefone": "WhatsApp",
+                "role": "Cargo", "perfil_completo": "Perfil"
+            })[["Usuário", "Nome", "E-mail", "WhatsApp", "Cargo", "Perfil"]]
+            st.dataframe(df_equipe, use_container_width=True, hide_index=True)
+        else:
+            st.info("Nenhum colaborador cadastrado ainda.")
+
+
 # --- ABA 6: AUDITORIA E ACESSOS (Admin Master, dados reais do backend) ---
 elif menu == "🔐 Auditoria e Acessos":
     st.markdown("<h1 style='color: #0F172A; font-weight: 800; letter-spacing:-0.5px;'>Módulo de Auditoria e Segurança (LGPD)</h1>", unsafe_allow_html=True)
@@ -656,9 +801,9 @@ elif menu == "🔐 Auditoria e Acessos":
     st.markdown("### 🔍 Histórico de Operações")
 
     df_audit_exibir = df_audit.rename(columns={
-        "timestamp": "Data/Hora", "usuario_nome": "Usuário", "usuario_cpf": "CPF",
+        "timestamp": "Data/Hora", "usuario_nome": "Nome", "usuario_login": "Usuário",
         "ip_origem": "IP de Origem", "acao": "Ação", "detalhes": "Detalhes"
-    })[["Data/Hora", "Usuário", "CPF", "Ação", "Detalhes", "IP de Origem"]]
+    })[["Data/Hora", "Nome", "Usuário", "Ação", "Detalhes", "IP de Origem"]]
 
     col1, col2 = st.columns(2)
     with col1:
