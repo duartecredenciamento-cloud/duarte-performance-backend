@@ -3,3 +3,4 @@ uvicorn
 python-multipart
 pydantic
 sqlalchemy>=2.0.35
+python-jose[cryptography]
