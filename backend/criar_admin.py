@@ -1,11 +1,21 @@
 """
-Script de inicialização: cria o Admin Master padrão (se ainda não existir).
-Rode isso 1x, apontando DATABASE_URL pro banco de produção (Render), depois
-que o backend já tiver subido pelo menos uma vez (pra tabela já existir).
+Script de inicialização: limpa a tabela antiga com SQL puro, 
+recria a estrutura nova e popula os dados.
 """
 import database
 import models
 import auth
+from sqlalchemy import text
+
+# 1. FORÇA O DROP DA TABELA USANDO SQL PURO (Evita qualquer erro de metadados do SQLAlchemy)
+print("Removendo a tabela antiga 'usuarios' (com a estrutura antiga de CPF)...")
+with database.engine.connect() as conn:
+    conn.execute(text("DROP TABLE IF EXISTS usuarios CASCADE;"))
+    conn.commit()
+
+# 2. CRIA AS TABELAS DO ZERO JÁ COM A COLUNA NOVA (USERNAME)
+print("Criando tabelas novas com a estrutura atualizada (username)...")
+models.Base.metadata.create_all(bind=database.engine)
 
 db = next(database.get_db())
 
@@ -17,7 +27,7 @@ if not depto_cred:
     db.commit()
     db.refresh(depto_cred)
 
-# Clientes base (do documento de requisitos)
+# Clientes base
 clientes_base = ["EV-CITI", "CONVACARE", "IMC", "Hospital Amato", "Clin Coffi", "Trides", "Lab Bruno", "Pro-Exame"]
 for c_nome in clientes_base:
     if not db.query(models.ClienteModel).filter(models.ClienteModel.nome == c_nome).first():
