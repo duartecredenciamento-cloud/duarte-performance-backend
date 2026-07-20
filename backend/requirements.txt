@@ -2,4 +2,4 @@ fastapi
 uvicorn
 python-multipart
 pydantic
-sqlalchemy==2.0.0
+sqlalchemy>=2.0.35
