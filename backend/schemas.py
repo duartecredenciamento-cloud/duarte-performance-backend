@@ -42,6 +42,17 @@ class CronogramaBase(BaseModel):
 class CronogramaCreate(CronogramaBase):
     pass
 
+class CronogramaUpdate(BaseModel):
+    """Todos os campos são opcionais — usado tanto para corrigir um campo
+    quanto para 'mover' o item (trocando operador e/ou dia_semana)."""
+    operador: Optional[str] = None
+    dia_semana: Optional[str] = None
+    atividade: Optional[str] = None
+    cliente: Optional[str] = None
+    periodo: Optional[str] = None
+    data_limite: Optional[str] = None
+    status_prazo: Optional[str] = None
+
 class CronogramaOut(CronogramaBase):
     id: int
     model_config = ConfigDict(from_attributes=True)
@@ -58,6 +69,12 @@ class RegistroBase(BaseModel):
 
 class RegistroCreate(RegistroBase):
     pass
+
+class RegistroUpdate(BaseModel):
+    """Usado pelo Editor de Apontamentos para corrigir um lançamento enviado errado."""
+    cliente_nome: Optional[str] = None
+    status: Optional[str] = None
+    justificativa: Optional[str] = None
 
 class RegistroOut(RegistroBase):
     id: int
