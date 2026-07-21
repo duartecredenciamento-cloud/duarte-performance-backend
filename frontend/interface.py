@@ -366,7 +366,7 @@ def aba_dashboard():
     st.bar_chart(status_count, color="#F26419")
 
 # -----------------------------------------------------------------------------
-# MENU LATERAL PREMIUM COM AVATAR DE INICIAIS
+# MENU LATERAL PREMIUM + NOTIFICAÇÕES + INICIAIS INTELIGENTES
 # -----------------------------------------------------------------------------
 with st.sidebar:
     # Logo
@@ -377,41 +377,44 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
 
-    # Avatar com Iniciais
-    nome = st.session_state.user
-    partes = nome.strip().split()
-    iniciais = (partes[0][0] + partes[-1][0]).upper() if len(partes) > 1 else nome[:2].upper()
+    # LÓGICA INTELIGENTE DE INICIAIS
+    nome_completo = st.session_state.user.strip()
+    partes = [p for p in nome_completo.split() if len(p) > 1]
+    if len(partes) >= 2:
+        iniciais = (partes[0][0] + partes[-1][0]).upper()
+    else:
+        iniciais = nome_completo[:2].upper()
 
+    # Avatar com Iniciais
     st.markdown(f"""
-    <div style="display: flex; justify-content: center; margin: 15px 0 25px 0;">
-        <div style="
-            background: linear-gradient(135deg, #F26419, #d95615);
-            color: white;
-            width: 72px;
-            height: 72px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 28px;
-            font-weight: 900;
-            box-shadow: 0 8px 25px rgba(242, 100, 25, 0.4);
-            border: 4px solid rgba(255,255,255,0.2);
-        ">{iniciais}</div>
+    <div style="display: flex; justify-content: center; margin: 15px 0 20px 0;">
+        <div style="background: linear-gradient(135deg, #F26419, #d95615); color: white; 
+                    width: 78px; height: 78px; border-radius: 50%; display: flex; 
+                    align-items: center; justify-content: center; font-size: 32px; 
+                    font-weight: 900; box-shadow: 0 10px 30px rgba(242,100,25,0.45);
+                    border: 5px solid rgba(255,255,255,0.25);">
+            {iniciais}
+        </div>
     </div>
     """, unsafe_allow_html=True)
 
     # Nome e Perfil
     st.markdown(f"""
-    <div style="text-align:center; margin-bottom: 30px;">
-        <strong style="color:#F1F5F9; font-size:17px;">{nome}</strong><br>
+    <div style="text-align:center; margin-bottom: 25px;">
+        <strong style="color:#F1F5F9; font-size:17px;">{nome_completo}</strong><br>
         <span style="color:#F26419; font-size:13px; font-weight:700;">{st.session_state.role}</span>
     </div>
     """, unsafe_allow_html=True)
 
     st.divider()
 
-    # Menu
+    # ÍCONE DE NOTIFICAÇÃO
+    col_notif, col_menu = st.columns([1, 5])
+    with col_notif:
+        if st.button("🛎️", key="notif_btn"):
+            st.session_state.show_notifications = not st.session_state.get("show_notifications", False)
+    
+    # Menu Principal
     menu = st.radio(
         "Navegação Principal",
         [
@@ -426,9 +429,19 @@ with st.sidebar:
 
     st.divider()
 
+    # Validação de Nome Único (exemplo)
+    if st.button("🔍 Verificar Nome Único"):
+        nome_teste = st.text_input("Digite um nome para validar", key="nome_valida")
+        if nome_teste:
+            # Simulação de validação
+            if nome_teste.lower() in [n.lower() for n in st.session_state.equipe]:
+                st.error("❌ Nome já existe")
+            else:
+                st.success("✅ Nome disponível")
+
     st.caption("📍 Status da Operação")
     st.success("🟢 Todos os sistemas operando normalmente")
-    
+
     if st.button("🚪 Encerrar Sessão", use_container_width=True, type="secondary"):
         for key in list(st.session_state.keys()):
             del st.session_state[key]
