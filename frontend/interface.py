@@ -121,54 +121,15 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
-# ESTADO DE SESSÃO (MOCK DE LOGIN E DADOS REAIS)
+# ABA: ESCALA SEMANAL (Melhorada)
 # -----------------------------------------------------------------------------
-if 'logged_in' not in st.session_state:
-    st.session_state.logged_in = True
-    st.session_state.user = "Abraão da Silva Santos"           # Gestor Operacional
-    st.session_state.role = "Gestor Operacional"               # Pode mudar para "Operador" ou "Admin"
-    st.session_state.equipe = [
-        "Abraão da Silva Santos",
-        "Cristiane Aparecida Duarte",   # CEO
-        "Bethania Duarte",              # Gerente de Novos Negócios
-        "Equipe Rede"
-    ]
-
-if 'df_escala' not in st.session_state:
-    # Mock inicial da escala (pode ser substituído por dados reais do backend)
-    st.session_state.df_escala = pd.DataFrame({
-        'DATA': ['2026-07-21', '2026-07-22', '2026-07-23'],
-        'OPERADOR': ['Abraão da Silva Santos', 'Bethania Duarte', 'Cristiane Aparecida Duarte'],
-        'CLIENTE': ['FR FISIO', 'EV-CITI', 'REGULAÇÃO'],
-        'TURNO': ['Manhã', 'Integral', 'Tarde']
-    })
-
-if 'df_apontamentos' not in st.session_state:
-    # Mock de apontamentos
-    st.session_state.df_apontamentos = pd.DataFrame({
-        'ID': [1, 2, 3],
-        'DATA': ['2026-07-21', '2026-07-21', '2026-07-20'],
-        'OPERADOR': ['Abraão da Silva Santos', 'Bethania Duarte', 'Abraão da Silva Santos'],
-        'CLIENTE': ['FR FISIO', 'EV-CITI', 'REGULAÇÃO'],
-        'STATUS': ['Realizado Total', 'Realizado Parcial', 'Não Realizado'],
-        'OBSERVACAO': [
-            'Credenciamento concluído com sucesso',
-            'Aguardando aprovação do cliente',
-            'Cliente não atendeu'
-        ]
-    })
-
 def aba_escala_semanal():
     st.header("📅 Escala Semanal (Cronograma Operacional)")
-    st.markdown("**Gestão de alocação de operadores por cliente e dia da semana**")
+    st.markdown("**Gestão inteligente de alocação de operadores por cliente e dia da semana**")
 
-    # === IMPORTAÇÃO DE PLANILHA ===
+    # Importação
     st.subheader("1. Importar Base de Escala")
-    arquivo_escala = st.file_uploader(
-        "Anexe a planilha da escala (.xlsx ou .csv)", 
-        type=['xlsx', 'csv'],
-        help="Colunas esperadas: DATA, OPERADOR, CLIENTE, TURNO"
-    )
+    arquivo_escala = st.file_uploader("Anexe a planilha (.xlsx ou .csv)", type=['xlsx', 'csv'])
     
     if arquivo_escala:
         try:
@@ -179,39 +140,29 @@ def aba_escala_semanal():
             
             sucesso, mensagem = utils.validar_escala(df_temp)
             if sucesso:
-                st.success(mensagem)
                 st.session_state.df_escala = df_temp
+                st.success("✅ Escala importada com sucesso!")
                 st.rerun()
             else:
-                st.error("Falha na validação:")
-                for erro in (mensagem if isinstance(mensagem, list) else [mensagem]):
-                    st.warning(erro)
+                st.error(mensagem)
         except Exception as e:
-            st.error(f"Erro ao processar arquivo: {str(e)}")
+            st.error(f"Erro: {e}")
 
     st.divider()
 
-    # === VISUALIZAÇÃO DA ESCALA ATUAL ===
+    # Visualização
     st.subheader("2. Escala Atual")
     if st.session_state.df_escala.empty:
-        st.info("Nenhuma escala importada ainda. Importe uma planilha acima.")
+        st.info("Nenhuma escala importada ainda.")
     else:
         df_view = st.session_state.df_escala.copy()
         
-        # Filtros
         col1, col2 = st.columns(2)
         with col1:
-            operador_filtro = st.selectbox(
-                "Filtrar por Operador", 
-                ["Todos"] + sorted(df_view["OPERADOR"].unique().tolist())
-            )
+            operador_filtro = st.selectbox("Filtrar por Operador", ["Todos"] + sorted(df_view["OPERADOR"].unique().tolist()))
         with col2:
-            dia_filtro = st.selectbox(
-                "Filtrar por Dia", 
-                ["Todos"] + sorted(df_view["DATA"].unique().tolist())
-            )
+            dia_filtro = st.selectbox("Filtrar por Data", ["Todos"] + sorted(df_view["DATA"].unique().tolist()))
         
-        # Aplicar filtros
         if operador_filtro != "Todos":
             df_view = df_view[df_view["OPERADOR"] == operador_filtro]
         if dia_filtro != "Todos":
@@ -219,151 +170,135 @@ def aba_escala_semanal():
         
         st.dataframe(df_view, use_container_width=True, hide_index=True)
 
+        # Botão de exportação
+        csv = df_view.to_csv(index=False).encode()
+        st.download_button("📥 Exportar CSV", csv, "escala_atual.csv", "text/csv")
+
     st.divider()
 
-    # === LANÇAMENTO MANUAL (opcional) ===
-    st.subheader("3. Adicionar Item Manualmente")
-    with st.form("form_add_escala"):
+    # Adição Manual + Editor
+    st.subheader("3. Gerenciar Escala")
+    with st.form("add_item"):
         col1, col2, col3 = st.columns(3)
         data_nova = col1.date_input("Data", value=datetime.now())
         operador_novo = col2.selectbox("Operador", st.session_state.equipe)
         cliente_novo = col3.text_input("Cliente")
-        
         turno_novo = st.selectbox("Turno", ["Manhã", "Tarde", "Integral"])
         
-        if st.form_submit_button("➕ Adicionar à Escala", type="primary"):
+        if st.form_submit_button("➕ Adicionar", type="primary"):
             if cliente_novo:
-                novo_item = {
-                    'DATA': data_nova.strftime('%Y-%m-%d'),
-                    'OPERADOR': operador_novo,
-                    'CLIENTE': cliente_novo,
-                    'TURNO': turno_novo
-                }
-                st.session_state.df_escala = pd.concat([
-                    st.session_state.df_escala, 
-                    pd.DataFrame([novo_item])
-                ], ignore_index=True)
-                st.success(f"Item adicionado para {operador_novo}!")
+                novo = {'DATA': data_nova.strftime('%Y-%m-%d'), 'OPERADOR': operador_novo, 'CLIENTE': cliente_novo, 'TURNO': turno_novo}
+                st.session_state.df_escala = pd.concat([st.session_state.df_escala, pd.DataFrame([novo])], ignore_index=True)
+                st.success("Item adicionado!")
                 st.rerun()
-            else:
-                st.warning("Informe o cliente.")
-    
-    # CRUD Completo e Interativo nativo do Streamlit
-    st.subheader("2. Gerenciar Escala (Adicionar/Remover/Mover)")
-    st.caption("Edite os dados diretamente na tabela abaixo. Adicione ou exclua linhas.")
-    
-    # O st.data_editor é a forma definitiva de fazer CRUD em DataFrames no Streamlit
-    df_editado = st.data_editor(
-        st.session_state.df_escala,
-        num_rows="dynamic",
-        use_container_width=True,
-        key="editor_escala"
-    )
-    
-    if st.button("Salvar Alterações na Escala"):
+
+    # Editor Interativo
+    st.subheader("Editor Interativo")
+    df_editado = st.data_editor(st.session_state.df_escala, num_rows="dynamic", use_container_width=True)
+    if st.button("💾 Salvar Alterações"):
         st.session_state.df_escala = df_editado
-        utils.registrar_auditoria("EDICAO_ESCALA", st.session_state.user, "Atualizou a escala semanal via CRUD.")
-        st.success("Escala atualizada no sistema!")
+        st.success("Escala salva com sucesso!")
 
 
+# -----------------------------------------------------------------------------
+# ABA: RELATÓRIOS
+# -----------------------------------------------------------------------------
 def aba_relatorios():
     st.header("📊 Relatórios Operacionais")
     df = st.session_state.df_apontamentos
     
     if df.empty:
-        st.warning("Nenhum apontamento registrado ainda.")
+        st.warning("Nenhum apontamento registrado.")
         return
 
-    # LÓGICA DE FILTRAGEM CUMULATIVA E REATIVA CORRETA
-    with st.expander("Filtros de Pesquisa", expanded=True):
+    # Filtros
+    with st.expander("🔎 Filtros Avançados", expanded=True):
         col1, col2, col3 = st.columns(3)
         with col1:
-            filtro_data = st.date_input("Data", [])
+            filtro_data = st.date_input("Período", [])
         with col2:
-            opcoes_operador = ["Todos"] + df['OPERADOR'].unique().tolist()
-            filtro_operador = st.selectbox("Operador", opcoes_operador)
+            filtro_operador = st.selectbox("Operador", ["Todos"] + df['OPERADOR'].unique().tolist())
         with col3:
-            opcoes_status = ["Todos"] + df['STATUS'].unique().tolist()
-            filtro_status = st.selectbox("Status (SLA)", opcoes_status)
+            filtro_status = st.selectbox("Status", ["Todos"] + df['STATUS'].unique().tolist())
 
-    # Aplicação sequencial dos filtros no DataFrame
     df_filtrado = df.copy()
-    
     if filtro_data and len(filtro_data) == 2:
-        start_date, end_date = filtro_data
-        df_filtrado = df_filtrado[
-            (pd.to_datetime(df_filtrado['DATA']).dt.date >= start_date) & 
-            (pd.to_datetime(df_filtrado['DATA']).dt.date <= end_date)
-        ]
-    elif filtro_data and len(filtro_data) == 1:
-         df_filtrado = df_filtrado[pd.to_datetime(df_filtrado['DATA']).dt.date == filtro_data[0]]
-         
+        df_filtrado = df_filtrado[(pd.to_datetime(df_filtrado['DATA']) >= pd.to_datetime(filtro_data[0])) & 
+                                  (pd.to_datetime(df_filtrado['DATA']) <= pd.to_datetime(filtro_data[1]))]
     if filtro_operador != "Todos":
         df_filtrado = df_filtrado[df_filtrado['OPERADOR'] == filtro_operador]
-        
     if filtro_status != "Todos":
         df_filtrado = df_filtrado[df_filtrado['STATUS'] == filtro_status]
 
-    st.dataframe(df_filtrado, use_container_width=True, hide_index=True)
+    st.dataframe(df_filtrado, use_container_width=True)
+
+    # Exportação
+    csv = df_filtrado.to_csv(index=False).encode()
+    st.download_button("📥 Exportar Relatório (CSV)", csv, "relatorio.csv", "text/csv", type="primary")
 
 
+# -----------------------------------------------------------------------------
+# ABA: EDITOR DE APONTAMENTOS
+# -----------------------------------------------------------------------------
 def aba_editor_apontamentos():
-    st.header("⚙️ Editor de Apontamentos")
-    
-    # REGRA DE SEGURANÇA: Restrição Estrita de Acesso
-    if st.session_state.role not in ["Gestor", "Admin"]:
-        st.error("Acesso Negado: Apenas Gestores ou Administradores podem acessar a edição de apontamentos e observações retroativas.")
+    st.header("✏️ Editor de Apontamentos")
+    if st.session_state.role not in ["Gestor", "Gestor Operacional", "Admin"]:
+        st.error("Acesso restrito.")
         return
-        
-    st.info("Selecione o registro incorreto abaixo para alterar o Status, Cliente ou Observação.")
-    df = st.session_state.df_apontamentos
-    
-    if df.empty:
-        st.warning("Nenhum dado para editar.")
-        return
-        
-    id_selecionado = st.selectbox("Selecione o ID do Apontamento", df['ID'].tolist())
-    
-    if id_selecionado:
-        # Pega a linha atual
-        registro_atual = df[df['ID'] == id_selecionado].iloc[0]
-        
-        with st.form("form_edicao"):
-            novo_cliente = st.text_input("Cliente", value=registro_atual['CLIENTE'])
-            novo_status = st.selectbox("Status", ["Concluído", "Pendente", "Impedido", "Em Andamento", "Não Informado"], index=["Concluído", "Pendente", "Impedido", "Em Andamento", "Não Informado"].index(registro_atual['STATUS']) if registro_atual['STATUS'] in ["Concluído", "Pendente", "Impedido", "Em Andamento", "Não Informado"] else 0)
-            nova_obs = st.text_area("Observação / Justificativa", value=registro_atual['OBSERVACAO'])
-            
-            if st.form_submit_button("Salvar Correção"):
-                # Atualiza o DataFrame no estado
-                st.session_state.df_apontamentos.loc[st.session_state.df_apontamentos['ID'] == id_selecionado, 'CLIENTE'] = novo_cliente
-                st.session_state.df_apontamentos.loc[st.session_state.df_apontamentos['ID'] == id_selecionado, 'STATUS'] = novo_status
-                st.session_state.df_apontamentos.loc[st.session_state.df_apontamentos['ID'] == id_selecionado, 'OBSERVACAO'] = nova_obs
-                
-                utils.registrar_auditoria("EDICAO_APONTAMENTO", st.session_state.user, f"Editou o ID {id_selecionado}")
-                st.success("Registro atualizado com sucesso!")
-                st.rerun()
 
+    df = st.session_state.df_apontamentos
+    if df.empty:
+        st.warning("Nenhum registro para editar.")
+        return
+
+    id_sel = st.selectbox("Selecione o registro", df['ID'].tolist())
+    registro = df[df['ID'] == id_sel].iloc[0]
+
+    with st.form("edit_form"):
+        novo_cliente = st.text_input("Cliente", registro['CLIENTE'])
+        novo_status = st.selectbox("Status", ["Realizado Total", "Realizado Parcial", "Não Realizado"], index=0)
+        nova_obs = st.text_area("Observação", registro['OBSERVACAO'])
+        
+        if st.form_submit_button("Salvar Alterações", type="primary"):
+            df.loc[df['ID'] == id_sel, ['CLIENTE', 'STATUS', 'OBSERVACAO']] = [novo_cliente, novo_status, nova_obs]
+            st.success("Registro atualizado!")
+            st.rerun()
+
+
+# -----------------------------------------------------------------------------
+# ABA: DASHBOARD
+# -----------------------------------------------------------------------------
 def aba_dashboard():
     st.header("📈 Dashboard Gerencial")
     df = st.session_state.df_apontamentos
     
     if df.empty:
-        st.warning("Sem dados para exibir no Dashboard.")
+        st.warning("Sem dados para exibir.")
         return
-        
+
     col1, col2 = st.columns(2)
     with col1:
-        filtro_dash_op = st.selectbox("Filtrar por Operador", ["Geral"] + df['OPERADOR'].unique().tolist(), key="dash_op")
+        filtro_op = st.selectbox("Operador", ["Geral"] + df['OPERADOR'].unique().tolist())
     with col2:
-         filtro_dash_cli = st.selectbox("Filtrar por Cliente", ["Geral"] + df['CLIENTE'].unique().tolist(), key="dash_cli")
-         
+        filtro_cli = st.selectbox("Cliente", ["Geral"] + df['CLIENTE'].unique().tolist())
+
     df_dash = df.copy()
-    if filtro_dash_op != "Geral": df_dash = df_dash[df_dash['OPERADOR'] == filtro_dash_op]
-    if filtro_dash_cli != "Geral": df_dash = df_dash[df_dash['CLIENTE'] == filtro_dash_cli]
-    
-    st.subheader("Produtividade por Status")
-    status_count = df_dash['STATUS'].value_counts()
-    st.bar_chart(status_count, color="#F26419")
+    if filtro_op != "Geral": df_dash = df_dash[df_dash['OPERADOR'] == filtro_op]
+    if filtro_cli != "Geral": df_dash = df_dash[df_dash['CLIENTE'] == filtro_cli]
+
+    # Métricas
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Total Apontamentos", len(df_dash))
+    c2.metric("Realizado Total", (df_dash['STATUS'] == 'Realizado Total').sum())
+    c3.metric("Realizado Parcial", (df_dash['STATUS'] == 'Realizado Parcial').sum())
+    c4.metric("Não Realizado", (df_dash['STATUS'] == 'Não Realizado').sum())
+
+    # Gráficos
+    st.subheader("Distribuição por Status")
+    st.bar_chart(df_dash['STATUS'].value_counts())
+
+    st.subheader("Por Operador")
+    st.bar_chart(df_dash.groupby('OPERADOR').size())
 
 # -----------------------------------------------------------------------------
 # MENU LATERAL PREMIUM + NOTIFICAÇÕES + INICIAIS INTELIGENTES
