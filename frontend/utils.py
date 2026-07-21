@@ -1,101 +1,76 @@
-"""
-Funções auxiliares de lógica de negócio do Duarte Performance.
-
-Mantidas separadas do interface.py de propósito: a tela (layout) chama essas
-funções, mas não deveria conter regra de negócio dentro dela.
-"""
 import pandas as pd
 from datetime import datetime
+import streamlit as st
 
-DIAS_SEMANA_PT = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
+# --- LÓGICA DE ESCALA E VALIDAÇÃO ---
 
-
-def dia_semana_atual() -> str:
-    """Dia da semana de hoje, em português, no mesmo formato usado no cronograma."""
-    return DIAS_SEMANA_PT[datetime.now().weekday()]
-
-
-def detectar_duplicidade_escala(df: pd.DataFrame, col_operador: str = "operador", col_cliente: str = "cliente") -> pd.DataFrame:
+def validar_escala(df_escala):
     """
-    Recebe um DataFrame de cronograma e devolve o mesmo DataFrame com uma
-    coluna booleana 'duplicado_local', marcando True quando o mesmo cliente
-    aparece mais de uma vez para o mesmo operador (útil para conferir antes
-    de importar uma planilha nova, antes mesmo de mandar pro backend).
+    Analisa a planilha de escala importada buscando duplicidades e conflitos.
+    Espera colunas: 'Data', 'Operador', 'Cliente'.
     """
-    if df.empty:
-        df = df.copy()
-        df["duplicado_local"] = []
-        return df
-    contagem = df.groupby([col_operador, col_cliente])[col_cliente].transform("count")
-    df = df.copy()
-    df["duplicado_local"] = contagem > 1
-    return df
+    erros = []
+    
+    # Padroniza nomes das colunas para evitar erros de case (maiúscula/minúscula)
+    df_escala.columns = [col.strip().upper() for col in df_escala.columns]
+    colunas_obrigatorias = ['DATA', 'OPERADOR', 'CLIENTE']
+    
+    for col in colunas_obrigatorias:
+        if col not in df_escala.columns:
+            return False, f"Erro: A coluna obrigatória '{col}' não foi encontrada na planilha."
 
+    # Verifica duplicidades: Mesmo operador, mesmo cliente, mesma data
+    duplicadas = df_escala[df_escala.duplicated(subset=['DATA', 'OPERADOR', 'CLIENTE'], keep=False)]
+    if not duplicadas.empty:
+        erros.append("Foram encontradas alocações duplicadas para o mesmo Operador/Cliente no mesmo dia.")
+        
+    # Verifica limite operacional (Exemplo: Operador com mais de 10 clientes no dia)
+    contagem_diaria = df_escala.groupby(['DATA', 'OPERADOR']).size()
+    conflitos_sobrecarga = contagem_diaria[contagem_diaria > 10]
+    if not conflitos_sobrecarga.empty:
+        erros.append("Aviso: Existem operadores alocados em mais de 10 clientes no mesmo dia.")
 
-def formatar_cliente_suporte(cliente: str) -> str:
-    """Formata a tarefa de Suporte no padrão 'Suporte - [Cliente]'."""
-    cliente = (cliente or "").strip()
-    return f"Suporte - {cliente}" if cliente else "Suporte"
+    if erros:
+        return False, erros
+    
+    return True, "Escala validada com sucesso! Sem conflitos."
 
-
-def clientes_do_operador_no_dia(df_cronograma: pd.DataFrame, operador: str, dia: str) -> list:
-    """Filtra o cronograma pra achar só os clientes atribuídos a esse operador nesse dia da semana."""
-    if df_cronograma.empty or "operador" not in df_cronograma.columns:
+def obter_clientes_do_dia(df_escala, operador, data_atual):
+    """
+    Filtra os clientes de um operador específico para a data atual.
+    """
+    if df_escala.empty:
         return []
-    filtro = (df_cronograma["operador"].str.lower() == (operador or "").lower()) & (df_cronograma["dia_semana"] == dia)
-    clientes = df_cronograma.loc[filtro, "cliente"].dropna().unique().tolist()
-    return sorted(c for c in clientes if c)
+    
+    # Lógica de filtro reativa e segura
+    mascara = (
+        (df_escala['OPERADOR'].str.lower() == operador.lower()) & 
+        (pd.to_datetime(df_escala['DATA']).dt.date == pd.to_datetime(data_atual).date())
+    )
+    clientes_alocados = df_escala[mascara]['CLIENTE'].unique().tolist()
+    return clientes_alocados
 
+# --- LÓGICA DE AUDITORIA E STATUS ---
 
-def parsear_planilha_escala(arquivo):
+def registrar_auditoria(acao, usuario, detalhes):
     """
-    Lê um .xlsx ou .csv de escala enviado pelo usuário e tenta mapear as
-    colunas para o padrão do sistema (operador, dia_semana, cliente, periodo).
-    Aceita variações comuns de nome de coluna (maiúsculas, com/sem acento).
-
-    Retorna (DataFrame normalizado, lista de avisos/erros). Se a lista de
-    avisos não estiver vazia e o DataFrame vier vazio, é porque a planilha
-    não pôde ser processada (colunas obrigatórias não encontradas).
+    Simula o registro de logs no banco de dados (Auditoria).
     """
-    avisos = []
-    try:
-        if arquivo.name.lower().endswith(".csv"):
-            df = pd.read_csv(arquivo)
-        else:
-            df = pd.read_excel(arquivo)
-    except Exception as e:
-        return pd.DataFrame(), [f"Não foi possível ler o arquivo: {e}"]
-
-    mapa_colunas = {
-        "operador": ["operador", "operador / gestor", "colaborador", "nome"],
-        "dia_semana": ["dia", "dia_semana", "dia da semana"],
-        "cliente": ["cliente", "atividade", "cliente / atividade"],
-        "periodo": ["periodo", "período", "turno"],
+    log = {
+        "Data_Hora": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "Usuario": usuario,
+        "Acao": acao,
+        "Detalhes": detalhes
     }
+    # Em produção, aqui vai o insert no banco (SQLAlchemy/PostgreSQL)
+    if 'auditoria_logs' not in st.session_state:
+        st.session_state['auditoria_logs'] = []
+    st.session_state['auditoria_logs'].append(log)
 
-    colunas_normalizadas = {str(c).strip().lower(): c for c in df.columns}
-    renomear = {}
-    faltando = []
-    for alvo, variacoes in mapa_colunas.items():
-        encontrado = next((colunas_normalizadas[v] for v in variacoes if v in colunas_normalizadas), None)
-        if encontrado:
-            renomear[encontrado] = alvo
-        elif alvo != "periodo":  # período é opcional, o resto é obrigatório
-            faltando.append(alvo)
-
-    if faltando:
-        avisos.append(
-            f"Colunas obrigatórias não encontradas na planilha: {', '.join(faltando)}. "
-            f"Cabeçalhos esperados (algum sinônimo de): operador, dia da semana, cliente."
-        )
-        return pd.DataFrame(), avisos
-
-    df = df.rename(columns=renomear)
-    colunas_finais = [c for c in ["operador", "dia_semana", "cliente", "periodo"] if c in df.columns]
-    df = df[colunas_finais].dropna(subset=["operador", "cliente"])
-    df["operador"] = df["operador"].astype(str).str.strip()
-    df["cliente"] = df["cliente"].astype(str).str.strip()
-    if "dia_semana" in df.columns:
-        df["dia_semana"] = df["dia_semana"].astype(str).str.strip().str.capitalize()
-
-    return df, avisos
+def processar_fechamento_diario(df_escala, df_apontamentos, data_alvo):
+    """
+    Rotina (Auto-Status): Verifica na escala quem não lançou tarefa e gera 'Não Informado'.
+    """
+    # Lógica simplificada de batimento
+    # Se o par (Data, Cliente, Operador) está na escala mas não nos apontamentos -> 'Não Informado'
+    pass # Implementar batimento em DF aqui quando o DB estiver conectado
