@@ -12,10 +12,8 @@ if 'user' not in st.session_state:
     st.session_state.user = ""
 if 'role' not in st.session_state:
     st.session_state.role = ""
-if 'df_escala' not in st.session_state:
-    st.session_state.df_escala = pd.DataFrame(columns=['DATA', 'OPERADOR', 'CLIENTE', 'TURNO'])
-if 'df_apontamentos' not in st.session_state:
-    st.session_state.df_apontamentos = pd.DataFrame(columns=['ID', 'DATA', 'OPERADOR', 'CLIENTE', 'STATUS', 'OBSERVACAO'])
+if 'menu' not in st.session_state:
+    st.session_state.menu = "Dashboard"
 
 # ===================== CSS =====================
 st.markdown("""
@@ -30,7 +28,7 @@ if not st.session_state.logged_in:
     st.title("Duarte Performance")
     st.markdown("### Login do Sistema")
     
-    username = st.text_input("Usuário")
+    username = st.text_input("Usuário", placeholder="ex: abraao.santos")
     senha = st.text_input("Senha", type="password")
     
     if st.button("Entrar", type="primary"):
@@ -45,19 +43,18 @@ if not st.session_state.logged_in:
                 st.session_state.logged_in = True
                 st.session_state.user = data.get("nome", username)
                 st.session_state.role = data.get("role", "Operador")
-                st.success("Login realizado!")
+                st.success("Login realizado com sucesso!")
                 st.rerun()
             else:
                 st.error("Usuário ou senha incorretos")
-        except:
+        except Exception as e:
             st.error("Erro de conexão com o backend. Verifique se o backend está online.")
     st.stop()
 
-# ===================== SIDEBAR =====================
+# ===================== SIDEBAR (SÓ DEPOIS DO LOGIN) =====================
 with st.sidebar:
     st.markdown("### Duarte Performance")
-    nome = st.session_state.user
-    st.markdown(f"**👤 {nome}**")
+    st.markdown(f"**👤 {st.session_state.user}**")
     st.markdown(f"**💼 {st.session_state.role}**")
     st.divider()
     
@@ -71,16 +68,16 @@ with st.sidebar:
 # ===================== ROTEAMENTO =====================
 if st.session_state.menu == "Dashboard":
     st.header("📈 Dashboard Gerencial")
-    st.info("Dashboard em desenvolvimento")
+    st.info("Em desenvolvimento")
 elif st.session_state.menu == "Escala Semanal":
     st.header("🗓️ Escala Semanal")
-    st.info("Escala em desenvolvimento")
+    st.info("Em desenvolvimento")
 elif st.session_state.menu == "Relatórios":
     st.header("📊 Relatórios")
-    st.info("Relatórios em desenvolvimento")
+    st.info("Em desenvolvimento")
 elif st.session_state.menu == "Lançar Atividade":
     st.header("📝 Lançar Atividade")
-    st.info("Lançamento em desenvolvimento")
+    st.info("Em desenvolvimento")
 elif st.session_state.menu == "Editor":
     st.header("✏️ Editor")
-    st.info("Editor em desenvolvimento")
+    st.info("Em desenvolvimento")
