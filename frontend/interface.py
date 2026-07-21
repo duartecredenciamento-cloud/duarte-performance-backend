@@ -158,71 +158,17 @@ if 'df_apontamentos' not in st.session_state:
         ]
     })
 
-# -----------------------------------------------------------------------------
-# MÓDULOS DA INTERFACE (FUNÇÕES SEPARADAS POR ABA)
-# -----------------------------------------------------------------------------
-
-def aba_lancar_execucao():
-    st.header("📝 Lançar Execução Diária")
-    
-    hoje = datetime.now()
-    st.markdown(f"**Registro Auditado:** {hoje.strftime('%d/%m/%Y')} | **Operador:** {st.session_state.user}")
-    
-    # 1. Busca os clientes da escala do dia para este operador
-    clientes_hoje = utils.obter_clientes_do_dia(st.session_state.df_escala, st.session_state.user, hoje)
-    
-    # 2. Lógica Dinâmica do Dropdown baseada na imagem enviada
-    if not clientes_hoje:
-        st.info("ℹ️ Não encontramos nenhum cliente atribuído a você na escala de hoje. Selecione 'Suporte' ou 'Outro'.")
-        opcoes_cliente = ["Suporte", "Outro"]
-    else:
-        opcoes_cliente = clientes_hoje + ["Suporte", "Outro"]
-        
-    col1, col2 = st.columns(2)
-    with col1:
-        cliente_selecionado = st.selectbox("Selecione o Cliente Trabalhado", opcoes_cliente)
-        
-        # Sub-filtro condicional exigido
-        if cliente_selecionado == "Suporte":
-            todos_clientes = ["Cliente A", "Cliente B", "Cliente C"] # Substituir por query no banco
-            cliente_destino = st.selectbox("Selecione o Cliente de Destino", todos_clientes)
-            cliente_final = f"Suporte - {cliente_destino}"
-        else:
-            cliente_final = cliente_selecionado
-
-    with col2:
-        status_trabalho = st.selectbox("Status Final do Trabalho", ["Concluído", "Pendente", "Impedido", "Em Andamento"])
-    
-    # UX Text atualizado
-    observacao = st.text_area(
-        "Justificativa / Observações", 
-        placeholder="Devido a reunião não foi possível realizar totalmente as tarefas do cliente"
-    )
-    
-    st.file_uploader("📎 Comprovações e Evidências", accept_multiple_files=False)
-    
-    if st.button("🚀 ENVIAR APONTAMENTO DIÁRIO"):
-        # Lógica de gravação
-        novo_id = len(st.session_state.df_apontamentos) + 1
-        novo_apontamento = {
-            'ID': novo_id,
-            'DATA': hoje.strftime('%Y-%m-%d'),
-            'OPERADOR': st.session_state.user,
-            'CLIENTE': cliente_final,
-            'STATUS': status_trabalho,
-            'OBSERVACAO': observacao
-        }
-        st.session_state.df_apontamentos = pd.concat([st.session_state.df_apontamentos, pd.DataFrame([novo_apontamento])], ignore_index=True)
-        utils.registrar_auditoria("INSERCAO", st.session_state.user, f"Lançou {status_trabalho} para {cliente_final}")
-        st.success("Apontamento registrado com sucesso!")
-
-
 def aba_escala_semanal():
-    st.header("📅 Escala Semanal (Cronograma)")
-    
-    # Upload e Validação
+    st.header("📅 Escala Semanal (Cronograma Operacional)")
+    st.markdown("**Gestão de alocação de operadores por cliente e dia da semana**")
+
+    # === IMPORTAÇÃO DE PLANILHA ===
     st.subheader("1. Importar Base de Escala")
-    arquivo_escala = st.file_uploader("Anexe a planilha (.xlsx ou .csv)", type=['xlsx', 'csv'])
+    arquivo_escala = st.file_uploader(
+        "Anexe a planilha da escala (.xlsx ou .csv)", 
+        type=['xlsx', 'csv'],
+        help="Colunas esperadas: DATA, OPERADOR, CLIENTE, TURNO"
+    )
     
     if arquivo_escala:
         try:
@@ -235,14 +181,72 @@ def aba_escala_semanal():
             if sucesso:
                 st.success(mensagem)
                 st.session_state.df_escala = df_temp
+                st.rerun()
             else:
-                st.error("Falha na validação do arquivo:")
+                st.error("Falha na validação:")
                 for erro in (mensagem if isinstance(mensagem, list) else [mensagem]):
                     st.warning(erro)
         except Exception as e:
-            st.error(f"Erro ao processar arquivo: {e}")
+            st.error(f"Erro ao processar arquivo: {str(e)}")
 
     st.divider()
+
+    # === VISUALIZAÇÃO DA ESCALA ATUAL ===
+    st.subheader("2. Escala Atual")
+    if st.session_state.df_escala.empty:
+        st.info("Nenhuma escala importada ainda. Importe uma planilha acima.")
+    else:
+        df_view = st.session_state.df_escala.copy()
+        
+        # Filtros
+        col1, col2 = st.columns(2)
+        with col1:
+            operador_filtro = st.selectbox(
+                "Filtrar por Operador", 
+                ["Todos"] + sorted(df_view["OPERADOR"].unique().tolist())
+            )
+        with col2:
+            dia_filtro = st.selectbox(
+                "Filtrar por Dia", 
+                ["Todos"] + sorted(df_view["DATA"].unique().tolist())
+            )
+        
+        # Aplicar filtros
+        if operador_filtro != "Todos":
+            df_view = df_view[df_view["OPERADOR"] == operador_filtro]
+        if dia_filtro != "Todos":
+            df_view = df_view[df_view["DATA"] == dia_filtro]
+        
+        st.dataframe(df_view, use_container_width=True, hide_index=True)
+
+    st.divider()
+
+    # === LANÇAMENTO MANUAL (opcional) ===
+    st.subheader("3. Adicionar Item Manualmente")
+    with st.form("form_add_escala"):
+        col1, col2, col3 = st.columns(3)
+        data_nova = col1.date_input("Data", value=datetime.now())
+        operador_novo = col2.selectbox("Operador", st.session_state.equipe)
+        cliente_novo = col3.text_input("Cliente")
+        
+        turno_novo = st.selectbox("Turno", ["Manhã", "Tarde", "Integral"])
+        
+        if st.form_submit_button("➕ Adicionar à Escala", type="primary"):
+            if cliente_novo:
+                novo_item = {
+                    'DATA': data_nova.strftime('%Y-%m-%d'),
+                    'OPERADOR': operador_novo,
+                    'CLIENTE': cliente_novo,
+                    'TURNO': turno_novo
+                }
+                st.session_state.df_escala = pd.concat([
+                    st.session_state.df_escala, 
+                    pd.DataFrame([novo_item])
+                ], ignore_index=True)
+                st.success(f"Item adicionado para {operador_novo}!")
+                st.rerun()
+            else:
+                st.warning("Informe o cliente.")
     
     # CRUD Completo e Interativo nativo do Streamlit
     st.subheader("2. Gerenciar Escala (Adicionar/Remover/Mover)")
@@ -362,27 +366,70 @@ def aba_dashboard():
     st.bar_chart(status_count, color="#F26419")
 
 # -----------------------------------------------------------------------------
-# MENU LATERAL E NAVEGAÇÃO PRINCIPAL
+# MENU LATERAL PREMIUM COM AVATAR DE INICIAIS
 # -----------------------------------------------------------------------------
 with st.sidebar:
-    st.image("https://via.placeholder.com/150x50?text=Duarte+Performance", use_column_width=True) # Substitua pelo logo real
-    st.markdown(f"**🟢 Online:** {st.session_state.user}")
-    st.markdown(f"**💼 Perfil:** {st.session_state.role}")
+    # Logo
+    st.markdown("""
+    <div style="text-align:center; padding: 20px 0 15px 0;">
+        <h2 style="color:#F26419; margin:0; font-weight:900; letter-spacing:-1px;">DUARTE</h2>
+        <p style="color:#94A3B8; margin:0; font-size:13px; letter-spacing:2px;">PERFORMANCE</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Avatar com Iniciais
+    nome = st.session_state.user
+    partes = nome.strip().split()
+    iniciais = (partes[0][0] + partes[-1][0]).upper() if len(partes) > 1 else nome[:2].upper()
+
+    st.markdown(f"""
+    <div style="display: flex; justify-content: center; margin: 15px 0 25px 0;">
+        <div style="
+            background: linear-gradient(135deg, #F26419, #d95615);
+            color: white;
+            width: 72px;
+            height: 72px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            font-weight: 900;
+            box-shadow: 0 8px 25px rgba(242, 100, 25, 0.4);
+            border: 4px solid rgba(255,255,255,0.2);
+        ">{iniciais}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Nome e Perfil
+    st.markdown(f"""
+    <div style="text-align:center; margin-bottom: 30px;">
+        <strong style="color:#F1F5F9; font-size:17px;">{nome}</strong><br>
+        <span style="color:#F26419; font-size:13px; font-weight:700;">{st.session_state.role}</span>
+    </div>
+    """, unsafe_allow_html=True)
+
     st.divider()
-    
+
+    # Menu
     menu = st.radio(
         "Navegação Principal",
-        ["Dashboard Gerencial", "Escala Semanal", "Relatórios Operacionais", "Lançar Execução Diária", "Editor de Apontamentos (Gestor)"]
+        [
+            "🏠 Dashboard Gerencial",
+            "🗓️ Escala Semanal",
+            "📊 Relatórios Operacionais",
+            "📝 Lançar Execução Diária",
+            "✏️ Editor de Apontamentos (Gestor)"
+        ],
+        label_visibility="collapsed"
     )
 
-# Controle de roteamento das abas
-if menu == "Lançar Execução Diária":
-    aba_lancar_execucao()
-elif menu == "Escala Semanal":
-    aba_escala_semanal()
-elif menu == "Relatórios Operacionais":
-    aba_relatorios()
-elif menu == "Dashboard Gerencial":
-    aba_dashboard()
-elif menu == "Editor de Apontamentos (Gestor)":
-    aba_editor_apontamentos()
+    st.divider()
+
+    st.caption("📍 Status da Operação")
+    st.success("🟢 Todos os sistemas operando normalmente")
+    
+    if st.button("🚪 Encerrar Sessão", use_container_width=True, type="secondary"):
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+        st.rerun()
