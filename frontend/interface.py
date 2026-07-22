@@ -1088,7 +1088,25 @@ elif menu == "🗓️ Escala Semanal":
     ]
 
     # Carrega os dados salvos no banco
+    # --- Carregamento dos Dados Blindado ---
     df_crono = carregar_cronograma()
+    
+    colunas_obrigatorias = ["id", "operador", "dia_semana", "cliente", "periodo", "duplicado"]
+    
+    if df_crono is None or not isinstance(df_crono, pd.DataFrame) or df_crono.empty:
+        df_crono = pd.DataFrame(columns=colunas_obrigatorias)
+    else:
+        # Garante que nenhuma coluna essencial fique de fora
+        for col in colunas_obrigatorias:
+            if col not in df_crono.columns:
+                df_crono[col] = "" if col != "duplicado" else False
+
+    df_crono = df_crono.fillna("")
+
+    # --- Cálculo Seguro de Métricas ---
+    total_ops = df_crono["operador"].nunique() if "operador" in df_crono.columns and not df_crono.empty else 0
+    total_alocacoes = len(df_crono[~df_crono["cliente"].isin(["", "X", "FOLGA"])]) if "cliente" in df_crono.columns and not df_crono.empty else 0
+    qtd_duplicados = int(df_crono["duplicado"].sum()) if "duplicado" in df_crono.columns and not df_crono.empty else 0
 
     # ÚNICO CONJUNTO DE ABAS PARA A TELA
     tab_matriz, tab_crud, tab_import = st.tabs([
