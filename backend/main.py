@@ -6,7 +6,9 @@ from pydantic import BaseModel
 from typing import Optional, List
 from models import Base, Usuario
 from auth import verificar_senha, criar_token_acesso, obter_hash_senha
+from backend.models import Base, Usuario
 from backend.database import engine, get_db
+# (faça o mesmo para schemas ou outras importações locais que estejam no main.py)
 
 # -----------------------------------------------------------------------------
 # Inicialização e Criação das Tabelas
