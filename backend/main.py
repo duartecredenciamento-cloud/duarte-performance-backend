@@ -4,10 +4,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, List
-
-from database import engine, get_db
 from models import Base, Usuario
 from auth import verificar_senha, criar_token_acesso, obter_hash_senha
+from backend.database import engine, get_db
 
 # -----------------------------------------------------------------------------
 # Inicialização e Criação das Tabelas
