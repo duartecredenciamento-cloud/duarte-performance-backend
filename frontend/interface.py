@@ -271,53 +271,161 @@ def limpar_cache_cronograma():
 
 
 # ===================== 2. TELA DE LOGIN / CADASTRO =====================
-if not st.session_state.token:
-    st.markdown("<div style='padding-top: 5vh;'>", unsafe_allow_html=True)
+if not st.session_state.get("token"):
     
-    # Criando o layout dividido (Estilo Plataforma Comercial / Shopee)
-    # col_brand ganha mais espaço (1.3), col_form fica mais enxuta (1)
-    col_brand, col_form = st.columns([1.3, 1], gap="large")
-
-    with col_brand:
-        # Texto de impacto e Branding do lado esquerdo
-        st.markdown("""
-        <div style="padding-top: 10vh; padding-right: 20px; padding-left: 20px;">
-            <h1 style="font-size: 4rem; font-weight: 900; line-height: 1.1; color: var(--primary-navy); margin-bottom: 10px;">
-                Duarte<br><span style="color: var(--accent-orange);">Performance</span>
-            </h1>
-            <h3 style="font-weight: 600; color: #64748B; font-size: 1.5rem; margin-bottom: 25px;">
-                Departamento de Credenciamento
-            </h3>
-            <p style="font-size: 1.1rem; color: #475569; line-height: 1.6; max-width: 400px;">
-                Acesse a plataforma inteligente de gestão de cadastros. Automação, rastreabilidade e alta performance operacional em um só lugar.
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with col_form:
-        # Formulário de Login do lado direito
-        st.markdown("""
+    # 1. ESTILIZAÇÃO CSS AVANÇADA (GLASSMORPHISM, BADGES & EFEITOS NEON)
+    st.markdown(
+        """
         <style>
-            /* Ajuste fino para o card não ficar centralizado na coluna direita */
-            .login-card { margin: 0 !important; max-width: 100% !important; }
+            /* Animação Smooth de Entrada */
+            @keyframes fadeInUp {
+                from { opacity: 0; transform: translateY(24px); }
+                to { opacity: 1; transform: translateY(0); }
+            }
+            @keyframes pulseGlow {
+                0% { box-shadow: 0 0 0 0 rgba(255, 146, 0, 0.4); }
+                70% { box-shadow: 0 0 0 12px rgba(255, 146, 0, 0); }
+                100% { box-shadow: 0 0 0 0 rgba(255, 146, 0, 0); }
+            }
+
+            .login-wrapper {
+                animation: fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+                padding-top: 3vh;
+            }
+
+            /* Badge Superior de Tecnologia */
+            .brand-badge {
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+                background: rgba(0, 30, 87, 0.06);
+                border: 1px solid rgba(0, 30, 87, 0.15);
+                color: #001E57;
+                padding: 6px 16px;
+                border-radius: 30px;
+                font-size: 13px;
+                font-weight: 700;
+                margin-bottom: 20px;
+            }
+            .badge-dot {
+                width: 8px;
+                height: 8px;
+                background-color: #FF9200;
+                border-radius: 50%;
+                animation: pulseGlow 2s infinite;
+            }
+
+            /* Card Glassmorphism do Formulário */
+            .login-card-glass {
+                background: rgba(255, 255, 255, 0.85);
+                backdrop-filter: blur(16px);
+                -webkit-backdrop-filter: blur(16px);
+                border: 1px solid rgba(226, 232, 240, 0.8);
+                border-radius: 24px;
+                padding: 36px 32px;
+                box-shadow: 0 20px 40px -15px rgba(0, 30, 87, 0.08), 0 0 15px rgba(0, 0, 0, 0.02);
+                transition: all 0.3s ease;
+            }
+
+            /* Recursos em Destaque no Lado Esquerdo */
+            .feature-pill {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                margin-top: 16px;
+                background: rgba(255, 255, 255, 0.6);
+                border: 1px solid rgba(226, 232, 240, 0.6);
+                padding: 12px 18px;
+                border-radius: 14px;
+                max-width: 420px;
+            }
+            .feature-icon {
+                font-size: 20px;
+                background: rgba(0, 30, 87, 0.08);
+                width: 38px;
+                height: 38px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                border-radius: 10px;
+            }
         </style>
-        """, unsafe_allow_html=True)
+        """,
+        unsafe_allow_html=True
+    )
+
+    st.markdown("<div class='login-wrapper'>", unsafe_allow_html=True)
+
+    # Layout Dividido: Coluna de Branding (Esquerda) vs Formulário (Direita)
+    col_brand, col_form = st.columns([1.2, 1], gap="large")
+
+    # --- LADO ESQUERDO: BRANDING & EXPERIÊNCIA DE IMPACTO ---
+    with col_brand:
+        st.markdown(
+            """
+            <div style="padding-top: 4vh; padding-right: 15px;">
+                <div class='brand-badge'>
+                    <span class='badge-dot'></span> Ecossistema Inteligente v2.4
+                </div>
+                
+                <h1 style="font-size: 3.8rem; font-weight: 900; line-height: 1.05; color: #001E57; margin-bottom: 12px; letter-spacing: -1.5px;">
+                    Duarte<br><span style="color: #FF9200;">Performance</span>
+                </h1>
+                
+                <h3 style="font-weight: 700; color: #475569; font-size: 1.35rem; margin-bottom: 20px; letter-spacing: -0.3px;">
+                    Departamento de Credenciamento & Operações
+                </h3>
+                
+                <p style="font-size: 1.05rem; color: #64748B; line-height: 1.6; max-width: 440px; margin-bottom: 30px;">
+                    Gerencie cadastros, acompanhe relatórios de auditabilidade e otimize a produtividade da equipe em uma única central automatizada.
+                </p>
+
+                <!-- Destaques Rápidos -->
+                <div class='feature-pill'>
+                    <div class='feature-icon'>⚡</div>
+                    <div>
+                        <div style='font-weight: 700; color: #0F172A; font-size: 14px;'>Alta Performance</div>
+                        <div style='color: #64748B; font-size: 12px;'>Fluxos simplificados para validação diária</div>
+                    </div>
+                </div>
+
+                <div class='feature-pill'>
+                    <div class='feature-icon'>🛡️</div>
+                    <div>
+                        <div style='font-weight: 700; color: #0F172A; font-size: 14px;'>Rastreabilidade & LGPD</div>
+                        <div style='color: #64748B; font-size: 12px;'>Logs completos e segurança de acesso por nível</div>
+                    </div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+    # --- LADO DIREITO: CARD DE LOGIN / CADASTRO ---
+    with col_form:
+        st.markdown("<div class='login-card-glass'>", unsafe_allow_html=True)
         
-        st.markdown("<div class='login-card'>", unsafe_allow_html=True)
+        tab_login, tab_signup = st.tabs(["🔑 Acessar Plataforma", "🆕 Solicitar Acesso"])
 
-        tab_login, tab_signup = st.tabs(["🔑 Entrar", "🆕 Criar Conta"])
-
+        # TAB 1: LOGIN
         with tab_login:
-            username_input = st.text_input("Usuário", placeholder="ex: erick_duarte", key="login_username")
-            senha_input = st.text_input("Senha de Acesso", type="password", placeholder="Digite sua senha", key="login_senha")
+            st.markdown("<p style='color: #64748B; font-size: 13px; margin-top: 8px;'>Informe suas credenciais corporativas para entrar.</p>", unsafe_allow_html=True)
+            
+            username_input = st.text_input("Usuário", placeholder="ex: erick.duarte", key="login_username")
+            senha_input = st.text_input("Senha de Acesso", type="password", placeholder="••••••••", key="login_senha")
 
             st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("🔑 ACESSAR PLATAFORMA", type="primary", use_container_width=True):
+            if st.button("🚀 ENTRAR NO SISTEMA", type="primary", use_container_width=True):
                 if not username_input or not senha_input:
-                    st.warning("Por favor, preencha usuário e senha.")
+                    st.warning("⚠️ Por favor, informe seu usuário e senha.")
                 else:
                     try:
-                        resp = requests.post(f"{API_URL}/token", data={"username": username_input, "password": senha_input}, timeout=10)
+                        with st.spinner("Autenticando credenciais..."):
+                            resp = requests.post(
+                                f"{API_URL}/token", 
+                                data={"username": username_input.strip(), "password": senha_input}, 
+                                timeout=10
+                            )
                         if resp.status_code == 200:
                             data = resp.json()
                             st.session_state.update({
@@ -327,36 +435,46 @@ if not st.session_state.token:
                                 "role": data.get("role", "Operador"),
                                 "perfil_completo": data.get("perfil_completo", True)
                             })
-                            st.success("Autenticação realizada com sucesso!")
-                            time.sleep(0.5)
+                            st.success("✨ Autenticação realizada! Redirecionando...")
+                            time.sleep(0.4)
                             st.rerun()
                         else:
-                            st.error("Usuário ou senha incorretos.")
+                            st.error("❌ Usuário ou senha incorretos.")
                     except Exception:
-                        st.error("⚠️ Não foi possível conectar ao servidor. Tente novamente em instantes.")
+                        st.error("⚠️ Não foi possível conectar ao servidor backend. Verifique sua conexão.")
 
+        # TAB 2: CRIAR CONTA
         with tab_signup:
-            st.caption("Crie sua conta pra acessar a plataforma. Você entra automaticamente como Operador.")
-            nome_signup = st.text_input("Nome Completo", key="signup_nome")
-            username_signup = st.text_input("Usuário (será seu login)", placeholder="ex: erick_duarte", key="signup_username")
-            email_signup = st.text_input("E-mail", placeholder="seuemail@exemplo.com", key="signup_email")
-            telefone_signup = st.text_input("WhatsApp", placeholder="(00) 00000-0000", key="signup_telefone")
-            senha_signup = st.text_input("Crie uma senha", type="password", key="signup_senha")
-            senha_confirma = st.text_input("Confirme a senha", type="password", key="signup_senha2")
+            st.markdown("<p style='color: #64748B; font-size: 13px; margin-top: 8px;'>Cadastre-se para obter acesso inicial como Operador.</p>", unsafe_allow_html=True)
+            
+            nome_signup = st.text_input("Nome Completo", placeholder="ex: Erick Duarte", key="signup_nome")
+            username_signup = st.text_input("Usuário (Login)", placeholder="ex: erick.duarte", key="signup_username")
+            
+            c_email, c_whats = st.columns(2)
+            email_signup = c_email.text_input("E-mail", placeholder="seu@email.com", key="signup_email")
+            telefone_signup = c_whats.text_input("WhatsApp", placeholder="(11) 99999-9999", key="signup_telefone")
+            
+            c_s1, c_s2 = st.columns(2)
+            senha_signup = c_s1.text_input("Crie uma Senha", type="password", placeholder="••••••••", key="signup_senha")
+            senha_confirma = c_s2.text_input("Confirme a Senha", type="password", placeholder="••••••••", key="signup_senha2")
 
             st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("✅ CRIAR MINHA CONTA", type="primary", use_container_width=True):
+            if st.button("✅ CONCLUIR CADASTRO", type="primary", use_container_width=True):
                 if not all([nome_signup, username_signup, senha_signup, senha_confirma]):
-                    st.warning("Nome, usuário e senha são obrigatórios.")
+                    st.warning("⚠️ Nome, usuário e senha são preenchimentos obrigatórios.")
                 elif senha_signup != senha_confirma:
-                    st.error("As senhas não conferem.")
+                    st.error("⚠️ As senhas digitadas não conferem.")
                 else:
                     payload = {
-                        "username": username_signup, "password": senha_signup, "nome": nome_signup,
-                        "email": email_signup or None, "telefone": telefone_signup or None
+                        "username": username_signup.strip().lower(), 
+                        "password": senha_signup, 
+                        "nome": nome_signup.strip(),
+                        "email": email_signup.strip() if email_signup else None, 
+                        "telefone": telefone_signup.strip() if telefone_signup else None
                     }
                     try:
-                        resp = requests.post(f"{API_URL}/cadastro/", json=payload, timeout=10)
+                        with st.spinner("Criando credenciais..."):
+                            resp = requests.post(f"{API_URL}/cadastro/", json=payload, timeout=10)
                         if resp.status_code == 200:
                             data = resp.json()
                             st.session_state.update({
@@ -366,148 +484,359 @@ if not st.session_state.token:
                                 "role": data.get("role", "Operador"),
                                 "perfil_completo": data.get("perfil_completo", True)
                             })
-                            st.success("Conta criada! Entrando...")
-                            time.sleep(0.5)
+                            st.success("🎉 Conta criada com sucesso! Entrando no sistema...")
+                            time.sleep(0.4)
                             st.rerun()
                         elif resp.status_code == 400:
-                            st.error(resp.json().get("detail", "Este usuário já existe."))
+                            st.error(resp.json().get("detail", "⚠️ Este nome de usuário já está cadastrado."))
                         else:
-                            st.error(f"Erro ao criar conta: {resp.text}")
+                            st.error(f"❌ Erro ao criar conta: {resp.text}")
                     except Exception:
-                        st.error("⚠️ Não foi possível conectar ao servidor. Tente novamente em instantes.")
+                        st.error("⚠️ Não foi possível conectar ao servidor backend. Tente novamente.")
 
         st.markdown("</div>", unsafe_allow_html=True)
+    
     st.markdown("</div>", unsafe_allow_html=True)
     st.stop()
 
-# ===================== 2.1. COMPLETAR PERFIL (primeiro acesso de conta criada pelo Admin) =====================
-if not st.session_state.perfil_completo:
-    st.markdown("<div style='padding-top: 5vh;'>", unsafe_allow_html=True)
+# ===================== 2.1. COMPLETAR PERFIL (Primeiro acesso de conta criada pelo Admin) =====================
+if not st.session_state.get("perfil_completo"):
     
-    # Mantendo o padrão de Tela Dividida
-    col_brand, col_form = st.columns([1.3, 1], gap="large")
-
-    with col_brand:
-        # Mensagem de Boas-vindas corporativa do lado esquerdo
-        st.markdown("""
-        <div style="padding-top: 10vh; padding-right: 20px; padding-left: 20px;">
-            <h1 style="font-size: 3.5rem; font-weight: 900; line-height: 1.1; color: var(--primary-navy); margin-bottom: 10px;">
-                Bem-vindo à<br><span style="color: var(--accent-orange);">Duarte Gestão</span>
-            </h1>
-            <h3 style="font-weight: 600; color: #64748B; font-size: 1.5rem; margin-bottom: 25px;">
-                Configuração Inicial
-            </h3>
-            <p style="font-size: 1.1rem; color: #475569; line-height: 1.6; max-width: 400px;">
-                Seu perfil corporativo foi pré-configurado pela administração. Confirme seus dados essenciais ao lado para ativar seu acesso completo à nossa esteira de credenciamento.
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with col_form:
-        # Formulário de conclusão de perfil do lado direito
-        st.markdown("""
+    # 1. ESTILIZAÇÃO CSS AVANÇADA (Glassmorphism, Step Badges e Animações)
+    st.markdown(
+        """
         <style>
-            .login-card { margin: 0 !important; max-width: 100% !important; }
-        </style>
-        """, unsafe_allow_html=True)
-        
-        st.markdown("<div class='login-card'>", unsafe_allow_html=True)
-        st.markdown("<h2 style='text-align:center;color:#0F172A;font-weight:800;margin-bottom:5px;'>Complete seu Perfil</h2>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align:center;color:#64748B;font-size:14px;margin-bottom:25px;'>Quase lá! Valide suas informações para continuar.</p>", unsafe_allow_html=True)
+            @keyframes fadeInUp {
+                from { opacity: 0; transform: translateY(24px); }
+                to { opacity: 1; transform: translateY(0); }
+            }
+            @keyframes pulseGlow {
+                0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
+                70% { box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
+                100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+            }
 
-        nome_completar = st.text_input("Nome Completo", key="completar_nome")
-        email_completar = st.text_input("E-mail Institucional", placeholder="seuemail@exemplo.com", key="completar_email")
-        telefone_completar = st.text_input("WhatsApp", placeholder="(00) 00000-0000", key="completar_telefone")
+            .onboarding-wrapper {
+                animation: fadeInUp 0.55s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+                padding-top: 3vh;
+            }
+
+            /* Badge de Onboarding / Etapas */
+            .step-badge {
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+                background: rgba(255, 146, 0, 0.1);
+                border: 1px solid rgba(255, 146, 0, 0.3);
+                color: #FF9200;
+                padding: 6px 16px;
+                border-radius: 30px;
+                font-size: 13px;
+                font-weight: 700;
+                margin-bottom: 20px;
+            }
+            .step-dot {
+                width: 8px;
+                height: 8px;
+                background-color: #10B981;
+                border-radius: 50%;
+                animation: pulseGlow 2s infinite;
+            }
+
+            /* Card Glassmorphism do Formulário */
+            .onboarding-card-glass {
+                background: rgba(255, 255, 255, 0.88);
+                backdrop-filter: blur(16px);
+                -webkit-backdrop-filter: blur(16px);
+                border: 1px solid rgba(226, 232, 240, 0.8);
+                border-radius: 24px;
+                padding: 36px 32px;
+                box-shadow: 0 20px 40px -15px rgba(0, 30, 87, 0.08), 0 0 15px rgba(0, 0, 0, 0.02);
+            }
+
+            /* Cards Informativos de Segurança */
+            .security-pill {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                margin-top: 16px;
+                background: rgba(255, 255, 255, 0.65);
+                border: 1px solid rgba(226, 232, 240, 0.7);
+                padding: 12px 18px;
+                border-radius: 14px;
+                max-width: 440px;
+            }
+            .security-icon {
+                font-size: 18px;
+                background: rgba(0, 30, 87, 0.08);
+                width: 36px;
+                height: 36px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                border-radius: 10px;
+            }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+    st.markdown("<div class='onboarding-wrapper'>", unsafe_allow_html=True)
+
+    # Layout Dividido: Coluna de Branding / Welcoming (Esquerda) vs Formulário (Direita)
+    col_brand, col_form = st.columns([1.2, 1], gap="large")
+
+    # --- LADO ESQUERDO: MENSAGEM DE BOAS-VINDAS E ORIENTAÇÕES ---
+    with col_brand:
+        usr_atual = st.session_state.get("username", "Colaborador")
+        st.markdown(
+            f"""
+            <div style="padding-top: 4vh; padding-right: 15px;">
+                <div class='step-badge'>
+                    <span class='step-dot'></span> Etapa Final • Ativação de Acesso
+                </div>
+                
+                <h1 style="font-size: 3.5rem; font-weight: 900; line-height: 1.08; color: #001E57; margin-bottom: 12px; letter-spacing: -1.5px;">
+                    Seja bem-vindo,<br><span style="color: #FF9200;">{usr_atual}!</span>
+                </h1>
+                
+                <h3 style="font-weight: 700; color: #475569; font-size: 1.3rem; margin-bottom: 20px; letter-spacing: -0.3px;">
+                    Configuração do Perfil Corporativo
+                </h3>
+                
+                <p style="font-size: 1.05rem; color: #64748B; line-height: 1.6; max-width: 440px; margin-bottom: 28px;">
+                    Sua conta pré-cadastrada pela administração já está pronta! Valide seus dados corporativos abaixo para liberar seu Workspace na plataforma.
+                </p>
+
+                <!-- Garantias de Segurança -->
+                <div class='security-pill'>
+                    <div class='security-icon'>🛡️</div>
+                    <div>
+                        <div style='font-weight: 700; color: #0F172A; font-size: 13px;'>Proteção de Dados & LGPD</div>
+                        <div style='color: #64748B; font-size: 12px;'>Seus dados são de uso exclusivo da Duarte Gestão</div>
+                    </div>
+                </div>
+
+                <div class='security-pill'>
+                    <div class='security-icon'>⚡</div>
+                    <div>
+                        <div style='font-weight: 700; color: #0F172A; font-size: 13px;'>Acesso Imediato</div>
+                        <div style='color: #64748B; font-size: 12px;'>Sua esteira de trabalho será liberada após salvar</div>
+                    </div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+    # --- LADO DIREITO: FORMULÁRIO DE COMPLEMENTAÇÃO ---
+    with col_form:
+        st.markdown("<div class='onboarding-card-glass'>", unsafe_allow_html=True)
+        
+        st.markdown(
+            """
+            <div style='text-align: center; margin-bottom: 20px;'>
+                <div style='font-size: 28px; margin-bottom: 4px;'>👤</div>
+                <h3 style='color: #001E57; font-weight: 800; margin: 0; font-size: 22px;'>Complete seu Perfil</h3>
+                <p style='color: #64748B; font-size: 13px; margin-top: 4px;'>Confirme os dados para personalização do seu perfil.</p>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+        nome_completar = st.text_input("Nome Completo (Obrigatório)", value=st.session_state.get("nome") or "", placeholder="ex: Erick Duarte", key="completar_nome")
+        email_completar = st.text_input("E-mail Corporativo", placeholder="seuemail@duartegestao.com.br", key="completar_email")
+        telefone_completar = st.text_input("WhatsApp / Telefone Direct", placeholder="(11) 99999-9999", key="completar_telefone")
 
         st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("✅ SALVAR E ACESSAR", type="primary", use_container_width=True):
-            if not nome_completar:
-                st.warning("O nome completo é obrigatório.")
+        if st.button("🚀 SALVAR E ACESSAR PLATAFORMA", type="primary", use_container_width=True):
+            if not nome_completar.strip():
+                st.warning("⚠️ Por favor, preencha o seu nome completo para prosseguir.")
             else:
-                payload = {"nome": nome_completar, "email": email_completar or None, "telefone": telefone_completar or None}
-                resp = api_put_json("/usuarios/me", payload)
+                payload = {
+                    "nome": nome_completar.strip(),
+                    "email": email_completar.strip() if email_completar else None,
+                    "telefone": telefone_completar.strip() if telefone_completar else None
+                }
+                
+                with st.spinner("Atualizando cadastro e configurando área de trabalho..."):
+                    resp = api_put_json("/usuarios/me", payload)
+                    
                 if resp.status_code == 200:
                     data = resp.json()
                     st.session_state.nome = data.get("nome")
                     st.session_state.perfil_completo = True
-                    st.success("Perfil atualizado! Preparando seu ambiente...")
+                    st.success("✨ Perfil configurado com sucesso! Redirecionando...")
                     time.sleep(0.5)
                     st.rerun()
                 else:
-                    st.error(f"Erro ao salvar perfil: {resp.text}")
-        
+                    st.error(f"❌ Erro ao atualizar perfil: {resp.text}")
+
         st.markdown("</div>", unsafe_allow_html=True)
+    
     st.markdown("</div>", unsafe_allow_html=True)
     st.stop()
 
 # ===================== 3. CONTEXTO DO PERFIL (SIDEBAR) =====================
-nome_usuario = (st.session_state.nome or st.session_state.username or "").upper()
-partes_nome = nome_usuario.split()
-iniciais = "".join([n[0] for n in partes_nome[:2]]) if len(partes_nome) > 1 else nome_usuario[0:2]
-role = st.session_state.role
 
-# Cartão de Perfil - Estilo Glassmorphism Premium
+# 1. Tratamento Defensivo do Nome e Iniciais
+nome_raw = st.session_state.get("nome") or st.session_state.get("username") or "Usuário"
+nome_usuario = nome_raw.strip().title()
+partes_nome = nome_usuario.split()
+iniciais = "".join([n[0] for n in partes_nome[:2]]).upper() if len(partes_nome) > 1 else nome_usuario[:2].upper()
+role = st.session_state.get("role", "Operador")
+
+# 2. Definição Visual da Badge por Permissão (Role Color Mapping)
+role_styles = {
+    "Admin Master": "background: rgba(239, 68, 68, 0.15); color: #FCA5A5; border: 1px solid rgba(239, 68, 68, 0.3);",
+    "Gestão": "background: rgba(255, 146, 0, 0.15); color: #FFB84D; border: 1px solid rgba(255, 146, 0, 0.3);",
+    "Operador": "background: rgba(16, 185, 129, 0.15); color: #6EE7B7; border: 1px solid rgba(16, 185, 129, 0.3);"
+}
+style_role = role_styles.get(role, "background: rgba(255, 255, 255, 0.1); color: #E2E8F0; border: 1px solid rgba(255, 255, 255, 0.2);")
+
+# 3. CSS Exclusivo da Sidebar
+st.sidebar.markdown("""
+<style>
+    /* Estilização da Sidebar Glassmorphism */
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #001E57 0%, #000F2D 100%) !important;
+        border-right: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    /* Card de Perfil */
+    .profile-card {
+        background: rgba(255, 255, 255, 0.05);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 20px;
+        padding: 22px 16px;
+        text-align: center;
+        margin-bottom: 24px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .profile-card:hover {
+        border-color: rgba(255, 146, 0, 0.4);
+        box-shadow: 0 12px 35px rgba(255, 146, 0, 0.15);
+    }
+
+    /* Container do Avatar com Indicador Online */
+    .avatar-wrapper {
+        position: relative;
+        width: 68px;
+        height: 68px;
+        margin: 0 auto 12px auto;
+    }
+    .avatar-circle {
+        background: linear-gradient(135deg, #FF9200 0%, #CC7500 100%);
+        color: #FFFFFF;
+        width: 100%;
+        height: 100%;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 22px;
+        font-weight: 900;
+        letter-spacing: 1px;
+        box-shadow: 0 6px 20px rgba(255, 146, 0, 0.4);
+        border: 2px solid rgba(255, 255, 255, 0.2);
+    }
+    .status-indicator {
+        position: absolute;
+        bottom: 2px;
+        right: 2px;
+        width: 14px;
+        height: 14px;
+        background-color: #10B981;
+        border: 2.5px solid #001E57;
+        border-radius: 50%;
+    }
+
+    /* Botão de Logout Customizado */
+    .logout-btn-wrapper button {
+        background: rgba(239, 68, 68, 0.1) !important;
+        color: #FCA5A5 !important;
+        border: 1px solid rgba(239, 68, 68, 0.25) !important;
+        border-radius: 12px !important;
+        font-weight: 700 !important;
+        transition: all 0.25s ease !important;
+    }
+    .logout-btn-wrapper button:hover {
+        background: rgba(239, 68, 68, 0.25) !important;
+        border-color: #EF4444 !important;
+        color: #FFFFFF !important;
+        box-shadow: 0 4px 15px rgba(239, 68, 68, 0.3) !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# 4. Header de Marca na Sidebar
+st.sidebar.markdown("""
+<div style='display: flex; align-items: center; gap: 10px; padding: 10px 5px 20px 5px;'>
+    <div style='background: #FF9200; width: 8px; height: 24px; border-radius: 4px;'></div>
+    <div>
+        <div style='color: #FFFFFF; font-weight: 900; font-size: 16px; letter-spacing: -0.5px;'>DUARTE PERFORMANCE</div>
+        <div style='color: rgba(255, 255, 255, 0.5); font-size: 10px; font-weight: 700; text-transform: uppercase;'>Credenciamento v2.4</div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+# 5. Cartão de Perfil do Usuário
 st.sidebar.markdown(f"""
-<div style='
-    background: rgba(255, 255, 255, 0.04); 
-    backdrop-filter: blur(12px); 
-    border: 1px solid rgba(255, 255, 255, 0.08); 
-    border-radius: 20px; 
-    padding: 24px 15px; 
-    text-align: center; 
-    margin-bottom: 30px;
-    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.15);
-'>
-    <div style='
-        background: linear-gradient(135deg, var(--accent-orange) 0%, #CC7500 100%); 
-        color: #FFFFFF; 
-        width: 65px; 
-        height: 65px; 
-        border-radius: 50%; 
-        display: flex; 
-        align-items: center; 
-        justify-content: center; 
-        font-size: 24px; 
-        font-weight: 800; 
-        margin: 0 auto 15px auto;
-        box-shadow: 0 4px 15px rgba(255, 146, 0, 0.35);
-        border: 2px solid rgba(255, 255, 255, 0.15);
-    '>{iniciais}</div>
-    <p style='color: #F8FAFC; font-size: 17px; font-weight: 700; margin: 0 0 8px 0; letter-spacing: 0.3px;'>{nome_usuario}</p>
+<div class='profile-card'>
+    <div class='avatar-wrapper'>
+        <div class='avatar-circle'>{iniciais}</div>
+        <div class='status-indicator' title='Sessão Ativa'></div>
+    </div>
+    <div style='color: #F8FAFC; font-size: 16px; font-weight: 800; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;'>
+        {nome_usuario}
+    </div>
     <span style='
-        padding: 5px 16px; 
+        padding: 4px 14px; 
         border-radius: 20px; 
         font-size: 10px; 
         font-weight: 800; 
         text-transform: uppercase; 
-        color: #FFFFFF; 
-        background: rgba(255, 255, 255, 0.1);
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        letter-spacing: 0.5px;
+        letter-spacing: 0.6px;
+        {style_role}
     '>{role}</span>
 </div>
 """, unsafe_allow_html=True)
 
-# Menu dinâmico de Navegação
-menus_disponiveis = ["📊 Dashboard Gerencial", "🗓️ Escala Semanal", "📑 Relatórios Operacionais", "📝 Lançar Execução Diária"]
+# 6. Construção Dinâmica do Menu de Navegação
+menus_disponiveis = [
+    "📊 Dashboard Gerencial", 
+    "🗓️ Escala Semanal", 
+    "📑 Relatórios Operacionais", 
+    "📝 Lançar Execução Diária"
+]
+
 if role in PAPEIS_GESTAO:
     menus_disponiveis.append("✏️ Editor de Apontamentos")
+
 if role == "Admin Master":
     menus_disponiveis.append("👥 Gestão de Equipe")
     menus_disponiveis.append("🔐 Auditoria e Acessos")
 
-# Título da seção de navegação com espaçamento moderno
-st.sidebar.markdown("<p style='color: rgba(255,255,255,0.4); font-size: 11px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 12px; margin-left: 5px;'>Navegação Principal</p>", unsafe_allow_html=True)
+# Título da Seção de Navegação
+st.sidebar.markdown(
+    "<p style='color: rgba(255,255,255,0.4); font-size: 10px; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; margin: 15px 0 10px 5px;'>Navegação Principal</p>", 
+    unsafe_allow_html=True
+)
 
-# O CSS que definimos no passo 1 já vai estilizar automaticamente esses radios!
+# Renderização do Menu Radio
 menu = st.sidebar.radio("Navegação do Sistema", menus_disponiveis, label_visibility="collapsed")
 
-# Separador visual e botão de logout fixado na estrutura
-st.sidebar.markdown("<hr style='border: none; border-top: 1px solid rgba(255,255,255,0.08); margin: 30px 0 20px 0;'>", unsafe_allow_html=True)
+# 7. Separador e Botão de Logout Estilizado
+st.sidebar.markdown("<hr style='border: none; border-top: 1px solid rgba(255,255,255,0.08); margin: 25px 0 15px 0;'>", unsafe_allow_html=True)
 
-if st.sidebar.button("🚪 Encerrar Sessão", use_container_width=True, type="secondary"):
+st.sidebar.markdown("<div class='logout-btn-wrapper'>", unsafe_allow_html=True)
+if st.sidebar.button("🚪 Encerrar Sessão", use_container_width=True):
     st.session_state.clear()
     st.rerun()
+st.sidebar.markdown("</div>", unsafe_allow_html=True)
 
 
 # --- ABA 1: DASHBOARD GERENCIAL ---
@@ -1832,28 +2161,17 @@ elif menu == "📝 Lançar Execução Diária":
 
     st.markdown("<div style='margin-top: 20px;'></div>", unsafe_allow_html=True)
 
-    # 8. SUBMISSÃO DO FORMULÁRIO COM VALIDAÇÕES
-    if st.button(
-        "🚀 ENVIAR APONTAMENTO DIÁRIO", type="primary", use_container_width=True
-    ):
+# 8. SUBMISSÃO DO FORMULÁRIO COM VALIDAÇÕES
+    if st.button("🚀 ENVIAR APONTAMENTO DIÁRIO", type="primary", use_container_width=True):
         if (
             cliente_sel == "Selecione..."
             or status_sel == "Selecione..."
             or not cliente_final
             or cliente_final == "Selecione..."
         ):
-            st.error(
-                "⚠️ Por favor, selecione o cliente e o status antes de salvar o"
-                " formulário."
-            )
-        elif status_sel in [
-            "Realizado Parcial",
-            "Não Realizado",
-        ] and not obs_texto.strip():
-            st.error(
-                "⚠️ A justificativa detalhada é estritamente obrigatória para"
-                " status parciais ou não realizados."
-            )
+            st.error("⚠️ Por favor, selecione o cliente e o status antes de salvar o formulário.")
+        elif status_sel in ["Realizado Parcial", "Não Realizado"] and not obs_texto.strip():
+            st.error("⚠️ A justificativa detalhada é estritamente obrigatória para status parciais ou não realizados.")
         else:
             payload = {
                 "operador_nome": st.session_state.get("nome", ""),
@@ -1874,7 +2192,7 @@ elif menu == "📝 Lançar Execução Diária":
                 else None
             )
 
-            with st.spinner("Gravando apontamento no ecossistema de dados..."):
+            with st.spinner("✨ Gravando apontamento no ecossistema de dados..."):
                 resp = (
                     api_post_form("/registros/", data=payload, files=files)
                     if "api_post_form" in globals()
@@ -1882,10 +2200,7 @@ elif menu == "📝 Lançar Execução Diária":
                 )
 
             if resp and resp.status_code in [200, 201]:
-                st.success(
-                    "✨ Perfeito! Apontamento gravado com sucesso no ecossistema"
-                    " de dados."
-                )
+                st.success("✨ Perfeito! Apontamento gravado com sucesso no ecossistema de dados.")
                 st.balloons()
             else:
                 detalhe_erro = (
@@ -1895,17 +2210,64 @@ elif menu == "📝 Lançar Execução Diária":
                 )
                 st.error(f"❌ Erro ao gravar o apontamento: {detalhe_erro}")
 
+
 # --- ABA 5: EDITOR DE APONTAMENTOS ---
 elif menu == "✏️ Editor de Apontamentos":
+
+    # 1. ESTILIZAÇÃO CSS E ANIMAÇÕES FLUIDAS
     st.markdown(
-        "<h1 style='color: #0F172A; font-weight: 800;'>Editor de"
-        " Apontamentos</h1>",
-        unsafe_allow_html=True,
+        """
+        <style>
+            @keyframes fadeInUp { 
+                from { opacity: 0; transform: translateY(16px); } 
+                to { opacity: 1; transform: translateY(0); } 
+            }
+            .editor-container { 
+                animation: fadeInUp 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards; 
+            }
+            .editor-header-banner {
+                background: linear-gradient(135deg, #001E57 0%, #0F172A 100%);
+                border-radius: 18px; 
+                padding: 24px 30px; 
+                color: #FFFFFF;
+                box-shadow: 0 12px 28px -5px rgba(0, 30, 87, 0.25); 
+                margin-bottom: 24px;
+            }
+            .preview-card {
+                background: rgba(255, 255, 255, 0.05);
+                backdrop-filter: blur(10px);
+                border-radius: 14px;
+                padding: 18px 22px;
+                border: 1px solid rgba(226, 232, 240, 0.2);
+                margin-bottom: 20px;
+                transition: all 0.3s ease;
+            }
+            .action-box {
+                background: rgba(0, 30, 87, 0.03);
+                border: 1px dashed rgba(0, 30, 87, 0.2);
+                border-radius: 16px;
+                padding: 22px;
+                margin-top: 30px;
+            }
+        </style>
+        """,
+        unsafe_allow_html=True
     )
+
+    # 2. CABEÇALHO DA ABA
     st.markdown(
-        "<p style='color: #64748B;'>Corrija um apontamento enviado"
-        " incorretamente. Toda edição fica registrada na Auditoria"
-        " automaticamente.</p>",
+        """
+        <div class='editor-container'>
+            <div class='editor-header-banner'>
+                <h2 style='margin: 0 0 6px 0; font-weight: 800; font-size: 26px; letter-spacing: -0.5px; color: #FFFFFF;'>
+                    ✏️ Editor de Apontamentos & Ajustes
+                </h2>
+                <p style='margin: 0; color: #94A3B8; font-size: 14px;'>
+                    Corrija lançamentos incorretos com rastreabilidade garantida. Toda edição gera um log automático na Auditoria.
+                </p>
+            </div>
+        </div>
+        """,
         unsafe_allow_html=True,
     )
 
@@ -1913,217 +2275,132 @@ elif menu == "✏️ Editor de Apontamentos":
         st.error("🔒 Acesso restrito a Gestores e Administradores.")
         st.stop()
 
-    resp_reg = api_get("/registros/")
+    with st.spinner("🔍 Carregando registros de lançamentos..."):
+        resp_reg = api_get("/registros/")
+
     if resp_reg.status_code != 200:
-        st.error("Não foi possível carregar os registros do servidor.")
+        st.error("⚠️ Não foi possível carregar os registros do servidor.")
         st.stop()
 
     dados_reg = resp_reg.json()
     if not dados_reg:
-        st.info("📭 Nenhum apontamento lançado ainda.")
+        st.info("📭 Nenhum apontamento lançado até o momento.")
         st.stop()
 
     df_reg = pd.DataFrame(dados_reg)
-    df_reg["data_registro"] = pd.to_datetime(
-        df_reg["data_registro"]
-    ).dt.strftime("%d/%m/%Y %H:%M")
+    df_reg["data_registro"] = pd.to_datetime(df_reg["data_registro"]).dt.strftime("%d/%m/%Y %H:%M")
+
+    # Mapeamento para o Selectbox
     opcoes = {
-        f"#{r['id']} — {r['operador_nome']} — {r['cliente_nome']} —"
-        f" {r['status']} ({r['data_registro']})": r
+        f"#{r['id']} — {r['operador_nome']} | {r['cliente_nome']} — {r['status']} ({r['data_registro']})": r
         for _, r in df_reg.iterrows()
     }
 
-    escolha = st.selectbox(
-        "Selecione o apontamento para editar", list(opcoes.keys())
-    )
+    st.markdown("##### 📌 Seleção do Lançamento")
+    escolha = st.selectbox("Busque ou escolha o registro para edição:", list(opcoes.keys()))
     item_sel = opcoes[escolha]
 
-    with st.form("form_editar_apontamento"):
-        cliente_edit = st.text_input("Cliente", value=item_sel["cliente_nome"])
-        status_edit = st.selectbox(
-            "Status",
-            [
-                "Realizado Total",
-                "Realizado Parcial",
-                "Não Realizado",
-                "Não Informado",
-            ],
-            index=(
-                [
-                    "Realizado Total",
-                    "Realizado Parcial",
-                    "Não Realizado",
-                    "Não Informado",
-                ].index(item_sel["status"])
-                if item_sel["status"]
-                in [
-                    "Realizado Total",
-                    "Realizado Parcial",
-                    "Não Realizado",
-                    "Não Informado",
-                ]
-                else 0
-            ),
-        )
+    # CARD DE PRÉ-VISUALIZAÇÃO DO REGISTRO SELECIONADO
+    status_color = {
+        "Realizado Total": "#10B981",
+        "Realizado Parcial": "#FF9200",
+        "Não Realizado": "#EF4444",
+        "Não Informado": "#64748B"
+    }.get(item_sel.get("status"), "#001E57")
+
+    st.markdown(
+        f"""
+        <div class='preview-card'>
+            <div style='display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;'>
+                <div>
+                    <span style='font-size: 12px; color: #64748B; font-weight: 700;'>REGISTRO SELECIONADO #{item_sel.get('id')}</span>
+                    <h4 style='margin: 2px 0 0 0; font-size: 18px; color: #0F172A;'>{item_sel.get('cliente_nome')}</h4>
+                    <p style='margin: 0; font-size: 13px; color: #64748B;'>Operador: <b>{item_sel.get('operador_nome')}</b> | Data: {item_sel.get('data_registro')}</p>
+                </div>
+                <div style='background: {status_color}15; border: 1px solid {status_color}40; color: {status_color}; padding: 6px 14px; border-radius: 20px; font-weight: 700; font-size: 13px;'>
+                    ● {item_sel.get('status')}
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    # FORMULÁRIO DE EDIÇÃO ESTRUTURADO
+    with st.form("form_editar_apontamento", clear_on_submit=False):
+        st.markdown("##### ✏️ Alterar Informações")
+        
+        c1, c2 = st.columns(2)
+        cliente_edit = c1.text_input("Cliente / Prestador", value=item_sel["cliente_nome"])
+        
+        lista_status = ["Realizado Total", "Realizado Parcial", "Não Realizado", "Não Informado"]
+        idx_status = lista_status.index(item_sel["status"]) if item_sel["status"] in lista_status else 0
+        status_edit = c2.selectbox("Novo Status", lista_status, index=idx_status)
+
         obs_edit = st.text_area(
-            "Observação / Justificativa", value=item_sel.get("justificativa") or ""
+            "Observação / Justificativa da Alteração", 
+            value=item_sel.get("justificativa") or "",
+            placeholder="Informe o motivo da correção do apontamento..."
         )
 
-        if st.form_submit_button("💾 Salvar Correção", type="primary"):
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.form_submit_button("💾 Salvar Correção do Apontamento", type="primary", use_container_width=True):
             payload = {
                 "cliente_nome": cliente_edit,
                 "status": status_edit,
                 "justificativa": obs_edit,
             }
-            resp = api_put_json(f"/registros/{int(item_sel['id'])}", payload)
+            with st.spinner("Atualizando apontamento e gerando log de auditoria..."):
+                resp = api_put_json(f"/registros/{int(item_sel['id'])}", payload)
+                
             if resp.status_code == 200:
-                st.success(
-                    "Apontamento corrigido! A alteração já está registrada na"
-                    " Auditoria."
-                )
+                st.success("✅ Apontamento corrigido com sucesso! A alteração foi gravada na Auditoria.")
                 st.rerun()
             else:
-                st.error(f"Erro ao editar: {resp.text}")
+                st.error(f"❌ Erro ao editar registro: {resp.text}")
 
-    st.markdown("---")
-    st.markdown("### 🔄 Verificação de Pendências do Dia")
-    st.caption(
-        "Marca automaticamente como 'Não Informado' qualquer atividade da"
-        " escala de hoje que ainda não tenha sido lançada."
+    # ÁREA DE PENDÊNCIAS DO DIA (ACTION CARD)
+    st.markdown(
+        """
+        <div class='action-box'>
+            <h4 style='margin: 0 0 4px 0; color: #001E57; font-weight: 800;'>🔄 Rotina Automatizada: Pendências do Dia</h4>
+            <p style='margin: 0 0 16px 0; color: #64748B; font-size: 13px;'>
+                Verifica automaticamente a escala de hoje e marca como <b>"Não Informado"</b> qualquer atividade pendente que não tenha recebido lançamento até o momento.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True
     )
-    if st.button("Verificar Pendências de Hoje"):
-        resp = api_post_json("/registros/marcar-pendentes/", {})
+    
+    if st.button("⚡ Executar Verificação de Pendências do Dia", use_container_width=True):
+        with st.spinner("Verificando escala e apontamentos pendentes..."):
+            resp = api_post_json("/registros/marcar-pendentes/", {})
         if resp.status_code == 200:
             qtd = resp.json().get("marcados_como_nao_informado", 0)
-            st.success(
-                f"{qtd} apontamento(s) pendente(s) marcado(s) como 'Não"
-                " Informado'."
-            )
+            st.success(f"🎯 Concluído! **{qtd}** apontamento(s) pendente(s) identificado(s) e marcado(s) como 'Não Informado'.")
         else:
-            st.error(f"Erro ao verificar pendências: {resp.text}")
+            st.error(f"❌ Erro ao verificar pendências: {resp.text}")
 
 # --- ABA 6: GESTÃO DE EQUIPE ---
 elif menu == "👥 Gestão de Equipe":
-    st.markdown(
-        "<h1 style='color: #0F172A; font-weight: 800;'>Gestão de Equipe</h1>",
-        unsafe_allow_html=True,
-    )
-    if role != "Admin Master":
-        st.error("🔒 Acesso restrito ao Admin Master.")
-        st.stop()
 
-    tab_add, tab_list = st.tabs(["➕ Adicionar Membro", "📋 Lista de Equipe"])
-
-    with tab_add:
-        st.caption(
-            "Você pode cadastrar só o essencial (usuário, senha provisória,"
-            " papel)."
-        )
-        resp_deptos = api_get("/departamentos/")
-        deptos = resp_deptos.json() if resp_deptos.status_code == 200 else []
-        opcoes_depto = {d["nome"]: d["id"] for d in deptos} if deptos else {}
-
-        with st.form("form_add_membro"):
-            c1, c2 = st.columns(2)
-            username_novo = c1.text_input(
-                "Usuário (login)", placeholder="ex: erick_duarte"
-            )
-            senha_provisoria = c2.text_input(
-                "Senha Provisória", type="password"
-            )
-
-            c3, c4 = st.columns(2)
-            role_novo = c3.selectbox(
-                "Cargo", ["Operador", "Gestor", "Admin Master"]
-            )
-            depto_novo = c4.selectbox(
-                "Departamento", ["(Nenhum)"] + list(opcoes_depto.keys())
-            )
-
-            st.markdown(
-                "###### Opcional — pode deixar em branco pra pessoa completar"
-                " depois"
-            )
-            c5, c6, c7 = st.columns(3)
-            nome_novo = c5.text_input("Nome Completo (opcional)")
-            email_novo = c6.text_input("E-mail (opcional)")
-            telefone_novo = c7.text_input("WhatsApp (opcional)")
-
-            if st.form_submit_button("Adicionar à Equipe", type="primary"):
-                if not username_novo or not senha_provisoria:
-                    st.warning("Usuário e senha provisória são obrigatórios.")
-                else:
-                    payload = {
-                        "username": username_novo,
-                        "password": senha_provisoria,
-                        "role": role_novo,
-                        "departamento_id": opcoes_depto.get(depto_novo),
-                        "nome": nome_novo or None,
-                        "email": email_novo or None,
-                        "telefone": telefone_novo or None,
-                    }
-                    resp = api_post_json("/usuarios/", payload)
-                    if resp.status_code == 200:
-                        st.success(
-                            f"Colaborador '{username_novo}' adicionado com"
-                            " sucesso!"
-                        )
-                        st.rerun()
-                    elif resp.status_code == 400:
-                        st.error(
-                            resp.json().get(
-                                "detail", "Este usuário já existe."
-                            )
-                        )
-                    else:
-                        st.error(f"Erro ao cadastrar: {resp.text}")
-
-    with tab_list:
-        resp_usuarios = api_get("/usuarios/")
-        if resp_usuarios.status_code == 200 and resp_usuarios.json():
-            df_equipe = pd.DataFrame(resp_usuarios.json())
-            df_equipe["perfil_completo"] = df_equipe["perfil_completo"].map(
-                {True: "✅ Completo", False: "❌ Incompleto"}
-            )
-            df_equipe = df_equipe.rename(
-                columns={
-                    "username": "Usuário",
-                    "nome": "Nome",
-                    "email": "E-mail",
-                    "telefone": "WhatsApp",
-                    "role": "Cargo",
-                    "perfil_completo": "Perfil",
-                }
-            )[["Usuário", "Nome", "E-mail", "WhatsApp", "Cargo", "Perfil"]]
-            st.dataframe(df_equipe, use_container_width=True, hide_index=True)
-        else:
-            st.info("Nenhum colaborador cadastrado ainda.")
-
-# --- ABA 7: AUDITORIA E ACESSOS ---
-elif menu == "🔐 Auditoria e Acessos":
-
-    # 1. INJEÇÃO DE CSS AVANÇADO (Design Glassmorphism, Animações e Cards Modernos)
+    # 1. ESTILIZAÇÃO E ANIMAÇÕES CSS
     st.markdown(
         """
         <style>
             @keyframes fadeInUp { 
-                from { opacity: 0; transform: translateY(14px); } 
+                from { opacity: 0; transform: translateY(16px); } 
                 to { opacity: 1; transform: translateY(0); } 
             }
-            @keyframes pulseGlow { 
-                0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); } 
-                70% { box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); } 
-                100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); } 
-            }
-            .audit-container { 
+            .team-container { 
                 animation: fadeInUp 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards; 
             }
-            .audit-header-banner {
+            .team-header-banner {
                 background: linear-gradient(135deg, #001E57 0%, #0F172A 100%);
-                border-radius: 16px; 
-                padding: 22px 28px; 
+                border-radius: 18px; 
+                padding: 24px 30px; 
                 color: #FFFFFF;
-                box-shadow: 0 10px 25px -5px rgba(0, 30, 87, 0.25); 
+                box-shadow: 0 12px 28px -5px rgba(0, 30, 87, 0.25); 
                 margin-bottom: 24px;
                 display: flex; 
                 align-items: center; 
@@ -2131,29 +2408,300 @@ elif menu == "🔐 Auditoria e Acessos":
                 flex-wrap: wrap; 
                 gap: 12px;
             }
-            .lgpd-badge {
-                background: rgba(16, 185, 129, 0.15); 
-                border: 1px solid rgba(16, 185, 129, 0.4);
-                color: #34D399; 
-                padding: 6px 14px; 
-                border-radius: 20px; 
-                font-size: 12px; 
-                font-weight: 700;
-                display: inline-flex; 
-                align-items: center; 
-                gap: 6px;
+            .kpi-grid-team {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                gap: 16px;
+                margin-bottom: 24px;
             }
-            .kpi-audit-card {
-                background: #FFFFFF; 
-                border-radius: 16px; 
-                padding: 18px 22px;
-                border: 1px solid rgba(226, 232, 240, 0.9); 
-                box-shadow: 0 4px 15px rgba(0, 30, 87, 0.05);
+            .kpi-team-card {
+                background: rgba(255, 255, 255, 0.05);
+                backdrop-filter: blur(8px);
+                border-radius: 14px;
+                padding: 16px 20px;
+                border: 1px solid rgba(226, 232, 240, 0.15);
                 transition: all 0.3s ease;
             }
-            .kpi-audit-card:hover {
-                transform: translateY(-2px);
-                box-shadow: 0 8px 25px rgba(0, 30, 87, 0.1);
+            .kpi-team-card:hover {
+                transform: translateY(-3px);
+                border-color: rgba(0, 30, 87, 0.4);
+            }
+            .kpi-team-title {
+                font-size: 11px;
+                text-transform: uppercase;
+                letter-spacing: 0.8px;
+                color: #94A3B8;
+                font-weight: 600;
+            }
+            .kpi-team-value {
+                font-size: 24px;
+                font-weight: 800;
+                color: #001E57;
+                margin-top: 4px;
+            }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+    # 2. BANNER DE CABEÇALHO
+    st.markdown(
+        """
+        <div class='team-container'>
+            <div class='team-header-banner'>
+                <div>
+                    <h2 style='margin: 0 0 6px 0; font-weight: 800; font-size: 26px; letter-spacing: -0.5px;'>
+                        👥 Gestão de Equipe & Controle de Acessos
+                    </h2>
+                    <p style='margin: 0; color: #94A3B8; font-size: 14px;'>
+                        Cadastre novos colaboradores, gerencie permissões por perfil e acompanhe a integridade dos cadastros.
+                    </p>
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    if role != "Admin Master":
+        st.error("🔒 Acesso restrito. Apenas Administradores Masters possuem permissão para gerenciar a equipe.")
+        st.stop()
+
+    # BUSCA INICIAL DE USUÁRIOS E DEPARTAMENTOS PARA MÉTRICAS E FORM
+    resp_deptos = api_get("/departamentos/")
+    deptos = resp_deptos.json() if resp_deptos.status_code == 200 else []
+    opcoes_depto = {d["nome"]: d["id"] for d in deptos} if deptos else {}
+
+    resp_usuarios = api_get("/usuarios/")
+    lista_usuarios = resp_usuarios.json() if (resp_usuarios.status_code == 200 and resp_usuarios.json()) else []
+
+    # KPI CARDS SUPERIORES
+    total_membros = len(lista_usuarios)
+    perfis_completos = sum(1 for u in lista_usuarios if u.get("perfil_completo"))
+    admins_count = sum(1 for u in lista_usuarios if u.get("role") == "Admin Master")
+
+    st.markdown(
+        f"""
+        <div class='kpi-grid-team'>
+            <div class='kpi-team-card'>
+                <div class='kpi-team-title'>Total de Colaboradores</div>
+                <div class='kpi-team-value'>{total_membros}</div>
+            </div>
+            <div class='kpi-team-card'>
+                <div class='kpi-team-title'>Cadastros Completos</div>
+                <div class='kpi-team-value' style='color: #10B981;'>{perfis_completos} / {total_membros}</div>
+            </div>
+            <div class='kpi-team-card'>
+                <div class='kpi-team-title'>Administradores</div>
+                <div class='kpi-team-value' style='color: #FF9200;'>{admins_count}</div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    # NAVEGAÇÃO DE ABAS
+    tab_list, tab_add = st.tabs(["📋 Lista de Equipe", "➕ Novo Colaborador"])
+
+    # --- ABA 1: LISTA DA EQUIPE ---
+    with tab_list:
+        if lista_usuarios:
+            df_equipe = pd.DataFrame(lista_usuarios)
+            
+            # Formatação visual dos status
+            if "perfil_completo" in df_equipe.columns:
+                df_equipe["perfil_completo"] = df_equipe["perfil_completo"].map(
+                    {True: "🟢 Completo", False: "🟡 Pendente"}
+                )
+
+            # Mapeamento e Renomeação de Colunas
+            colunas_map = {
+                "username": "Usuário",
+                "nome": "Nome Completo",
+                "email": "E-mail",
+                "telefone": "WhatsApp",
+                "role": "Cargo / Função",
+                "perfil_completo": "Status do Perfil"
+            }
+            
+            # Filtro reativo para a tabela
+            col_busca, col_filtro_role = st.columns([2, 1])
+            with col_busca:
+                termo_busca = st.text_input("🔍 Buscar membro", placeholder="Digite nome, usuário ou e-mail...")
+            with col_filtro_role:
+                filtro_cargo = st.selectbox("Filtrar por Cargo", ["Todos", "Operador", "Gestor", "Admin Master"])
+
+            # Aplicação de Filtros
+            if termo_busca:
+                mask = df_equipe.apply(lambda row: row.astype(str).str.contains(termo_busca, case=False).any(), axis=1)
+                df_equipe = df_equipe[mask]
+
+            if filtro_cargo != "Todos":
+                df_equipe = df_equipe[df_equipe["role"] == filtro_cargo]
+
+            # Seleciona apenas as colunas desejadas que existem no DataFrame
+            cols_exibicao = [c for c in colunas_map.keys() if c in df_equipe.columns]
+            df_exibir = df_equipe[cols_exibicao].rename(columns=colunas_map)
+
+            st.dataframe(
+                df_exibir,
+                use_container_width=True,
+                hide_index=True,
+                height=380
+            )
+        else:
+            st.info("📭 Nenhum colaborador cadastrado na base até o momento.")
+
+    # --- ABA 2: ADICIONAR COLABORADOR ---
+    with tab_add:
+        st.markdown("#### 👤 Dados do Novo Membro")
+        st.caption("Preencha as credenciais iniciais. O novo usuário poderá complementar as demais informações no primeiro acesso.")
+
+        with st.form("form_add_membro", clear_on_submit=True):
+            st.markdown("##### 🔑 Credenciais de Acesso (Obrigatório)")
+            c1, c2 = st.columns(2)
+            username_novo = c1.text_input("Usuário (Login)", placeholder="ex: erick.duarte")
+            senha_provisoria = c2.text_input("Senha Provisória", type="password", placeholder="••••••••")
+
+            c3, c4 = st.columns(2)
+            role_novo = c3.selectbox("Nível de Permissão (Cargo)", ["Operador", "Gestor", "Admin Master"])
+            depto_novo = c4.selectbox("Departamento de Atuação", ["(Nenhum)"] + list(opcoes_depto.keys()))
+
+            st.markdown("---")
+            st.markdown("##### 📝 Dados Complementares (Opcional)")
+            c5, c6, c7 = st.columns(3)
+            nome_novo = c5.text_input("Nome Completo", placeholder="ex: Erick Duarte")
+            email_novo = c6.text_input("E-mail Corporativo", placeholder="ex: erick@duartegestao.com.br")
+            telefone_novo = c7.text_input("WhatsApp / Telefone", placeholder="ex: (11) 99999-9999")
+
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.form_submit_button("🚀 Cadastrar Colaborador", type="primary", use_container_width=True):
+                if not username_novo or not senha_provisoria:
+                    st.warning("⚠️ Usuário e senha provisória são campos obrigatórios.")
+                else:
+                    payload = {
+                        "username": username_novo.strip().lower(),
+                        "password": senha_provisoria,
+                        "role": role_novo,
+                        "departamento_id": opcoes_depto.get(depto_novo),
+                        "nome": nome_novo.strip() if nome_novo else None,
+                        "email": email_novo.strip() if email_novo else None,
+                        "telefone": telefone_novo.strip() if telefone_novo else None,
+                    }
+                    resp = api_post_json("/usuarios/", payload)
+                    if resp.status_code == 200:
+                        st.success(f"✅ Colaborador **{username_novo}** cadastrado com sucesso!")
+                        st.rerun()
+                    elif resp.status_code == 400:
+                        st.error(resp.json().get("detail", "⚠️ Este nome de usuário já está em uso."))
+                    else:
+                        st.error(f"❌ Erro ao realizar cadastro: {resp.text}")
+
+# --- ABA 7: AUDITORIA E ACESSOS ---
+elif menu == "🔐 Auditoria e Acessos":
+
+    # 1. INJEÇÃO DE CSS AVANÇADO (Glassmorphism, Animações e Cards Neomórficos)
+    st.markdown(
+        """
+        <style>
+            /* Animações de Entrada e Efeitos */
+            @keyframes fadeInUp { 
+                from { opacity: 0; transform: translateY(18px); } 
+                to { opacity: 1; transform: translateY(0); } 
+            }
+            @keyframes pulseGlow { 
+                0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); } 
+                70% { box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); } 
+                100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); } 
+            }
+
+            .audit-container { 
+                animation: fadeInUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards; 
+            }
+
+            /* Header Principal com Glassmorphism */
+            .audit-header-banner {
+                background: linear-gradient(135deg, rgba(0, 30, 87, 0.95) 0%, rgba(15, 23, 42, 0.98) 100%);
+                backdrop-filter: blur(12px);
+                -webkit-backdrop-filter: blur(12px);
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 20px; 
+                padding: 26px 32px; 
+                color: #FFFFFF;
+                box-shadow: 0 15px 35px -5px rgba(0, 30, 87, 0.3); 
+                margin-bottom: 28px;
+                display: flex; 
+                align-items: center; 
+                justify-content: space-between; 
+                flex-wrap: wrap; 
+                gap: 16px;
+            }
+
+            /* Badge LGPD com Pulso Ativo */
+            .lgpd-badge {
+                background: rgba(16, 185, 129, 0.12); 
+                border: 1px solid rgba(16, 185, 129, 0.4);
+                color: #34D399; 
+                padding: 8px 18px; 
+                border-radius: 30px; 
+                font-size: 13px; 
+                font-weight: 700;
+                letter-spacing: 0.3px;
+                display: inline-flex; 
+                align-items: center; 
+                gap: 8px;
+                animation: pulseGlow 2.5s infinite;
+            }
+
+            /* Cards de Métricas em Destaque (KPIs) */
+            .kpi-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+                gap: 18px;
+                margin-bottom: 28px;
+            }
+            .kpi-card {
+                background: rgba(255, 255, 255, 0.05);
+                backdrop-filter: blur(8px);
+                border-radius: 16px;
+                padding: 20px 22px;
+                border: 1px solid rgba(226, 232, 240, 0.15);
+                box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
+                transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            }
+            .kpi-card:hover {
+                transform: translateY(-4px);
+                border-color: rgba(0, 30, 87, 0.4);
+                box-shadow: 0 12px 30px rgba(0, 30, 87, 0.12);
+            }
+            .kpi-title {
+                font-size: 12px;
+                text-transform: uppercase;
+                letter-spacing: 0.8px;
+                color: #94A3B8;
+                font-weight: 600;
+                margin-bottom: 6px;
+            }
+            .kpi-value {
+                font-size: 26px;
+                font-weight: 800;
+                color: #001E57;
+            }
+
+            /* Customização de Tabela e Scrollbar */
+            ::-webkit-scrollbar {
+                width: 8px;
+                height: 8px;
+            }
+            ::-webkit-scrollbar-track {
+                background: rgba(0, 0, 0, 0.02);
+            }
+            ::-webkit-scrollbar-thumb {
+                background: rgba(0, 30, 87, 0.2);
+                border-radius: 10px;
+            }
+            ::-webkit-scrollbar-thumb:hover {
+                background: rgba(0, 30, 87, 0.5);
             }
         </style>
         """,
@@ -2166,11 +2714,15 @@ elif menu == "🔐 Auditoria e Acessos":
         <div class='audit-container'>
             <div class='audit-header-banner'>
                 <div>
-                    <h2 style='margin: 0 0 8px 0; font-weight: 800; font-size: 24px;'>Logs de Auditoria e Segurança</h2>
-                    <p style='margin: 0; color: #CBD5E1; font-size: 14px;'>Rastreabilidade completa de ações, acessos e edições na plataforma.</p>
+                    <h2 style='margin: 0 0 6px 0; font-weight: 800; font-size: 26px; letter-spacing: -0.5px;'>
+                        🔐 Control Tower & Trilha de Auditoria
+                    </h2>
+                    <p style='margin: 0; color: #94A3B8; font-size: 14px;'>
+                        Rastreabilidade em tempo real de operações, alterações e acessos na plataforma.
+                    </p>
                 </div>
                 <div class='lgpd-badge'>
-                    <span>🛡️</span> Conformidade LGPD & Compliance Operacional
+                    <span>🛡️</span> Compliance LGPD Ativo
                 </div>
             </div>
         </div>
@@ -2182,8 +2734,8 @@ elif menu == "🔐 Auditoria e Acessos":
         st.warning("🔒 Acesso restrito. Apenas administradores possuem permissão para visualizar logs de auditoria.")
         st.stop()
 
-    # 3. REQUISIÇÃO E EXIBIÇÃO DE DADOS DA AUDITORIA
-    with st.spinner("Buscando registros de auditoria e monitoramento..."):
+    # 3. REQUISIÇÃO E EXIBIÇÃO DE DADOS
+    with st.spinner("⚡ Sincronizando registros de segurança..."):
         resp_audit = api_get("/auditoria/")
         
     if resp_audit.status_code == 200:
@@ -2193,39 +2745,66 @@ elif menu == "🔐 Auditoria e Acessos":
         else:
             df_audit = pd.DataFrame(dados_audit)
             
-            # Formatação estrutural
+            # Formatação estrutural de datas
             if "data_hora" in df_audit.columns:
                 df_audit["data_hora"] = pd.to_datetime(df_audit["data_hora"]).dt.strftime("%d/%m/%Y %H:%M:%S")
             
-            st.markdown("### 📜 Histórico de Atividades")
+            # --- CARDS DE MÉTRICAS (KPIs RÁPIDOS) ---
+            total_logs = len(df_audit)
+            usuarios_unicos = df_audit["usuario"].nunique() if "usuario" in df_audit.columns else "N/A"
+            acoes_hoje = len(df_audit) # Pode filtrar por data atual se necessário
+
+            st.markdown(
+                f"""
+                <div class='kpi-grid'>
+                    <div class='kpi-card'>
+                        <div class='kpi-title'>Total de Eventos</div>
+                        <div class='kpi-value'>{total_logs}</div>
+                    </div>
+                    <div class='kpi-card'>
+                        <div class='kpi-title'>Usuários Ativos</div>
+                        <div class='kpi-value'>{usuarios_unicos}</div>
+                    </div>
+                    <div class='kpi-card'>
+                        <div class='kpi-title'>Status do Sistema</div>
+                        <div class='kpi-value' style='color: #10B981; font-size: 20px; font-weight: 700;'>🟢 Monitorado</div>
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+            st.markdown("### 📜 Registros de Atividade")
             
-            # Filtro reativo para os Logs
-            col_busca, _ = st.columns([1, 2])
+            # Filtro Interativo
+            col_busca, col_espaco = st.columns([1.5, 1.5])
             with col_busca:
-                termo_busca = st.text_input("🔍 Buscar em logs (ex: Nome de Usuário, Ação, Data)")
+                termo_busca = st.text_input("🔍 Filtrar logs em tempo real", placeholder="Digite um nome, ação, ID ou data...")
                 
             if termo_busca:
                 mask = df_audit.apply(lambda row: row.astype(str).str.contains(termo_busca, case=False).any(), axis=1)
                 df_audit = df_audit[mask]
-                
+
+            # Exibição do Dataframe com Altura Fixa
             st.dataframe(
                 df_audit,
                 use_container_width=True,
-                hide_index=True
+                hide_index=True,
+                height=420
             )
             
-            # Processo de Exportação Excel
+            # --- ÁREA DE EXPORTAÇÃO ---
             buffer_audit = io.BytesIO()
             with pd.ExcelWriter(buffer_audit, engine="xlsxwriter") as writer:
                 df_audit.to_excel(writer, sheet_name="Auditoria_Segurança", index=False)
                 
             st.markdown("<br>", unsafe_allow_html=True)
             st.download_button(
-                label="📥 Baixar Logs de Auditoria (.xlsx)",
+                label="📥 Exportar Relatório de Auditoria (.xlsx)",
                 data=buffer_audit.getvalue(),
-                file_name=f"Auditoria_Duarte_Gestao_{datetime.now().strftime('%d%m%Y')}.xlsx",
+                file_name=f"Auditoria_Duarte_Gestao_{datetime.now().strftime('%d%m%Y_%H%M')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                type="secondary"
+                type="primary"
             )
     else:
         st.error(f"⚠️ Erro ao carregar as trilhas de auditoria: {resp_audit.text}")
