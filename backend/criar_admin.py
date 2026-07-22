@@ -1,42 +1,55 @@
-from database import SessionLocal, engine
-from models import Base, Usuario
-from auth import obter_hash_senha
+"""
+Script de inicialização: cria/atualiza o Admin Master padrão.
+Roda automaticamente antes do uvicorn subir (veja o Start Command no Render:
+"python criar_admin.py && uvicorn main:app ..."), então toda vez que o backend
+reinicia, esse script garante que o admin existe com a senha certa.
+"""
+import database
+import models
+import auth
 
-def resetar_ou_criar_admin():
-    # Garante que as tabelas existem
-    Base.metadata.create_all(bind=engine)
-    db = SessionLocal()
-    
-    try:
-        # Gera o hash da senha usando bcrypt nativo
-        nova_hash = obter_hash_senha("Duarte1234#")
-        
-        # Busca o admin pelo username
-        admin = db.query(Usuario).filter(Usuario.username == "admin").first()
+db = next(database.get_db())
 
-        if admin:
-            print(">>> Usuário 'admin' encontrado! Atualizando hash da senha no banco...")
-            admin.password_hash = nova_hash  # <-- Atualiza na coluna correta
-            db.commit()
-            print(">>> SENHA DO ADMIN ATUALIZADA COM SUCESSO PARA 'Duarte1234#'!")
-        else:
-            print(">>> Admin não encontrado. Criando novo usuário 'admin'...")
-            novo_admin = Usuario(
-                username="admin",
-                password_hash=nova_hash,  # <-- Salva na coluna correta
-                nome="Admin Master",
-                role="admin",
-                perfil_completo=True
-            )
-            db.add(novo_admin)
-            db.commit()
-            print(">>> ADMIN CRIADO COM SUCESSO!")
+# Departamento base
+depto_cred = db.query(models.DepartamentoModel).filter(models.DepartamentoModel.nome == "Credenciamento").first()
+if not depto_cred:
+    depto_cred = models.DepartamentoModel(nome="Credenciamento")
+    db.add(depto_cred)
+    db.commit()
+    db.refresh(depto_cred)
 
-    except Exception as e:
-        print(f"❌ Erro ao atualizar admin: {e}")
-        db.rollback()
-    finally:
-        db.close()
+ADMIN_USERNAME = "admin"
+ADMIN_SENHA = "Duarte1234#"
 
-if __name__ == "__main__":
-    resetar_ou_criar_admin()
+try:
+    admin_existente = db.query(models.Usuario).filter(models.Usuario.username == ADMIN_USERNAME).first()
+
+    if admin_existente:
+        print("Admin Master já existe. Atualizando a senha por garantia...")
+        admin_existente.password_hash = auth.obter_hash_senha(ADMIN_SENHA)
+        admin_existente.role = "Admin Master"
+        admin_existente.perfil_completo = True
+    else:
+        print("Criando o Admin Master inicial...")
+        novo_admin = models.Usuario(
+            username=ADMIN_USERNAME,
+            password_hash=auth.obter_hash_senha(ADMIN_SENHA),
+            nome="Admin Master",
+            role="Admin Master",
+            perfil_completo=True,
+            departamento_id=depto_cred.id
+        )
+        db.add(novo_admin)
+
+    db.commit()
+    print("=" * 50)
+    print("  ADMIN MASTER PRONTO!")
+    print(f"  usuário: {ADMIN_USERNAME} | senha: {ADMIN_SENHA}")
+    print("=" * 50)
+
+except Exception as e:
+    db.rollback()
+    print(f"❌ Erro ao criar/atualizar o Admin Master: {e}")
+
+finally:
+    db.close()
