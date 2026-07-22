@@ -1,15 +1,16 @@
-from sqlalchemy import Column, Integer, String, Boolean
-from database import Base
+from sqlalchemy import Column, Integer, String, Boolean, DateTime
+from datetime import datetime
+from backend.database import Base
 
 class Usuario(Base):
     __tablename__ = "usuarios"
 
     id = Column(Integer, primary_key=True, index=True)
-    username = Column(String(50), unique=True, nullable=False, index=True)
-    password_hash = Column(String, nullable=False)  # <-- Corrigido para bater com o pgAdmin
-    nome = Column(String(150), nullable=True)
-    email = Column(String(150), nullable=True)
-    telefone = Column(String(20), nullable=True)
+    username = Column(String, unique=True, index=True, nullable=False)
+    password_hash = Column(String, nullable=False)
+    nome = Column(String, nullable=True)
+    email = Column(String, nullable=True)
+    telefone = Column(String, nullable=True)
+    role = Column(String, default="operador")
     perfil_completo = Column(Boolean, default=False)
-    role = Column(String(50), default="operador")
-    departamento_id = Column(Integer, nullable=True)
+    criado_em = Column(DateTime, default=datetime.utcnow)
