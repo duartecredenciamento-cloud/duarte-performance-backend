@@ -2,7 +2,10 @@
 # UTILS.PY — Duarte Performance (Módulo de Utilitários)
 # ==============================================================================
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, date
+import openpyxl
+import requests
+import os
 
 def dia_semana_atual():
     """Retorna o dia da semana atual formatado em Português."""
