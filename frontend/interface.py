@@ -2148,59 +2148,29 @@ elif menu == "🔐 Auditoria e Acessos":
                 border-radius: 16px; 
                 padding: 18px 22px;
                 border: 1px solid rgba(226, 232, 240, 0.9); 
-                box-shadow: 0 4px 15px rgba(0, 0, 0, 0.03);
-                position: relative; 
-                overflow: hidden;
+                box-shadow: 0 4px 15px rgba(0, 30, 87, 0.05);
+                transition: all 0.3s ease;
             }
-            .kpi-bar { 
-                position: absolute; 
-                top: 0; 
-                left: 0; 
-                width: 5px; 
-                height: 100%; 
-            }
-            .filter-card { 
-                background: #FFFFFF; 
-                border: 1px solid #E2E8F0; 
-                border-radius: 16px; 
-                padding: 20px 24px; 
-                margin-bottom: 20px; 
-            }
-            .audit-footer-badge { 
-                background: #F8FAFC; 
-                border: 1px solid #E2E8F0; 
-                border-radius: 12px; 
-                padding: 14px 20px; 
-                color: #475569; 
-                font-size: 13px; 
-                display: flex; 
-                align-items: center; 
-                gap: 12px; 
-                margin-top: 20px; 
+            .kpi-audit-card:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 8px 25px rgba(0, 30, 87, 0.1);
             }
         </style>
         """,
-        unsafe_allow_html=True,
+        unsafe_allow_html=True
     )
 
-    # 2. CABEÇALHO DO MÓDULO
+    # 2. CABEÇALHO DA AUDITORIA
     st.markdown(
         """
         <div class='audit-container'>
             <div class='audit-header-banner'>
                 <div>
-                    <div style='display: flex; align-items: center; gap: 10px; margin-bottom: 6px;'>
-                        <h2 style='margin: 0; color: #FFFFFF; font-weight: 800; font-size: 1.8rem; letter-spacing: -0.5px;'>
-                            🔐 Módulo de Auditoria & Segurança
-                        </h2>
-                        <span class='lgpd-badge'>
-                            <span style='height: 8px; width: 8px; background-color: #34D399; border-radius: 50%; display: inline-block; animation: pulseGlow 2s infinite;'></span>
-                            LGPD COMPLIANT
-                        </span>
-                    </div>
-                    <p style='margin: 0; color: #94A3B8; font-size: 0.95rem;'>
-                        Rastreamento completo e imutável de transações, edições de cronograma, acessos e justificativas.
-                    </p>
+                    <h2 style='margin: 0 0 8px 0; font-weight: 800; font-size: 24px;'>Logs de Auditoria e Segurança</h2>
+                    <p style='margin: 0; color: #CBD5E1; font-size: 14px;'>Rastreabilidade completa de ações, acessos e edições na plataforma.</p>
+                </div>
+                <div class='lgpd-badge'>
+                    <span>🛡️</span> Conformidade LGPD & Compliance Operacional
                 </div>
             </div>
         </div>
@@ -2208,178 +2178,54 @@ elif menu == "🔐 Auditoria e Acessos":
         unsafe_allow_html=True,
     )
 
-    # 3. VERIFICAÇÃO DE PERMISSÃO (ADMIN MASTER)
-    user_role = st.session_state.get("role", "")
-    if user_role != "Admin Master":
-        st.error(
-            "🔒 **Acesso Negado:** Esta área é restrita exclusivamente ao"
-            " perfil Admin Master."
-        )
+    if role != "Admin Master":
+        st.warning("🔒 Acesso restrito. Apenas administradores possuem permissão para visualizar logs de auditoria.")
         st.stop()
 
-    # 4. BUSCA DE LOGS NA API
-    with st.spinner("Buscando trilha de auditoria em tempo real..."):
-        try:
-            resp_audit = api_get("/auditoria/")
-        except Exception as e:
-            st.error(
-                f"❌ Erro de conexão ao buscar logs de auditoria: {str(e)}"
+    # 3. REQUISIÇÃO E EXIBIÇÃO DE DADOS DA AUDITORIA
+    with st.spinner("Buscando registros de auditoria e monitoramento..."):
+        resp_audit = api_get("/auditoria/")
+        
+    if resp_audit.status_code == 200:
+        dados_audit = resp_audit.json()
+        if not dados_audit:
+            st.info("📭 Nenhum log de auditoria registrado no sistema no momento.")
+        else:
+            df_audit = pd.DataFrame(dados_audit)
+            
+            # Formatação estrutural
+            if "data_hora" in df_audit.columns:
+                df_audit["data_hora"] = pd.to_datetime(df_audit["data_hora"]).dt.strftime("%d/%m/%Y %H:%M:%S")
+            
+            st.markdown("### 📜 Histórico de Atividades")
+            
+            # Filtro reativo para os Logs
+            col_busca, _ = st.columns([1, 2])
+            with col_busca:
+                termo_busca = st.text_input("🔍 Buscar em logs (ex: Nome de Usuário, Ação, Data)")
+                
+            if termo_busca:
+                mask = df_audit.apply(lambda row: row.astype(str).str.contains(termo_busca, case=False).any(), axis=1)
+                df_audit = df_audit[mask]
+                
+            st.dataframe(
+                df_audit,
+                use_container_width=True,
+                hide_index=True
             )
-            st.stop()
-
-    if resp_audit is None or resp_audit.status_code != 200:
-        st.error("❌ Não foi possível carregar os logs de auditoria do servidor.")
-        st.stop()
-
-    dados_audit = resp_audit.json()
-    if not dados_audit:
-        st.info("ℹ️ Nenhum evento de auditoria registrado até o momento.")
-        st.stop()
-
-    # 5. TRATAMENTO DE DADOS COM PANDAS
-    df_audit = pd.DataFrame(dados_audit)
-    if "timestamp" in df_audit.columns:
-        try:
-            df_audit["timestamp"] = pd.to_datetime(
-                df_audit["timestamp"], errors="coerce"
-            ).dt.strftime("%d/%m/%Y %H:%M:%S")
-        except Exception:
-            pass
-
-    total_eventos = len(df_audit)
-    col_acao = (
-        df_audit["acao"] if "acao" in df_audit.columns else pd.Series(dtype=str)
-    )
-    falhas_login = int(col_acao.astype(str).str.contains("LOGIN_FAILED").sum())
-    alteracoes_cronograma = int(
-        col_acao.astype(str).str.contains("CRONOGRAMA").sum()
-    )
-
-    # 6. EXIBIÇÃO DE KPIS DE SEGURANÇA
-    c_sec1, c_sec2, c_sec3 = st.columns(3)
-    with c_sec1:
-        st.markdown(
-            f"""
-            <div class='kpi-audit-card'>
-                <div class='kpi-bar' style='background-color: #10B981;'></div>
-                <div style='color: #64748B; font-size: 12px; font-weight: 700; text-transform: uppercase;'>Eventos Registrados</div>
-                <div style='color: #0F172A; font-weight: 900; font-size: 28px; margin-top: 4px;'>{total_eventos}</div>
-                <div style='color: #10B981; font-size: 11px; font-weight: 600; margin-top: 2px;'>⚡ Registros Auditados</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    with c_sec2:
-        st.markdown(
-            f"""
-            <div class='kpi-audit-card'>
-                <div class='kpi-bar' style='background-color: #EF4444;'></div>
-                <div style='color: #64748B; font-size: 12px; font-weight: 700; text-transform: uppercase;'>Alertas de Login</div>
-                <div style='color: #0F172A; font-weight: 900; font-size: 28px; margin-top: 4px;'>{falhas_login}</div>
-                <div style='color: #EF4444; font-size: 11px; font-weight: 600; margin-top: 2px;'>⚠️ Tentativas Incorretas</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    with c_sec3:
-        st.markdown(
-            f"""
-            <div class='kpi-audit-card'>
-                <div class='kpi-bar' style='background-color: #F59E0B;'></div>
-                <div style='color: #64748B; font-size: 12px; font-weight: 700; text-transform: uppercase;'>Alterações de Escala</div>
-                <div style='color: #0F172A; font-weight: 900; font-size: 28px; margin-top: 4px;'>{alteracoes_cronograma}</div>
-                <div style='color: #F59E0B; font-size: 11px; font-weight: 600; margin-top: 2px;'>🔄 Edições no Cronograma</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    st.markdown("<div style='margin-top: 25px;'></div>", unsafe_allow_html=True)
-
-    # 7. MAPEAMENTO E PREPARAÇÃO DA TABELA
-    col_map = {
-        "timestamp": "Data/Hora",
-        "usuario_nome": "Nome",
-        "usuario_login": "Usuário",
-        "ip_origem": "IP de Origem",
-        "acao": "Ação",
-        "detalhes": "Detalhes",
-    }
-    df_audit_exibir = df_audit.rename(
-        columns={k: v for k, v in col_map.items() if k in df_audit.columns}
-    )
-    cols_ordem = [
-        c
-        for c in [
-            "Data/Hora",
-            "Nome",
-            "Usuário",
-            "Ação",
-            "Detalhes",
-            "IP de Origem",
-        ]
-        if c in df_audit_exibir.columns
-    ]
-    df_audit_exibir = df_audit_exibir[cols_ordem]
-
-    # 8. FILTROS DE BUSCA AVANÇADA
-    st.markdown("<div class='filter-card'>", unsafe_allow_html=True)
-    st.markdown(
-        "<h4 style='color: #001E57; font-weight: 800; font-size: 15px; margin: 0"
-        " 0 14px 0;'>🔍 Filtros de Busca Avançada</h4>",
-        unsafe_allow_html=True,
-    )
-
-    col1, col2 = st.columns(2)
-    with col1:
-        acoes_unicas = (
-            sorted(df_audit_exibir["Ação"].dropna().unique())
-            if "Ação" in df_audit_exibir.columns
-            else []
-        )
-        filtro_acao = st.multiselect(
-            "Filtrar por Tipo de Ação",
-            acoes_unicas,
-            placeholder="Selecione as ações...",
-        )
-
-    with col2:
-        usuarios_unicos = (
-            sorted([u for u in df_audit_exibir["Usuário"].dropna().unique() if u])
-            if "Usuário" in df_audit_exibir.columns
-            else []
-        )
-        filtro_usuario = st.multiselect(
-            "Filtrar por Usuário",
-            usuarios_unicos,
-            placeholder="Selecione os usuários...",
-        )
-
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    # 9. APLICAÇÃO DOS FILTROS E RENDERIZAÇÃO DA TABELA
-    df_audit_view = df_audit_exibir.copy()
-    if filtro_acao and "Ação" in df_audit_view.columns:
-        df_audit_view = df_audit_view[df_audit_view["Ação"].isin(filtro_acao)]
-    if filtro_usuario and "Usuário" in df_audit_view.columns:
-        df_audit_view = df_audit_view[
-            df_audit_view["Usuário"].isin(filtro_usuario)
-        ]
-
-    st.dataframe(
-        df_audit_view, use_container_width=True, hide_index=True, height=400
-    )
-
-    # 10. RODAPÉ DE GARANTIA DE INTEGRIDADE
-    st.markdown(
-        """
-        <div class='audit-footer-badge'>
-            <span style='font-size: 20px;'>🛡️</span>
-            <div>
-                <strong>Garantia de Integridade & Imutabilidade:</strong> 
-                Os registros armazenados nesta plataforma são protegidos contra edições e remoções por qualquer usuário, incluindo o Admin Master.
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+            
+            # Processo de Exportação Excel
+            buffer_audit = io.BytesIO()
+            with pd.ExcelWriter(buffer_audit, engine="xlsxwriter") as writer:
+                df_audit.to_excel(writer, sheet_name="Auditoria_Segurança", index=False)
+                
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.download_button(
+                label="📥 Baixar Logs de Auditoria (.xlsx)",
+                data=buffer_audit.getvalue(),
+                file_name=f"Auditoria_Duarte_Gestao_{datetime.now().strftime('%d%m%Y')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                type="secondary"
+            )
+    else:
+        st.error(f"⚠️ Erro ao carregar as trilhas de auditoria: {resp_audit.text}")
