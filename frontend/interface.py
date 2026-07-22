@@ -5,21 +5,21 @@ import plotly.express as px
 import time
 import io
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import utils
 
-# --- FUNÇÕES DE REQUISIÇÃO AUXILIARES (Para corrigir o Pylance) ---
-def api_post(endpoint, json_data):
-    headers = {}
-    if "token" in st.session_state and st.session_state.token:
-        headers["Authorization"] = f"Bearer {st.session_state.token}"
-    return requests.post(f"{API_URL}{endpoint}", json=json_data, headers=headers, timeout=10)
+# Render (e a maioria dos servidores em nuvem) roda em UTC. Sem isso, "o dia
+# da semana de hoje" fica errado entre ~21h e meia-noite no horário de
+# Brasília (quando em UTC já é o dia seguinte).
+FUSO_BR = ZoneInfo("America/Sao_Paulo")
+DIAS_SEMANA_PT = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
 
-def api_post_file(endpoint, files):
-    headers = {}
-    if "token" in st.session_state and st.session_state.token:
-        headers["Authorization"] = f"Bearer {st.session_state.token}"
-    return requests.post(f"{API_URL}{endpoint}", files=files, headers=headers, timeout=10)
+def agora_brasil() -> datetime:
+    return datetime.now(FUSO_BR)
+
+def dia_semana_atual_brasil() -> str:
+    return DIAS_SEMANA_PT[agora_brasil().weekday()]
 
 # ===================== 1. CONFIGURACOES GLOBAIS E UI =====================
 st.set_page_config(
@@ -689,7 +689,7 @@ role = st.session_state.get("role", "Operador")
 # 2. Definição Visual da Badge por Permissão (Role Color Mapping)
 role_styles = {
     "Admin Master": "background: rgba(239, 68, 68, 0.15); color: #FCA5A5; border: 1px solid rgba(239, 68, 68, 0.3);",
-    "Gestão": "background: rgba(255, 146, 0, 0.15); color: #FFB84D; border: 1px solid rgba(255, 146, 0, 0.3);",
+    "Gestor": "background: rgba(255, 146, 0, 0.15); color: #FFB84D; border: 1px solid rgba(255, 146, 0, 0.3);",
     "Operador": "background: rgba(16, 185, 129, 0.15); color: #6EE7B7; border: 1px solid rgba(16, 185, 129, 0.3);"
 }
 style_role = role_styles.get(role, "background: rgba(255, 255, 255, 0.1); color: #E2E8F0; border: 1px solid rgba(255, 255, 255, 0.2);")
@@ -1039,53 +1039,6 @@ elif menu == "🗓️ Escala Semanal":
     </div>
     """, unsafe_allow_html=True)
 
-    # Dados fiéis à foto enviada
-    ESCALA_IMAGEM_OFICIAL = [
-        # LARISSA
-        {"operador": "LARISSA", "periodo": "MANHA", "dia_semana": "Segunda", "cliente": "EV-CITI"},
-        {"operador": "LARISSA", "periodo": "MANHA", "dia_semana": "Terça", "cliente": "CONVACARE"},
-        {"operador": "LARISSA", "periodo": "MANHA", "dia_semana": "Quarta", "cliente": "IMC"},
-        {"operador": "LARISSA", "periodo": "MANHA", "dia_semana": "Quinta", "cliente": "PRIME"},
-        {"operador": "LARISSA", "periodo": "MANHA", "dia_semana": "Sexta", "cliente": "PRÉ ALINHAMENTO"},
-        {"operador": "LARISSA", "periodo": "TARDE", "dia_semana": "Sexta", "cliente": "RESCINDIDOS - UNICLIN/MAR/SILMARO e ETC"},
-        
-        # KARINE
-        {"operador": "KARINE", "periodo": "MANHA", "dia_semana": "Segunda", "cliente": "ALPHA LABs"},
-        {"operador": "KARINE", "periodo": "MANHA", "dia_semana": "Terça", "cliente": "CLINICA TOPÁZIO"},
-        {"operador": "KARINE", "periodo": "MANHA", "dia_semana": "Quarta", "cliente": "RALG"},
-        {"operador": "KARINE", "periodo": "MANHA", "dia_semana": "Quinta", "cliente": "ATIVAMENTE"},
-        {"operador": "KARINE", "periodo": "MANHA", "dia_semana": "Sexta", "cliente": "MVS"},
-        {"operador": "KARINE", "periodo": "TARDE", "dia_semana": "Quinta", "cliente": "MULHER MODERNA"},
-        {"operador": "KARINE", "periodo": "TARDE", "dia_semana": "Sexta", "cliente": "DIOGO PARAUAPEBAS"},
-
-        # NEIA
-        {"operador": "NEIA", "periodo": "MANHA", "dia_semana": "Segunda", "cliente": "CLINICA VIVENCY"},
-        {"operador": "NEIA", "periodo": "MANHA", "dia_semana": "Terça", "cliente": "LAB. BRUNO"},
-        {"operador": "NEIA", "periodo": "MANHA", "dia_semana": "Quarta", "cliente": "CLINICA AMINO"},
-        {"operador": "NEIA", "periodo": "MANHA", "dia_semana": "Quinta", "cliente": "CLINICA FARFALLA"},
-        {"operador": "NEIA", "periodo": "MANHA", "dia_semana": "Sexta", "cliente": "PRO-EXAME"},
-
-        # VITÓRIA - I
-        {"operador": "VITÓRIA - I", "periodo": "MANHA", "dia_semana": "Segunda", "cliente": "CLINICA ROSANA"},
-        {"operador": "VITÓRIA - I", "periodo": "MANHA", "dia_semana": "Terça", "cliente": "MEDLIGTH"},
-        {"operador": "VITÓRIA - I", "periodo": "MANHA", "dia_semana": "Quarta", "cliente": "INST. VER"},
-        {"operador": "VITÓRIA - I", "periodo": "MANHA", "dia_semana": "Quinta", "cliente": "CANTAREIRA"},
-        {"operador": "VITÓRIA - I", "periodo": "MANHA", "dia_semana": "Sexta", "cliente": "SUPORTE"},
-
-        # SILVANA
-        {"operador": "SILVANA", "periodo": "MANHA", "dia_semana": "Segunda", "cliente": "HOSP. AMATO"},
-        {"operador": "SILVANA", "periodo": "MANHA", "dia_semana": "Terça", "cliente": "CLIN COFFI"},
-        {"operador": "SILVANA", "periodo": "MANHA", "dia_semana": "Quarta", "cliente": "RBL"},
-        {"operador": "SILVANA", "periodo": "MANHA", "dia_semana": "Quinta", "cliente": "TRIDES"},
-        {"operador": "SILVANA", "periodo": "MANHA", "dia_semana": "Sexta", "cliente": "HARMONY"},
-
-        # JULIA
-        {"operador": "JULIA", "periodo": "MANHA", "dia_semana": "Segunda", "cliente": "FR FISIO"},
-        {"operador": "JULIA", "periodo": "MANHA", "dia_semana": "Terça", "cliente": "FISIO LIFE"},
-        {"operador": "JULIA", "periodo": "MANHA", "dia_semana": "Quarta", "cliente": "CIE FISIO - SJC"},
-        {"operador": "JULIA", "periodo": "MANHA", "dia_semana": "Quinta", "cliente": "EMS-BETESDA"},
-        {"operador": "JULIA", "periodo": "MANHA", "dia_semana": "Sexta", "cliente": "VIVA - TEA"},
-    ]
 
     # Carrega os dados salvos no banco
     # --- Carregamento dos Dados Blindado ---
@@ -1108,12 +1061,11 @@ elif menu == "🗓️ Escala Semanal":
     total_alocacoes = len(df_crono[~df_crono["cliente"].isin(["", "X", "FOLGA"])]) if "cliente" in df_crono.columns and not df_crono.empty else 0
     qtd_duplicados = int(df_crono["duplicado"].sum()) if "duplicado" in df_crono.columns and not df_crono.empty else 0
 
-    # ÚNICO CONJUNTO DE ABAS PARA A TELA
-    tab_matriz, tab_crud, tab_import = st.tabs([
-        "📊 Matriz de Distribuição", 
-        "✏️ Alocação Manual / CRUD", 
-        "📥 Importar Planilha Excel"
-    ])
+    # A Matriz de Distribuição fica como visão única aqui em cima (todo o
+    # visual/animações originais preservados). O CRUD de verdade (Adicionar/
+    # Editar/Remover/Importar) fica mais abaixo, já conectado aos endpoints
+    # reais do backend — restrito a Gestor/Admin Master.
+    tab_matriz, = st.tabs(["📊 Matriz de Distribuição"])
 
     # Estilização visual para células destacadas
     def estilizar_matriz(val):
@@ -1306,63 +1258,6 @@ elif menu == "🗓️ Escala Semanal":
                 hide_index=True,
                 height=450
             )
-
-    # ==================== ABA 2: ALOCAÇÃO MANUAL (CRUD) ====================
-    with tab_crud:
-        st.markdown("### ➕ Nova Alocação / Ajuste de Turno")
-        st.caption("Preencha o formulário abaixo para registrar ou atualizar a alocação de um operador.")
-
-        with st.form("form_alocacao_manual"):
-            c_op, c_dia, c_cli = st.columns(3)
-            with c_op:
-                op_nome = st.text_input("Nome do Operador", placeholder="ex: Lucas / Aline")
-            with c_dia:
-                dia_sel = st.selectbox("Dia da Semana", ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"])
-            with c_cli:
-                cli_nome = st.text_input("Cliente / Carteira / Status", placeholder="ex: VIVEST, FÉRIAS, SUPORTE")
-
-            st.markdown("<br>", unsafe_allow_html=True)
-            btn_salvar_alocacao = st.form_submit_button("💾 Salvar Alocação na Escala", type="primary", use_container_width=True)
-
-            if btn_salvar_alocacao:
-                if not op_nome or not cli_nome:
-                    st.warning("Preencha o operador e o cliente/status para salvar.")
-                else:
-                    payload = {"operador": op_nome, "dia_semana": dia_sel, "cliente": cli_nome}
-                    resp = api_post("/cronograma/", payload)
-                    if resp.status_code in [200, 201]:
-                        st.success(f"Alocação de **{op_nome}** para **{dia_sel}** salva com sucesso!")
-                        time.sleep(0.5)
-                        st.rerun()
-                    else:
-                        st.error(f"Erro ao salvar alocação: {resp.text}")
-
-    # ==================== ABA 3: IMPORTAÇÃO DE PLANILHA ====================
-    with tab_import:
-        st.markdown("### 📥 Carga Massiva via Planilha Excel")
-        st.caption("Envie o arquivo `.xlsx` da escala para importar os dados de uma só vez.")
-
-        arquivo_escala = st.file_uploader("Selecione o arquivo da Escala Semanal (.xlsx, .xls)", type=["xlsx", "xls"])
-        
-        if arquivo_escala is not None:
-            try:
-                df_upload = pd.read_excel(arquivo_escala)
-                st.markdown("#### Pré-visualização dos Dados Detectados:")
-                st.dataframe(df_upload.head(10), use_container_width=True)
-
-                if st.button("🚀 Confirmar Importação da Planilha", type="primary"):
-                    with st.spinner("Processando e sincronizando escala..."):
-                        # Envia a planilha em bytes/json para a API
-                        files = {"file": (arquivo_escala.name, arquivo_escala.getvalue(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
-                        resp = api_post_file("/cronograma/importar", files)
-                        if resp.status_code in [200, 201]:
-                            st.success("Planilha importada e sincronizada com sucesso!")
-                            time.sleep(1)
-                            st.rerun()
-                        else:
-                            st.error(f"Erro ao importar planilha: {resp.text}")
-            except Exception as e:
-                st.error(f"Erro ao ler o arquivo Excel: {e}")
 
     # --- CRUD (só Gestor/Admin Master) ---
     if role in PAPEIS_GESTAO:
@@ -2014,11 +1909,11 @@ elif menu == "📝 Lançar Execução Diária":
     )
 
     # 3. DADOS DE SESSÃO E AUDITORIA
-    dia_hoje = utils.dia_semana_atual() if "utils" in globals() else "Dia Atual"
+    dia_hoje = dia_semana_atual_brasil()
     nome_operador = (
         st.session_state.get("nome") or "Operador Não Identificado"
     ).upper()
-    data_formatada = datetime.now().strftime("%d/%m/%Y")
+    data_formatada = agora_brasil().strftime("%d/%m/%Y")
 
     st.markdown(
         f"""
@@ -2142,11 +2037,7 @@ elif menu == "📝 Lançar Execução Diária":
         obs_texto = st.text_area(
             "Detalhamento Operacional da Ocorrência",
             height=110,
-            placeholder=(
-                "Ex: Devido a alinhamento de urgência com a gestão, não foi"
-                " possível concluir a totalidade das tarefas planejadas para"
-                " este cliente."
-            ),
+            placeholder="Devido a reunião não foi possível realizar totalmente as tarefas do cliente",
             key="justificativa_diaria",
         )
 
@@ -2764,12 +2655,12 @@ elif menu == "🔐 Auditoria e Acessos":
             df_audit = pd.DataFrame(dados_audit)
             
             # Formatação estrutural de datas
-            if "data_hora" in df_audit.columns:
-                df_audit["data_hora"] = pd.to_datetime(df_audit["data_hora"]).dt.strftime("%d/%m/%Y %H:%M:%S")
+            if "timestamp" in df_audit.columns:
+                df_audit["timestamp"] = pd.to_datetime(df_audit["timestamp"]).dt.strftime("%d/%m/%Y %H:%M:%S")
             
             # --- CARDS DE MÉTRICAS (KPIs RÁPIDOS) ---
             total_logs = len(df_audit)
-            usuarios_unicos = df_audit["usuario"].nunique() if "usuario" in df_audit.columns else "N/A"
+            usuarios_unicos = df_audit["usuario_login"].nunique() if "usuario_login" in df_audit.columns else "N/A"
             acoes_hoje = len(df_audit) # Pode filtrar por data atual se necessário
 
             st.markdown(
