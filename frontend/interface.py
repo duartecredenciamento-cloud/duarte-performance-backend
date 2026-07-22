@@ -1,567 +1,819 @@
 import streamlit as st
-import pandas as pd
 import requests
-from datetime import datetime, date
-import os
-from datetime import datetime, timedelta, timezone
+import pandas as pd
+import plotly.express as px
+import time
+import io
+from datetime import datetime
 
-# -----------------------------------------------------------------------------
-# CONFIGURAÇÃO DA PÁGINA E CSS GLOBAL (PREMIUM DESIGN)
-# -----------------------------------------------------------------------------
+import utils
+
+# ===================== 1. CONFIGURACOES GLOBAIS E UI =====================
 st.set_page_config(
-    page_title="Duarte Performance - Gestão Operacional",
-    page_icon="📊",
+    page_title="Duarte Performance | Gestao Operacional",
+    page_icon="🟠",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded"
 )
 
+API_URL = "https://duarte-performance-backend.onrender.com"
+
 st.markdown("""
-    <style>
-        /* 1. Ocultar Elementos Padrão do Streamlit */
-        [data-testid="stSidebarNav"] { display: none !important; }
-        #MainMenu { visibility: hidden; }
-        footer { visibility: hidden; }
-        header { visibility: hidden; }
-
-        /* 2. Fundo Geral da Aplicação */
-        .stApp { 
-            background-color: #F4F6F9; 
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-        }
-
-        /* 3. Estilização da Sidebar (Azul Marinho Duarte) */
-        [data-testid="stSidebar"] {
-            background-color: #0A1128 !important;
-            border-right: 1px solid rgba(255, 255, 255, 0.08);
-            box-shadow: 4px 0px 15px rgba(0, 0, 0, 0.1);
-        }
-        [data-testid="stSidebar"] * { 
-            color: #FFFFFF !important; 
-        }
-
-        /* 4. Estilização de Cards de Métricas (st.metric) */
-        [data-testid="stMetric"] {
-            background: #FFFFFF;
-            padding: 18px 22px;
-            border-radius: 12px;
-            box-shadow: 0px 4px 12px rgba(10, 17, 40, 0.05);
-            border: 1px solid #E2E8F0;
-            transition: transform 0.2s ease, box-shadow 0.2s ease;
-        }
-        [data-testid="stMetric"]:hover {
-            transform: translateY(-2px);
-            box-shadow: 0px 6px 16px rgba(10, 17, 40, 0.1);
-        }
-        [data-testid="stMetricLabel"] {
-            font-weight: 600 !important;
-            color: #6C757D !important;
-            font-size: 0.88rem !important;
-        }
-        [data-testid="stMetricValue"] {
-            font-weight: 700 !important;
-            color: #0A1128 !important;
-        }
-
-        /* 5. Inputs, Selectbox e TextAreas (Glassmorphism & Clean) */
-        .stTextInput > div > div > input,
-        .stSelectbox > div > div > div,
-        .stTextArea > div > div > textarea {
-            background-color: #FFFFFF !important;
-            border-radius: 8px !important;
-            border: 1px solid #CED4DA !important;
-            color: #0A1128 !important;
-            box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.02);
-            transition: all 0.2s ease-in-out;
-        }
-        .stTextInput > div > div > input:focus,
-        .stSelectbox > div > div > div:focus,
-        .stTextArea > div > div > textarea:focus {
-            border-color: #F26419 !important;
-            box-shadow: 0 0 0 3px rgba(242, 100, 25, 0.15) !important;
-        }
-
-        /* 6. Botões (Laranja Duarte com Efeito Elevação) */
-        div.stButton > button:first-child {
-            background-color: #F26419; 
-            color: #FFFFFF !important; 
-            border: none; 
-            border-radius: 8px;
-            padding: 0.6rem 1.2rem;
-            font-weight: 600;
-            letter-spacing: 0.3px;
-            box-shadow: 0px 4px 10px rgba(242, 100, 25, 0.25);
-            transition: all 0.25s ease-in-out;
-        }
-        div.stButton > button:hover {
-            background-color: #D95615 !important; 
-            color: #FFFFFF !important;
-            box-shadow: 0px 6px 14px rgba(242, 100, 25, 0.35);
-            transform: translateY(-1px);
-        }
-        div.stButton > button:active {
-            transform: translateY(1px);
-            box-shadow: 0px 2px 6px rgba(242, 100, 25, 0.2);
-        }
-
-        /* 7. Formulários e Containers */
-        [data-testid="stForm"] {
-            background: #FFFFFF;
-            padding: 24px;
-            border-radius: 12px;
-            border: 1px solid #E2E8F0;
-            box-shadow: 0px 4px 16px rgba(0, 0, 0, 0.03);
-        }
-
-        /* 8. Tabelas e Dataframes (Bordas Arredondadas) */
-        [data-testid="stDataFrame"] {
-            background: #FFFFFF;
-            border-radius: 10px;
-            padding: 6px;
-            border: 1px solid #E2E8F0;
-            box-shadow: 0px 2px 8px rgba(0, 0, 0, 0.02);
-        }
-
-        /* 9. Scrollbar Customizada (Fina e Minimalista) */
-        ::-webkit-scrollbar {
-            width: 6px;
-            height: 6px;
-        }
-        ::-webkit-scrollbar-track {
-            background: #F4F6F9;
-        }
-        ::-webkit-scrollbar-thumb {
-            background: #CBD5E1;
-            border-radius: 4px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-            background: #94A3B8;
-        }
-    </style>
+<style>
+    :root {
+        --primary-dark: #0F172A;
+        --primary-light: #1E293B;
+        --accent-orange: #F39200;
+        --accent-hover: #E07A00;
+        --bg-body: #F8FAFC;
+        --bg-card: #FFFFFF;
+        --text-muted: #64748B;
+        --border-color: #E2E8F0;
+    }
+    .stApp {
+        background-color: var(--bg-body);
+        background-image: radial-gradient(circle at 50% 0%, rgba(243, 146, 0, 0.04) 0%, transparent 60%);
+        font-family: 'Segoe UI', system-ui, sans-serif;
+    }
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, var(--primary-dark) 0%, #020617 100%);
+        border-right: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    [data-testid="stSidebar"] * { color: #F8FAFC !important; }
+    .login-card {
+        background: var(--bg-card); padding: 50px; border-radius: 24px;
+        box-shadow: 0 10px 40px -10px rgba(15,23,42,0.1); max-width: 480px;
+        margin: auto; border: 1px solid var(--border-color);
+    }
+    div[data-baseweb="input"], div[data-baseweb="base-input"], div[data-baseweb="textarea"] {
+        background-color: #FFFFFF !important; border-radius: 10px !important; border: 1.5px solid #CBD5E1 !important;
+    }
+    .stTextInput input, .stTextArea textarea, input[type="text"], input[type="password"] {
+        background-color: #FFFFFF !important; color: #0F172A !important;
+        -webkit-text-fill-color: #0F172A !important; font-weight: 600 !important; font-size: 16px !important;
+    }
+    div[data-baseweb="input"]:focus-within, div[data-baseweb="textarea"]:focus-within {
+        border-color: var(--accent-orange) !important; box-shadow: 0 0 0 3px rgba(243, 146, 0, 0.15) !important;
+    }
+    .kpi-card {
+        background: var(--bg-card); padding: 24px; border-radius: 16px; border-left: 5px solid var(--accent-orange);
+        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.03); transition: transform 0.2s ease;
+    }
+    .kpi-card:hover { transform: translateY(-3px); }
+    .stButton>button[kind="primary"] {
+        background: linear-gradient(135deg, var(--primary-dark) 0%, var(--primary-light) 100%);
+        color: white !important; border-radius: 10px; font-weight: 700; padding: 12px 24px; transition: all 0.2s ease;
+    }
+    .stButton>button[kind="primary"]:hover {
+        background: linear-gradient(135deg, var(--accent-orange) 0%, var(--accent-hover) 100%) !important;
+        transform: translateY(-1px);
+    }
+    div[role="radiogroup"] > label {
+        padding: 12px 15px !important; border-radius: 12px !important; margin-bottom: 4px !important; transition: all 0.2s ease !important;
+    }
+    div[role="radiogroup"] > label:hover { background: rgba(255, 255, 255, 0.05) !important; transform: translateX(5px); }
+</style>
 """, unsafe_allow_html=True)
 
-# -----------------------------------------------------------------------------
-# MÓDULO DE REGRAS DE NEGÓCIO E DADOS (NÚCLEO LÓGICO / UTILS)
-# -----------------------------------------------------------------------------
-BACKEND_URL = os.getenv("BACKEND_URL", "https://duarte-performance-backend.onrender.com")
+# Papeis que tem permissao de gestao (editar cronograma, editar apontamento, ver auditoria)
+PAPEIS_GESTAO = ["Admin Master", "Gestor"]
 
-# Fuso horário do Brasil (Garante que o servidor no Render não puxe o dia errado)
-FUSO_BR = timezone(timedelta(hours=-3))
+for key in ["token", "username", "nome", "role", "perfil_completo"]:
+    if key not in st.session_state:
+        st.session_state[key] = None
 
-def inicializar_estados():
-    """Garante que as tabelas base e variáveis de sessão existam de forma segura."""
-    
-    # Variáveis Simples
-    estados_padrao = {
-        'logged_in': False,
-        'token': None,
-        'user': None,
-        'role': "Operador"
-    }
-    for chave, valor in estados_padrao.items():
-        if chave not in st.session_state:
-            st.session_state[chave] = valor
-            
-    # Tabela de Escala Semanal
-    if 'df_escala' not in st.session_state:
-        st.session_state.df_escala = pd.DataFrame(columns=[
-            'ID', 'DIA_SEMANA', 'OPERADOR', 'CLIENTE'
-        ])
-    
-    # Tabela de Apontamentos com Auditoria
-    if 'df_apontamentos' not in st.session_state:
-        st.session_state.df_apontamentos = pd.DataFrame(columns=[
-            'ID', 'DATA_REGISTRO', 'DIA_SEMANA', 'OPERADOR', 'CLIENTE', 'STATUS', 'OBSERVACAO', 'LOG_AUDITORIA'
-        ])
 
-def verificar_duplicidades(df_escala):
-    """Verifica se um cliente foi alocado para o mesmo operador mais de uma vez na semana."""
-    if df_escala.empty: 
-        return []
-        
-    duplicados = df_escala.groupby(['OPERADOR', 'CLIENTE']).size().reset_index(name='contagem')
-    alertas = duplicados[duplicados['contagem'] > 1]
-    return alertas.to_dict('records')
+# ===================== HELPERS DE API (nada de dado mockado a partir daqui) =====================
+def api_get(endpoint):
+    headers = {"Authorization": f"Bearer {st.session_state.token}"}
+    return requests.get(f"{API_URL}{endpoint}", headers=headers, timeout=15)
 
-def obter_dia_semana_pt(data_obj):
-    """Converte a data para o nome do dia em português de forma segura."""
-    dias = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
-    return dias[data_obj.weekday()]
+def api_post_form(endpoint, data=None, files=None):
+    headers = {"Authorization": f"Bearer {st.session_state.token}"}
+    return requests.post(f"{API_URL}{endpoint}", data=data, files=files, headers=headers, timeout=20)
 
-def consolidar_nao_informados():
-    """
-    Gera apontamentos automáticos de 'Não Informado' para tarefas da escala não lançadas.
-    Otimizado para não sobrecarregar a memória com múltiplos pd.concat em loop.
-    """
-    hoje_br = datetime.now(FUSO_BR).date()
-    dia_atual = obter_dia_semana_pt(hoje_br)
-    data_str = hoje_br.strftime('%Y-%m-%d')
-    
-    escala = st.session_state.df_escala
-    apontamentos = st.session_state.df_apontamentos
-    
-    # Pega tudo que deveria ser feito hoje
-    tarefas_hoje = escala[escala['DIA_SEMANA'] == dia_atual]
-    novos_registros = []
-    
-    for _, tarefa in tarefas_hoje.iterrows():
-        # Verifica se já foi lançado
-        ja_lancado = apontamentos[
-            (apontamentos['DATA_REGISTRO'] == data_str) & 
-            (apontamentos['OPERADOR'] == tarefa['OPERADOR']) &
-            (apontamentos['CLIENTE'] == tarefa['CLIENTE'])
-        ]
-        
-        if ja_lancado.empty:
-            novo_id = len(apontamentos) + len(novos_registros) + 1
-            log_hora = datetime.now(FUSO_BR).strftime("%Y-%m-%d %H:%M:%S")
-            
-            novos_registros.append({
-                'ID': novo_id,
-                'DATA_REGISTRO': data_str,
-                'DIA_SEMANA': dia_atual,
-                'OPERADOR': tarefa['OPERADOR'],
-                'CLIENTE': tarefa['CLIENTE'],
-                'STATUS': 'Não Informado',
-                'OBSERVACAO': 'Gerado automaticamente pelo sistema.',
-                'LOG_AUDITORIA': f'[{log_hora}] Registro automático.'
-            })
-            
-    # Executa a concatenação apenas UMA VEZ no final (muito mais rápido e seguro)
-    if novos_registros:
-        df_novos = pd.DataFrame(novos_registros)
-        st.session_state.df_apontamentos = pd.concat(
-            [st.session_state.df_apontamentos, df_novos], 
-            ignore_index=True
-        )
+def api_post_json(endpoint, payload):
+    headers = {"Authorization": f"Bearer {st.session_state.token}", "Content-Type": "application/json"}
+    return requests.post(f"{API_URL}{endpoint}", json=payload, headers=headers, timeout=20)
 
-# Chama inicialização
-inicializar_estados()
+def api_put_json(endpoint, payload):
+    headers = {"Authorization": f"Bearer {st.session_state.token}", "Content-Type": "application/json"}
+    return requests.put(f"{API_URL}{endpoint}", json=payload, headers=headers, timeout=20)
 
-# Trava de Segurança Visual: Esconde o menu se não estiver logado
-if not st.session_state.logged_in:
-    st.markdown("""
-        <style>
-            /* Esconde a barra lateral nativa antes do login */
-            [data-testid="stSidebar"] { display: none !important; }
-            [data-testid="collapsedControl"] { display: none !important; }
-        </style>
-    """, unsafe_allow_html=True)
+def api_delete(endpoint):
+    headers = {"Authorization": f"Bearer {st.session_state.token}"}
+    return requests.delete(f"{API_URL}{endpoint}", headers=headers, timeout=15)
 
-# -----------------------------------------------------------------------------
-# INTERFACE DE LOGIN
-# -----------------------------------------------------------------------------
-def tela_login():
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        st.markdown("<h2 style='text-align: center; color: #0A1128;'>Duarte Performance</h2>", unsafe_allow_html=True)
-        st.markdown("<h4 style='text-align: center; color: #6C757D;'>Login do Sistema</h4>", unsafe_allow_html=True)
-        st.divider()
+@st.cache_data(ttl=30, show_spinner=False)
+def carregar_cronograma_cache(_token):
+    resp = requests.get(f"{API_URL}/cronograma/", headers={"Authorization": f"Bearer {_token}"}, timeout=15)
+    if resp.status_code == 200 and resp.json():
+        return pd.DataFrame(resp.json())
+    return pd.DataFrame(columns=["id", "operador", "dia_semana", "atividade", "cliente", "periodo", "data_limite", "status_prazo", "duplicado"])
 
-        with st.form("form_login"):
-            usuario = st.text_input("Usuário", placeholder="Digite seu usuário")
-            senha = st.text_input("Senha", type="password", placeholder="Digite sua senha")
-            btn_entrar = st.form_submit_button("Entrar", use_container_width=True)
+def carregar_cronograma():
+    return carregar_cronograma_cache(st.session_state.token)
 
-            if btn_entrar:
-                if not usuario or not senha:
-                    st.warning("Preencha todos os campos!")
-                    return
-                try:
-                    response = requests.post(
-                        f"{BACKEND_URL}/token",
-                        data={"username": usuario, "password": senha},
-                        timeout=60 
-                    )
-                    if response.status_code == 200:
-                        data = response.json()
-                        st.session_state.logged_in = True
-                        st.session_state.token = data.get("access_token")
-                        st.session_state.user = usuario
-                        st.session_state.role = "Gestor" if usuario.lower() in ["admin", "gestor", "abraao"] else "Operador"
-                        st.success("Login realizado!")
+def limpar_cache_cronograma():
+    carregar_cronograma_cache.clear()
+
+
+# ===================== 2. TELA DE LOGIN / CADASTRO =====================
+if not st.session_state.token:
+    st.markdown("<div style='padding-top: 8vh;'>", unsafe_allow_html=True)
+    with st.container():
+        st.markdown("<div class='login-card'>", unsafe_allow_html=True)
+        st.markdown("<h1 style='text-align:center;color:#0F172A;font-weight:900;margin:0;'>Duarte Performance</h1>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align:center;color:#64748B;font-size:14px;margin-bottom:20px;'>Departamento de Credenciamento</p>", unsafe_allow_html=True)
+
+        tab_login, tab_signup = st.tabs(["🔑 Entrar", "🆕 Criar Conta"])
+
+        with tab_login:
+            username_input = st.text_input("Usuário", placeholder="ex: erick_duarte", key="login_username")
+            senha_input = st.text_input("Senha de Acesso", type="password", placeholder="Digite sua senha", key="login_senha")
+
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("🔑 ACESSAR PLATAFORMA", type="primary", use_container_width=True):
+                if not username_input or not senha_input:
+                    st.warning("Por favor, preencha usuário e senha.")
+                else:
+                    try:
+                        resp = requests.post(f"{API_URL}/token", data={"username": username_input, "password": senha_input}, timeout=10)
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            st.session_state.update({
+                                "token": data["access_token"],
+                                "username": data.get("username"),
+                                "nome": data.get("nome"),
+                                "role": data.get("role", "Operador"),
+                                "perfil_completo": data.get("perfil_completo", True)
+                            })
+                            st.success("Autenticação realizada com sucesso!")
+                            time.sleep(0.5)
+                            st.rerun()
+                        else:
+                            st.error("Usuário ou senha incorretos.")
+                    except Exception:
+                        # NUNCA logar por fallback local. Se a API estiver fora do ar, o
+                        # usuário precisa saber disso, não ser jogado dentro do sistema
+                        # como Admin Master fingindo que deu certo.
+                        st.error("⚠️ Não foi possível conectar ao servidor. Tente novamente em instantes.")
+
+        with tab_signup:
+            st.caption("Crie sua conta pra acessar a plataforma. Você entra automaticamente como Operador.")
+            nome_signup = st.text_input("Nome Completo", key="signup_nome")
+            username_signup = st.text_input("Usuário (será seu login)", placeholder="ex: erick_duarte", key="signup_username")
+            email_signup = st.text_input("E-mail", placeholder="seuemail@exemplo.com", key="signup_email")
+            telefone_signup = st.text_input("WhatsApp", placeholder="(00) 00000-0000", key="signup_telefone")
+            senha_signup = st.text_input("Crie uma senha", type="password", key="signup_senha")
+            senha_confirma = st.text_input("Confirme a senha", type="password", key="signup_senha2")
+
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("✅ CRIAR MINHA CONTA", type="primary", use_container_width=True):
+                if not all([nome_signup, username_signup, senha_signup, senha_confirma]):
+                    st.warning("Nome, usuário e senha são obrigatórios.")
+                elif senha_signup != senha_confirma:
+                    st.error("As senhas não conferem.")
+                else:
+                    payload = {
+                        "username": username_signup, "password": senha_signup, "nome": nome_signup,
+                        "email": email_signup or None, "telefone": telefone_signup or None
+                    }
+                    try:
+                        resp = requests.post(f"{API_URL}/cadastro/", json=payload, timeout=10)
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            st.session_state.update({
+                                "token": data["access_token"],
+                                "username": data.get("username"),
+                                "nome": data.get("nome"),
+                                "role": data.get("role", "Operador"),
+                                "perfil_completo": data.get("perfil_completo", True)
+                            })
+                            st.success("Conta criada! Entrando...")
+                            time.sleep(0.5)
+                            st.rerun()
+                        elif resp.status_code == 400:
+                            st.error(resp.json().get("detail", "Este usuário já existe."))
+                        else:
+                            st.error(f"Erro ao criar conta: {resp.text}")
+                    except Exception:
+                        st.error("⚠️ Não foi possível conectar ao servidor. Tente novamente em instantes.")
+
+        st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+    st.stop()
+
+
+# ===================== 2.1. COMPLETAR PERFIL (primeiro acesso de conta criada pelo Admin) =====================
+if not st.session_state.perfil_completo:
+    st.markdown("<div style='padding-top: 8vh;'>", unsafe_allow_html=True)
+    with st.container():
+        st.markdown("<div class='login-card'>", unsafe_allow_html=True)
+        st.markdown("<h2 style='text-align:center;color:#0F172A;font-weight:900;'>Complete seu Perfil</h2>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align:center;color:#64748B;font-size:14px;margin-bottom:20px;'>Sua conta foi criada pelo Admin. Antes de continuar, confirme seus dados.</p>", unsafe_allow_html=True)
+
+        nome_completar = st.text_input("Nome Completo", key="completar_nome")
+        email_completar = st.text_input("E-mail", placeholder="seuemail@exemplo.com", key="completar_email")
+        telefone_completar = st.text_input("WhatsApp", placeholder="(00) 00000-0000", key="completar_telefone")
+
+        if st.button("✅ Salvar e Continuar", type="primary", use_container_width=True):
+            if not nome_completar:
+                st.warning("O nome completo é obrigatório.")
+            else:
+                payload = {"nome": nome_completar, "email": email_completar or None, "telefone": telefone_completar or None}
+                resp = api_put_json("/usuarios/me", payload)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    st.session_state.nome = data.get("nome")
+                    st.session_state.perfil_completo = True
+                    st.success("Perfil atualizado!")
+                    time.sleep(0.5)
+                    st.rerun()
+                else:
+                    st.error(f"Erro ao salvar perfil: {resp.text}")
+        st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+    st.stop()
+
+
+
+
+# ===================== 3. CONTEXTO DO PERFIL (SIDEBAR) =====================
+nome_usuario = (st.session_state.nome or st.session_state.username or "").upper()
+partes_nome = nome_usuario.split()
+iniciais = "".join([n[0] for n in partes_nome[:2]]) if len(partes_nome) > 1 else nome_usuario[0:2]
+role = st.session_state.role
+
+st.sidebar.markdown(f"""
+<div style='background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); border-radius: 16px; padding: 20px 10px; text-align: center; margin-bottom: 25px;'>
+    <div style='background: linear-gradient(135deg, #F39200 0%, #E07A00 100%); color: #0F172A; width: 55px; height: 55px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 900; margin: 0 auto 10px auto;'>{iniciais}</div>
+    <p style='color: #F8FAFC; font-size: 16px; font-weight: 700; margin: 0 0 5px 0;'>{nome_usuario}</p>
+    <span style='padding: 4px 12px; border-radius: 20px; font-size: 10px; font-weight: 800; text-transform: uppercase; color: #0F172A; background: #F39200;'>{role}</span>
+</div>
+""", unsafe_allow_html=True)
+
+# Menu dinâmico: Editor de Apontamentos, Gestão de Equipe e Auditoria só aparecem pra quem tem permissão
+menus_disponiveis = ["📊 Dashboard Gerencial", "🗓️ Escala Semanal", "📑 Relatórios Operacionais", "📝 Lançar Execução Diária"]
+if role in PAPEIS_GESTAO:
+    menus_disponiveis.append("✏️ Editor de Apontamentos")
+if role == "Admin Master":
+    menus_disponiveis.append("👥 Gestão de Equipe")
+    menus_disponiveis.append("🔐 Auditoria e Acessos")
+
+st.sidebar.markdown("<p style='color: #64748B; font-size: 11px; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 10px; margin-left: 5px;'>Navegação Principal</p>", unsafe_allow_html=True)
+menu = st.sidebar.radio("Navegação do Sistema", menus_disponiveis, label_visibility="collapsed")
+
+st.sidebar.markdown("<br>" * 3, unsafe_allow_html=True)
+if st.sidebar.button("🚪 Encerrar Sessão", use_container_width=True, type="secondary"):
+    st.session_state.clear()
+    st.rerun()
+
+
+# ===================== 4. DIRECIONAMENTO DAS ABAS =====================
+
+# --- ABA 1: DASHBOARD GERENCIAL ---
+if menu == "📊 Dashboard Gerencial":
+    st.markdown("<h1 style='color: #0F172A; font-weight: 800;'>Dashboard Gerencial de Performance</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='color: #64748B;'>Métricas consolidadas de produtividade do Credenciamento.</p>", unsafe_allow_html=True)
+
+    resp_reg = api_get("/registros/")
+    if resp_reg.status_code != 200:
+        st.error("Não foi possível carregar os registros do servidor.")
+        st.stop()
+
+    dados_reg = resp_reg.json()
+    if not dados_reg:
+        st.info("📭 Ainda não há nenhum apontamento lançado no sistema.")
+        st.stop()
+
+    df_reg = pd.DataFrame(dados_reg)
+
+    # --- Filtros Avançados por Cliente e Operador ---
+    fcol1, fcol2 = st.columns(2)
+    with fcol1:
+        filtro_operador = st.multiselect("Filtrar por Operador", sorted(df_reg["operador_nome"].dropna().unique()))
+    with fcol2:
+        filtro_cliente = st.multiselect("Filtrar por Cliente", sorted(df_reg["cliente_nome"].dropna().unique()))
+
+    df_view = df_reg.copy()
+    if filtro_operador:
+        df_view = df_view[df_view["operador_nome"].isin(filtro_operador)]
+    if filtro_cliente:
+        df_view = df_view[df_view["cliente_nome"].isin(filtro_cliente)]
+
+    total = len(df_view)
+    realizado_total = int((df_view["status"] == "Realizado Total").sum())
+    realizado_parcial = int((df_view["status"] == "Realizado Parcial").sum())
+    nao_realizado = int((df_view["status"] == "Não Realizado").sum())
+    nao_informado = int((df_view["status"] == "Não Informado").sum())
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.markdown(f"<div class='kpi-card'><b>Total de Apontamentos</b><h2>{total}</h2></div>", unsafe_allow_html=True)
+    c2.markdown(f"<div class='kpi-card' style='border-left-color:#10B981'><b style='color:#10B981'>Realizado Total</b><h2>{realizado_total}</h2></div>", unsafe_allow_html=True)
+    c3.markdown(f"<div class='kpi-card' style='border-left-color:#F59E0B'><b style='color:#F59E0B'>Realizado Parcial</b><h2>{realizado_parcial}</h2></div>", unsafe_allow_html=True)
+    c4.markdown(f"<div class='kpi-card' style='border-left-color:#EF4444'><b style='color:#EF4444'>Não Realizado / Não Informado</b><h2>{nao_realizado + nao_informado}</h2></div>", unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    g1, g2 = st.columns(2)
+    with g1:
+        if total > 0:
+            fig_pie = px.pie(df_view, names="status", title="Pipeline Operacional (SLA)", hole=0.4,
+                              color_discrete_map={"Realizado Total": "#10B981", "Realizado Parcial": "#F39200", "Não Realizado": "#EF4444", "Não Informado": "#94A3B8"})
+            st.plotly_chart(fig_pie, use_container_width=True)
+    with g2:
+        if total > 0:
+            fig_bar = px.bar(df_view, x="operador_nome", color="status", title="Produtividade por Operador",
+                              color_discrete_map={"Realizado Total": "#10B981", "Realizado Parcial": "#F39200", "Não Realizado": "#EF4444", "Não Informado": "#94A3B8"})
+            st.plotly_chart(fig_bar, use_container_width=True)
+
+    st.markdown("### Volumetria por Cliente")
+    if total > 0:
+        fig_cliente = px.bar(df_view["cliente_nome"].value_counts().reset_index(), x="cliente_nome", y="count",
+                              title="Apontamentos por Cliente", color_discrete_sequence=["#0F172A"])
+        st.plotly_chart(fig_cliente, use_container_width=True)
+
+
+# --- ABA 2: ESCALA SEMANAL (CRUD completo + importação de planilha) ---
+elif menu == "🗓️ Escala Semanal":
+    st.markdown("<h1 style='color: #0F172A; font-weight: 800;'>Cronograma e Agenda Semanal</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='color: #64748B;'>Matriz operacional de alocação de contas e turnos da Gestão Comercial.</p>", unsafe_allow_html=True)
+
+    df_crono = carregar_cronograma()
+
+    if df_crono.empty:
+        st.info("📭 Nenhum item cadastrado no cronograma ainda.")
+    else:
+        df_crono = df_crono.fillna("")
+        qtd_duplicados = int(df_crono["duplicado"].sum()) if "duplicado" in df_crono.columns else 0
+        if qtd_duplicados > 0:
+            duplicados_texto = df_crono[df_crono["duplicado"] == True][["operador", "cliente"]].drop_duplicates()
+            linhas_aviso = "\n".join(f"- **{r['operador']}** com alocação repetida em **{r['cliente']}**" for _, r in duplicados_texto.iterrows())
+            st.warning(f"⚠ **Sinalização de Duplicidade Semanal:**\n\n{linhas_aviso}")
+
+        dias_padrao = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
+        dias_presentes = [d for d in dias_padrao if d in set(df_crono["dia_semana"].unique())]
+
+        def estilo_celula(val):
+            v = str(val).strip().upper()
+            if v == "FÉRIAS":
+                return 'background-color: #E0F2FE; color: #0369A1; font-weight: bold; text-align: center;'
+            elif "SUPORTE" in v:
+                return 'color: #475569; background-color: #F1F5F9; font-style: italic;'
+            elif v in ("", "X"):
+                return 'color: #94A3B8; text-align: center;'
+            return 'color: #1E293B;'
+
+        pivot_linhas = []
+        for op in sorted(o for o in df_crono["operador"].unique() if o):
+            linha = {"Operador": op}
+            sub = df_crono[df_crono["operador"] == op]
+            for d in dias_presentes:
+                itens_dia = sub[sub["dia_semana"] == d]
+                linha[d] = " / ".join(itens_dia["cliente"].tolist()) if not itens_dia.empty else ""
+            pivot_linhas.append(linha)
+        df_pivot = pd.DataFrame(pivot_linhas)
+        st.dataframe(df_pivot.style.map(estilo_celula), use_container_width=True, hide_index=True)
+
+    # --- CRUD (só Gestor/Admin Master) ---
+    if role in PAPEIS_GESTAO:
+        st.markdown("### ⚙️ Painel de Distribuição de Contas")
+        tab_add, tab_edit, tab_del, tab_import = st.tabs(["➕ Adicionar", "✏️ Editar / Mover", "🗑️ Remover", "📥 Importar Planilha"])
+
+        with tab_add:
+            with st.form("form_add_cronograma"):
+                c1, c2 = st.columns(2)
+                operador_novo = c1.text_input("Operador")
+                dia_novo = c2.selectbox("Dia da Semana", ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"])
+                c3, c4 = st.columns(2)
+                cliente_novo = c3.text_input("Cliente / Atividade")
+                periodo_novo = c4.selectbox("Período", ["Manhã", "Tarde", "Integral"])
+                atividade_nova = st.text_input("Descrição da Atividade", value="Credenciamento")
+                if st.form_submit_button("Adicionar à Escala", type="primary"):
+                    if not operador_novo or not cliente_novo:
+                        st.warning("Preencha Operador e Cliente.")
+                    else:
+                        payload = {
+                            "operador": operador_novo, "dia_semana": dia_novo, "atividade": atividade_nova,
+                            "cliente": cliente_novo, "periodo": periodo_novo, "data_limite": None, "status_prazo": "Pendente"
+                        }
+                        resp = api_post_json("/cronograma/", payload)
+                        if resp.status_code == 200:
+                            st.success("Item adicionado à escala!")
+                            if resp.json().get("alerta_duplicidade"):
+                                st.warning("⚠️ Esse cliente já estava alocado pra esse operador em outro dia.")
+                            limpar_cache_cronograma()
+                            st.rerun()
+                        else:
+                            st.error(f"Erro ao adicionar: {resp.text}")
+
+        with tab_edit:
+            if df_crono.empty:
+                st.info("Nada pra editar ainda.")
+            else:
+                opcoes = {f"#{r['id']} — {r['operador']} — {r['cliente']} ({r['dia_semana']})": r for _, r in df_crono.iterrows()}
+                escolha = st.selectbox("Selecione o item", list(opcoes.keys()))
+                item_sel = opcoes[escolha]
+                with st.form("form_edit_cronograma"):
+                    c1, c2 = st.columns(2)
+                    operador_edit = c1.text_input("Operador", value=item_sel["operador"])
+                    dia_edit = c2.selectbox("Dia da Semana (mover)", ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"],
+                                             index=["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"].index(item_sel["dia_semana"]) if item_sel["dia_semana"] in ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"] else 0)
+                    c3, c4 = st.columns(2)
+                    cliente_edit = c3.text_input("Cliente / Atividade", value=item_sel["cliente"])
+                    periodo_edit = c4.text_input("Período", value=item_sel["periodo"])
+                    if st.form_submit_button("Salvar Alterações", type="primary"):
+                        payload = {"operador": operador_edit, "dia_semana": dia_edit, "cliente": cliente_edit, "periodo": periodo_edit}
+                        resp = api_put_json(f"/cronograma/{int(item_sel['id'])}", payload)
+                        if resp.status_code == 200:
+                            st.success("Item atualizado/movido com sucesso!")
+                            limpar_cache_cronograma()
+                            st.rerun()
+                        else:
+                            st.error(f"Erro ao editar: {resp.text}")
+
+        with tab_del:
+            if df_crono.empty:
+                st.info("Nada pra remover ainda.")
+            else:
+                opcoes_del = {f"#{r['id']} — {r['operador']} — {r['cliente']} ({r['dia_semana']})": int(r['id']) for _, r in df_crono.iterrows()}
+                escolha_del = st.selectbox("Selecione o item pra remover", list(opcoes_del.keys()), key="del_select")
+                if st.button("🗑️ Remover Item Selecionado", type="secondary"):
+                    resp = api_delete(f"/cronograma/{opcoes_del[escolha_del]}")
+                    if resp.status_code == 200:
+                        st.success("Item removido da escala.")
+                        limpar_cache_cronograma()
                         st.rerun()
                     else:
-                        st.error("Usuário ou senha incorretos.")
-                except Exception as e:
-                    st.error("O servidor está iniciando ou indisponível (Cold Start). Aguarde alguns segundos.")
+                        st.error(f"Erro ao remover: {resp.text}")
 
-# -----------------------------------------------------------------------------
-# MÓDULOS DA APLICAÇÃO (LAYOUT E UX)
-# -----------------------------------------------------------------------------
-def aba_dashboard():
-    st.header("📈 Dashboard Gerencial")
-    df = st.session_state.df_apontamentos
+        with tab_import:
+            st.caption("Aceita .xlsx ou .csv com colunas parecidas com: Operador, Dia da Semana, Cliente, Período.")
+            arquivo_escala = st.file_uploader("Planilha de Escala", type=["xlsx", "csv"], key="upload_escala")
+            if arquivo_escala is not None:
+                df_importado, avisos = utils.parsear_planilha_escala(arquivo_escala)
+                if avisos:
+                    for a in avisos:
+                        st.error(a)
+                elif df_importado.empty:
+                    st.warning("A planilha não trouxe nenhuma linha válida.")
+                else:
+                    df_com_dup = utils.detectar_duplicidade_escala(df_importado)
+                    qtd_dup = int(df_com_dup["duplicado_local"].sum())
+                    if qtd_dup > 0:
+                        st.warning(f"⚠️ {qtd_dup} linha(s) com cliente repetido pro mesmo operador — revise antes de importar.")
+                    st.dataframe(df_com_dup, use_container_width=True, hide_index=True)
+                    if st.button("✅ Confirmar Importação", type="primary"):
+                        sucesso, falha = 0, 0
+                        for _, linha in df_importado.iterrows():
+                            payload = {
+                                "operador": linha["operador"], "dia_semana": linha.get("dia_semana", "Segunda"),
+                                "atividade": "Credenciamento", "cliente": linha["cliente"],
+                                "periodo": linha.get("periodo", ""), "data_limite": None, "status_prazo": "Pendente"
+                            }
+                            resp = api_post_json("/cronograma/", payload)
+                            sucesso += 1 if resp.status_code == 200 else 0
+                            falha += 1 if resp.status_code != 200 else 0
+                        st.success(f"Importação concluída: {sucesso} linha(s) adicionada(s), {falha} falha(s).")
+                        limpar_cache_cronograma()
+                        st.rerun()
 
-    if df.empty:
-        st.info("Nenhum dado de execução registrado até o momento.")
-        return
 
-    # Filtros Avançados
-    col1, col2, col3 = st.columns(3)
-    ops = ["Todos"] + list(df['OPERADOR'].dropna().unique())
-    clis = ["Todos"] + list(df['CLIENTE'].dropna().unique())
-    status_list = ["Todos"] + list(df['STATUS'].dropna().unique())
+# --- ABA 3: RELATÓRIOS OPERACIONAIS (filtros de verdade, sem dado fixo) ---
+elif menu == "📑 Relatórios Operacionais":
+    st.markdown("<h1 style='color: #0F172A; font-weight: 800; letter-spacing:-0.5px;'>Relatório Principal de Produtividade</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='color: #64748B;'>Filtros avançados e extração de dados auditáveis das rotinas operacionais.</p>", unsafe_allow_html=True)
 
-    filtro_op = col1.selectbox("Filtrar por Operador", ops)
-    filtro_cli = col2.selectbox("Filtrar por Cliente", clis)
-    filtro_status = col3.selectbox("Filtrar por Status", status_list)
+    resp_reg = api_get("/registros/")
+    if resp_reg.status_code != 200:
+        st.error("Não foi possível carregar os registros do servidor.")
+        st.stop()
 
-    # Aplicação de Filtros Reativos
-    df_dash = df.copy()
-    if filtro_op != "Todos": df_dash = df_dash[df_dash['OPERADOR'] == filtro_op]
-    if filtro_cli != "Todos": df_dash = df_dash[df_dash['CLIENTE'] == filtro_cli]
-    if filtro_status != "Todos": df_dash = df_dash[df_dash['STATUS'] == filtro_status]
+    dados_reg = resp_reg.json()
+    if not dados_reg:
+        st.info("📭 Ainda não há nenhum apontamento lançado no sistema.")
+        st.stop()
 
-    # Indicadores
-    kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-    kpi1.metric("Total de Atividades", len(df_dash))
-    kpi2.metric("Realizado Total", len(df_dash[df_dash['STATUS'] == 'Realizado Total']))
-    kpi3.metric("Não Realizadas", len(df_dash[df_dash['STATUS'] == 'Não Realizado']))
-    kpi4.metric("Não Informadas", len(df_dash[df_dash['STATUS'] == 'Não Informado']))
+    df_principal = pd.DataFrame(dados_reg)
+    df_principal["data_registro"] = pd.to_datetime(df_principal["data_registro"])
+    df_principal["Data"] = df_principal["data_registro"].dt.strftime("%d/%m/%Y")
+    dias_pt_map = {0: "Segunda", 1: "Terça", 2: "Quarta", 3: "Quinta", 4: "Sexta", 5: "Sábado", 6: "Domingo"}
+    df_principal["Dia"] = df_principal["data_registro"].dt.weekday.map(dias_pt_map)
+    df_principal = df_principal.rename(columns={
+        "cliente_nome": "Cliente", "operador_nome": "Operador", "status": "Status", "justificativa": "Observação"
+    })
 
-    if not df_dash.empty:
-        st.bar_chart(df_dash['STATUS'].value_counts())
+    # --- Filtros que realmente filtram o DataFrame (reativos via widgets nativos) ---
+    f1, f2, f3 = st.columns(3)
+    with f1:
+        periodo_sel = f1.date_input("Período", value=(), format="DD/MM/YYYY")
+    with f2:
+        operador_sel = f2.multiselect("Filtrar por Operador", sorted(df_principal["Operador"].unique()))
+    with f3:
+        status_sel = f3.multiselect("Status de SLA", sorted(df_principal["Status"].unique()))
 
-def aba_escala_semanal():
-    st.header("📅 Escala Semanal e Cronograma")
-    
-    if st.session_state.role not in ["Gestor", "Admin"]:
-        st.error("Apenas gestores podem alterar o cronograma.")
-        st.dataframe(st.session_state.df_escala, use_container_width=True, hide_index=True)
-        return
+    df_view = df_principal.copy()
+    if isinstance(periodo_sel, tuple) and len(periodo_sel) == 2:
+        ini, fim = periodo_sel
+        df_view = df_view[(df_view["data_registro"].dt.date >= ini) & (df_view["data_registro"].dt.date <= fim)]
+    if operador_sel:
+        df_view = df_view[df_view["Operador"].isin(operador_sel)]
+    if status_sel:
+        df_view = df_view[df_view["Status"].isin(status_sel)]
 
-    arquivo = st.file_uploader("Importar planilha de escala (.xlsx ou .csv)", type=['xlsx', 'csv'])
+    st.caption(f"{len(df_view)} registro(s) encontrado(s) com os filtros atuais.")
 
-    if arquivo:
-        try:
-            df_temp = pd.read_csv(arquivo) if arquivo.name.endswith('.csv') else pd.read_excel(arquivo)
-            # Padroniza nomes das colunas
-            df_temp.columns = df_temp.columns.str.upper()
-            st.session_state.df_escala = df_temp
-            st.success("Escala carregada!")
-        except Exception as e:
-            st.error(f"Erro ao ler arquivo: {e}")
+    def colorir_relatorio(row):
+        styles = [''] * len(row)
+        status = str(row['Status']).strip()
+        if status == "Realizado Total":
+            bg_color = "background-color: #ECFDF5; color: #065F46; font-weight: 500;"
+        elif status == "Realizado Parcial":
+            bg_color = "background-color: #FFFBEB; color: #92400E; font-weight: 500;"
+        elif status == "Não Realizado":
+            bg_color = "background-color: #FEF2F2; color: #991B1B; font-weight: bold;"
+        elif status == "Não Informado":
+            bg_color = "background-color: #F1F5F9; color: #475569; font-style: italic;"
+        else:
+            bg_color = ""
+        styles[row.index.get_loc('Status')] = bg_color
+        styles[row.index.get_loc('Operador')] = 'font-weight: 600; color: #1E293B;'
+        return styles
 
-    # Alerta de Duplicidade
-    alertas = verificar_duplicidades(st.session_state.df_escala)
-    if alertas:
-        st.warning("⚠️ Atenção: Detectamos alocações duplicadas na semana:")
-        for a in alertas:
-            st.write(f"- Operador **{a['OPERADOR']}** está com o cliente **{a['CLIENTE']}** repetido ({a['contagem']} vezes).")
+    colunas_exibir = ["Data", "Dia", "Cliente", "Operador", "Status", "Observação"]
+    df_exibir = df_view[colunas_exibir]
+    st.dataframe(df_exibir.style.apply(colorir_relatorio, axis=1), use_container_width=True, hide_index=True)
 
-    st.write("### Editor de Escala (CRUD Integrado)")
-    st.info("Você pode adicionar, excluir ou alterar as células diretamente na tabela abaixo.")
-    
-    # CRUD completo via data_editor do Streamlit
-    df_editado = st.data_editor(
-        st.session_state.df_escala, 
-        num_rows="dynamic", 
-        use_container_width=True,
-        key="editor_escala"
+    towrite = io.BytesIO()
+    with pd.ExcelWriter(towrite, engine='xlsxwriter') as writer:
+        df_exibir.to_excel(writer, sheet_name='Performance_Duarte', index=False)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.download_button(
+        label="📥 EXPORTAR PLANILHA CONSOLIDADA (.XLSX)",
+        data=towrite.getvalue(),
+        file_name=f"Duarte_Performance_{datetime.now().strftime('%d%m%Y')}.xlsx",
+        mime="application/vnd.ms-excel",
+        type="primary",
+        use_container_width=True
     )
 
-    if st.button("💾 Salvar Alterações do Cronograma"):
-        st.session_state.df_escala = df_editado
-        st.success("Cronograma salvo e validado com sucesso!")
 
-def aba_relatorios():
-    st.header("📊 Relatórios Operacionais")
-    df = st.session_state.df_apontamentos
+# --- ABA 4: LANÇAR EXECUÇÃO DIÁRIA (cliente filtrado pela escala real do dia) ---
+elif menu == "📝 Lançar Execução Diária":
+    st.markdown("<h1 style='color: #0F172A; font-weight: 800; letter-spacing:-0.5px;'>Apontamento de Execução Diária</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='color: #64748B;'>Registre suas atividades operacionais com validação dinâmica e anexo de evidências.</p>", unsafe_allow_html=True)
 
-    if df.empty:
-        st.warning("Sem dados para gerar relatórios.")
-        return
+    dia_hoje = utils.dia_semana_atual()
+    st.markdown(f"""
+        <div style="background: #F8FAFC; border: 1px solid #E2E8F0; padding: 12px 16px; border-radius: 8px; margin-bottom: 20px;">
+            <span style="color: #64748B; font-size: 14px;">🕒 <b>Registro Auditado:</b> {datetime.now().strftime('%d/%m/%Y')} ({dia_hoje})</span>
+            <span style="color: #E2E8F0; margin: 0 10px;">|</span>
+            <span style="color: #64748B; font-size: 14px;">👤 <b>Operador:</b> {(st.session_state.nome or "").upper()}</span>
+        </div>
+    """, unsafe_allow_html=True)
 
-    # Lógica de Filtros corrigida via st.session_state (reativos)
-    col1, col2, col3 = st.columns(3)
-    ops = ["Todos"] + list(df['OPERADOR'].dropna().unique())
-    clis = ["Todos"] + list(df['CLIENTE'].dropna().unique())
-    
-    f_op = col1.selectbox("Operador", ops, key="rel_op")
-    f_cli = col2.selectbox("Cliente", clis, key="rel_cli")
-    f_data = col3.date_input("Data do Registro", value=None)
+    df_crono = carregar_cronograma()
+    clientes_do_dia = utils.clientes_do_operador_no_dia(df_crono, st.session_state.nome or "", dia_hoje)
 
-    df_filtrado = df.copy()
-    if f_op != "Todos": df_filtrado = df_filtrado[df_filtrado['OPERADOR'] == f_op]
-    if f_cli != "Todos": df_filtrado = df_filtrado[df_filtrado['CLIENTE'] == f_cli]
-    if f_data: df_filtrado = df_filtrado[df_filtrado['DATA_REGISTRO'] == f_data.strftime('%Y-%m-%d')]
+    lista_clientes = ["Selecione..."] + clientes_do_dia + ["Suporte", "Outro (não está na escala de hoje)"]
+    if not clientes_do_dia:
+        st.info("ℹ️ Não encontramos nenhum cliente atribuído a você na escala de hoje. Selecione 'Suporte' ou 'Outro'.")
 
-    st.dataframe(df_filtrado, use_container_width=True, hide_index=True)
+    c_alt1, c_alt2 = st.columns(2)
+    cliente_sel = c_alt1.selectbox("Selecione o Cliente Trabalhado", lista_clientes, key="cliente_diario")
 
-def aba_lancar_execucao():
-    st.header("📝 Lançar Execução Diária")
-    hoje = date.today()
-    dia_pt = obter_dia_semana_pt(hoje)
-    
-    st.write(f"**Data:** {hoje.strftime('%d/%m/%Y')} | **Dia:** {dia_pt}")
-    
-    # Filtro Dinâmico: Busca clientes apenas daquele dia para o operador logado
-    escala = st.session_state.df_escala
-    clientes_hoje = escala[
-        (escala['OPERADOR'] == st.session_state.user) & 
-        (escala['DIA_SEMANA'] == dia_pt)
-    ]['CLIENTE'].tolist()
+    # Sub-filtro condicional: quando escolhe Suporte, abre um segundo campo pra dizer qual cliente
+    cliente_final = cliente_sel
+    if cliente_sel == "Suporte":
+        cliente_suporte_destino = c_alt1.selectbox("Suporte para qual cliente?", ["Selecione..."] + sorted(set(clientes_do_dia)) if clientes_do_dia else ["Selecione..."], key="cliente_suporte_destino")
+        if cliente_suporte_destino != "Selecione...":
+            cliente_final = utils.formatar_cliente_suporte(cliente_suporte_destino)
+    elif cliente_sel == "Outro (não está na escala de hoje)":
+        cliente_final = c_alt1.text_input("Digite o nome do cliente", key="cliente_outro")
 
-    # Adiciona "Suporte" ou "Atividade Interna" como opções padrão
-    lista_opcoes = clientes_hoje + ["Suporte", "Atividade Interna"]
-    
-    if not clientes_hoje:
-        st.info("Você não tem clientes alocados no cronograma para o dia de hoje.")
+    status_sel = c_alt2.selectbox("Status Final do Trabalho", ["Selecione...", "Realizado Total", "Realizado Parcial", "Não Realizado"], key="status_diario")
 
-    with st.form("form_lancamento"):
-        cliente_sel = st.selectbox("Selecione o Cliente / Atividade", lista_opcoes)
-        
-        # Sub-filtro condicional se for suporte
-        cliente_destino = None
-        if cliente_sel == "Suporte":
-            todos_clientes = escala['CLIENTE'].dropna().unique().tolist()
-            cliente_destino = st.selectbox("Para qual cliente foi o Suporte?", todos_clientes)
-
-        status_trabalho = st.selectbox("Status da Tarefa", ["Realizado Total", "Realizado Parcial", "Não Realizado"]) #[cite: 1]
-        
-        obs = st.text_area("Justificativa (Obrigatório para Parcial/Não Realizado)", 
-                           placeholder="Devido a reunião não foi possível realizar totalmente as tarefas do cliente")
-
-        if st.form_submit_button("🚀 REGISTRAR EXECUÇÃO", use_container_width=True):
-            
-            # Validação de Justificativa
-            if status_trabalho in ["Realizado Parcial", "Não Realizado"] and not obs.strip():
-                st.error("A justificativa é obrigatória para status Parcial ou Não Realizado.")
-            else:
-                # Trata formatação do nome final
-                nome_cliente_final = f"Suporte - [{cliente_destino}]" if cliente_sel == "Suporte" else cliente_sel
-                
-                novo_id = len(st.session_state.df_apontamentos) + 1
-                log_ini = f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Criado por {st.session_state.user}."
-                
-                novo_registro = {
-                    'ID': novo_id,
-                    'DATA_REGISTRO': hoje.strftime('%Y-%m-%d'),
-                    'DIA_SEMANA': dia_pt,
-                    'OPERADOR': st.session_state.user,
-                    'CLIENTE': nome_cliente_final,
-                    'STATUS': status_trabalho,
-                    'OBSERVACAO': obs,
-                    'LOG_AUDITORIA': log_ini
-                }
-                st.session_state.df_apontamentos = pd.concat(
-                    [st.session_state.df_apontamentos, pd.DataFrame([novo_registro])],
-                    ignore_index=True
-                )
-                st.success("Apontamento registrado com sucesso!")
-
-def aba_editor_apontamentos():
-    st.header("⚙️ Editor de Apontamentos (Gestor)")
-
-    if st.session_state.role not in ["Gestor", "Admin"]:
-        st.error("🚫 Acesso Negado: Apenas Gestores e Admins podem auditar e editar apontamentos.")
-        return
-
-    df = st.session_state.df_apontamentos
-    if df.empty:
-        st.warning("Não há registros para editar.")
-        return
-
-    # Seleção por ID para garantir precisão
-    id_selecionado = st.selectbox("Selecione o ID do Apontamento para Editar", df['ID'].tolist())
-    
-    if id_selecionado:
-        registro_atual = df[df['ID'] == id_selecionado].iloc[0]
-        
-        st.write("---")
-        st.write(f"**Operador:** {registro_atual['OPERADOR']} | **Data:** {registro_atual['DATA_REGISTRO']}")
-        
-        with st.form("form_edicao"):
-            novo_cliente = st.text_input("Cliente", value=registro_atual['CLIENTE'])
-            novo_status = st.selectbox("Status", ["Realizado Total", "Realizado Parcial", "Não Realizado", "Não Informado"], 
-                                       index=["Realizado Total", "Realizado Parcial", "Não Realizado", "Não Informado"].index(registro_atual['STATUS']))
-            nova_obs = st.text_area("Observação / Justificativa", value=registro_atual['OBSERVACAO'])
-            
-            if st.form_submit_button("Salvar Edição"):
-                idx = df[df['ID'] == id_selecionado].index[0]
-                
-                # Registra o log de auditoria
-                log_antigo = st.session_state.df_apontamentos.at[idx, 'LOG_AUDITORIA']
-                data_hora = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                nova_linha_log = f"\n[{data_hora}] Editado por {st.session_state.user}. Alterações feitas."
-                
-                st.session_state.df_apontamentos.at[idx, 'CLIENTE'] = novo_cliente
-                st.session_state.df_apontamentos.at[idx, 'STATUS'] = novo_status
-                st.session_state.df_apontamentos.at[idx, 'OBSERVACAO'] = nova_obs
-                st.session_state.df_apontamentos.at[idx, 'LOG_AUDITORIA'] = log_antigo + nova_linha_log
-                
-                st.success("Apontamento auditado e atualizado!")
-                st.rerun()
-
-        st.write("### Histórico de Auditoria do Registro")
-        st.code(registro_atual['LOG_AUDITORIA'])
-
-# -----------------------------------------------------------------------------
-# MOTOR PRINCIPAL E ROTEAMENTO (UX E SEGURANÇA PREMIUM)
-# -----------------------------------------------------------------------------
-if not st.session_state.logged_in:
-    tela_login()
-else:
-    # Executa verificação silenciosa de auto-status toda vez que logar
-    consolidar_nao_informados()
-
-    with st.sidebar:
-        # 1. Logo e Identidade Visual (Cores Corporativas)
+    obs_texto = ""
+    if status_sel in ["Realizado Parcial", "Não Realizado"]:
         st.markdown(f"""
-            <div style='text-align: center; padding: 15px; background-color: #001E57; border-radius: 8px; margin-bottom: 20px; border: 1px solid rgba(255, 255, 255, 0.05); box-shadow: 0 4px 6px rgba(0,0,0,0.1);'>
-                <h2 style='color: #FFFFFF; margin: 0; font-weight: 800; letter-spacing: 1px;'>DUARTE</h2>
-                <h5 style='color: #FF9200; margin: 0; font-weight: 600; text-transform: uppercase;'>Performance</h5>
+            <div style="background: #FFFBEB; border-left: 4px solid #F59E0B; padding: 12px; border-radius: 4px; margin: 15px 0 5px 0;">
+                <strong style="color: #B45309;">⚠ Justificativa Obrigatória</strong><br>
+                <span style="color: #78350F; font-size: 13px;">Explique detalhadamente o motivo do status ser <b>{status_sel}</b>.</span>
             </div>
         """, unsafe_allow_html=True)
-        
-        # 2. Card do Usuário Logado
-        st.markdown(f"""
-            <div style='padding: 15px; background: rgba(255, 255, 255, 0.05); border-radius: 8px; margin-bottom: 20px;'>
-                <p style='margin: 0; color: #CBD5E1; font-size: 0.85rem;'>Conectado como:</p>
-                <h4 style='margin: 5px 0; color: #FFFFFF; font-weight: bold;'>👤 {str(st.session_state.user).title()}</h4>
-                <div style='display: inline-block; padding: 4px 10px; background-color: #FF9200; color: #001E57; font-size: 0.75rem; border-radius: 12px; font-weight: 900;'>
-                    🛡️ {st.session_state.role.upper()}
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
-        
-        st.divider()
-
-        # 3. Controle de Acesso Dinâmico no Menu
-        opcoes_menu = [
-            "📈 Dashboard Gerencial",
-            "📅 Escala Semanal",
-            "📝 Lançar Execução Diária",
-            "📊 Relatórios Operacionais"
-        ]
-        
-        # Apenas Gestor/Admin enxerga a opção de auditar/editar no menu
-        if st.session_state.role in ["Gestor", "Admin"]:
-            opcoes_menu.append("⚙️ Editor de Apontamentos")
-
-        menu_selecionado = st.radio(
-            "Navegação",
-            opcoes_menu,
-            label_visibility="collapsed" # Esconde o texto "Navegação" para ficar mais clean
+        obs_texto = st.text_area(
+            "Detalhamento Operacional da Ocorrência", height=120,
+            placeholder="Devido a reunião não foi possível realizar totalmente as tarefas do cliente",
+            key="justificativa_diaria"
         )
 
-        st.divider()
-        
-        # 4. Botão de Logout de Alta Responsividade e Segurança
-        if st.button("🚪 Encerrar Sessão", use_container_width=True):
-            # Limpa TODAS as chaves da sessão para evitar vazamento de dados no cache
-            for key in list(st.session_state.keys()):
-                del st.session_state[key]
-            st.rerun()
+    st.markdown("#### 📎 Comprovações e Evidências")
+    arquivo_evidencia = st.file_uploader("Arraste ou selecione o print da sua tela/sistema", type=["png", "jpg", "jpeg", "pdf", "xlsx"], key="evidencia_diaria")
 
-    # Roteamento de Telas
-    if menu_selecionado == "📈 Dashboard Gerencial": 
-        aba_dashboard()
-    elif menu_selecionado == "📅 Escala Semanal": 
-        aba_escala_semanal()
-    elif menu_selecionado == "📝 Lançar Execução Diária": 
-        aba_lancar_execucao()
-    elif menu_selecionado == "📊 Relatórios Operacionais": 
-        aba_relatorios()
-    elif menu_selecionado == "⚙️ Editor de Apontamentos": 
-        aba_editor_apontamentos()
+    if arquivo_evidencia is not None and arquivo_evidencia.type in ["image/png", "image/jpeg"]:
+        with st.expander("👁️ Visualizar Print Carregado", expanded=True):
+            st.image(arquivo_evidencia, caption="Evidência Capturada", use_container_width=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    if st.button("🚀 ENVIAR APONTAMENTO DIÁRIO", type="primary", use_container_width=True):
+        if cliente_sel == "Selecione..." or status_sel == "Selecione..." or not cliente_final or cliente_final == "Selecione...":
+            st.error("Por favor, selecione o cliente e o status antes de salvar.")
+        elif status_sel in ["Realizado Parcial", "Não Realizado"] and not obs_texto.strip():
+            st.error("A justificativa detalhada é estritamente obrigatória para auditoria interna.")
+        else:
+            payload = {
+                "operador_nome": st.session_state.nome,
+                "cliente_nome": cliente_final,
+                "status": status_sel,
+                "justificativa": obs_texto or ""
+            }
+            files = {"evidencia": (arquivo_evidencia.name, arquivo_evidencia.getvalue(), arquivo_evidencia.type)} if arquivo_evidencia else None
+            resp = api_post_form("/registros/", data=payload, files=files)
+            if resp.status_code == 200:
+                st.success("Perfeito! Apontamento gravado com sucesso no ecossistema de dados.")
+                st.balloons()
+            else:
+                st.error(f"Erro ao gravar o apontamento: {resp.text}")
+
+
+# --- ABA 5: EDITOR DE APONTAMENTOS (Gestor / Admin Master) ---
+elif menu == "✏️ Editor de Apontamentos":
+    st.markdown("<h1 style='color: #0F172A; font-weight: 800;'>Editor de Apontamentos</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='color: #64748B;'>Corrija um apontamento enviado incorretamente. Toda edição fica registrada na Auditoria automaticamente.</p>", unsafe_allow_html=True)
+
+    if role not in PAPEIS_GESTAO:
+        st.error("🔒 Acesso restrito a Gestores e Administradores.")
+        st.stop()
+
+    resp_reg = api_get("/registros/")
+    if resp_reg.status_code != 200:
+        st.error("Não foi possível carregar os registros do servidor.")
+        st.stop()
+
+    dados_reg = resp_reg.json()
+    if not dados_reg:
+        st.info("📭 Nenhum apontamento lançado ainda.")
+        st.stop()
+
+    df_reg = pd.DataFrame(dados_reg)
+    df_reg["data_registro"] = pd.to_datetime(df_reg["data_registro"]).dt.strftime("%d/%m/%Y %H:%M")
+
+    opcoes = {
+        f"#{r['id']} — {r['operador_nome']} — {r['cliente_nome']} — {r['status']} ({r['data_registro']})": r
+        for _, r in df_reg.iterrows()
+    }
+    escolha = st.selectbox("Selecione o apontamento para editar", list(opcoes.keys()))
+    item_sel = opcoes[escolha]
+
+    with st.form("form_editar_apontamento"):
+        cliente_edit = st.text_input("Cliente", value=item_sel["cliente_nome"])
+        status_edit = st.selectbox(
+            "Status", ["Realizado Total", "Realizado Parcial", "Não Realizado", "Não Informado"],
+            index=["Realizado Total", "Realizado Parcial", "Não Realizado", "Não Informado"].index(item_sel["status"])
+            if item_sel["status"] in ["Realizado Total", "Realizado Parcial", "Não Realizado", "Não Informado"] else 0
+        )
+        obs_edit = st.text_area("Observação / Justificativa", value=item_sel.get("justificativa") or "")
+
+        if st.form_submit_button("💾 Salvar Correção", type="primary"):
+            payload = {"cliente_nome": cliente_edit, "status": status_edit, "justificativa": obs_edit}
+            resp = api_put_json(f"/registros/{int(item_sel['id'])}", payload)
+            if resp.status_code == 200:
+                st.success("Apontamento corrigido! A alteração já está registrada na Auditoria.")
+                st.rerun()
+            else:
+                st.error(f"Erro ao editar: {resp.text}")
+
+    st.markdown("---")
+    st.markdown("### 🔄 Verificação de Pendências do Dia")
+    st.caption(
+        "Marca automaticamente como 'Não Informado' qualquer atividade da escala de hoje que ainda não "
+        "tenha sido lançada. Ideal rodar isso 1x ao fim do expediente (ou configurar um Render Cron Job "
+        "chamando esse mesmo endpoint diariamente, em vez de depender de alguém clicar aqui)."
+    )
+    if st.button("Verificar Pendências de Hoje"):
+        resp = api_post_json("/registros/marcar-pendentes/", {})
+        if resp.status_code == 200:
+            qtd = resp.json().get("marcados_como_nao_informado", 0)
+            st.success(f"{qtd} apontamento(s) pendente(s) marcado(s) como 'Não Informado'.")
+        else:
+            st.error(f"Erro ao verificar pendências: {resp.text}")
+
+
+# --- ABA GESTÃO DE EQUIPE (Admin Master cria contas: username, senha provisória, papel, departamento) ---
+elif menu == "👥 Gestão de Equipe":
+    st.markdown("<h1 style='color: #0F172A; font-weight: 800;'>Gestão de Equipe</h1>", unsafe_allow_html=True)
+    if role != "Admin Master":
+        st.error("🔒 Acesso restrito ao Admin Master.")
+        st.stop()
+
+    tab_add, tab_list = st.tabs(["➕ Adicionar Membro", "📋 Lista de Equipe"])
+
+    with tab_add:
+        st.caption(
+            "Você pode cadastrar só o essencial (usuário, senha provisória, papel) e deixar "
+            "Nome/E-mail/WhatsApp em branco — a pessoa completa isso sozinha no primeiro login dela."
+        )
+        resp_deptos = api_get("/departamentos/")
+        deptos = resp_deptos.json() if resp_deptos.status_code == 200 else []
+        opcoes_depto = {d["nome"]: d["id"] for d in deptos} if deptos else {}
+
+        with st.form("form_add_membro"):
+            c1, c2 = st.columns(2)
+            username_novo = c1.text_input("Usuário (login)", placeholder="ex: erick_duarte")
+            senha_provisoria = c2.text_input("Senha Provisória", type="password")
+            c3, c4 = st.columns(2)
+            role_novo = c3.selectbox("Cargo", ["Operador", "Gestor", "Admin Master"])
+            depto_novo = c4.selectbox("Departamento", ["(Nenhum)"] + list(opcoes_depto.keys()))
+            st.markdown("###### Opcional — pode deixar em branco pra pessoa completar depois")
+            c5, c6, c7 = st.columns(3)
+            nome_novo = c5.text_input("Nome Completo (opcional)")
+            email_novo = c6.text_input("E-mail (opcional)")
+            telefone_novo = c7.text_input("WhatsApp (opcional)")
+
+            if st.form_submit_button("Adicionar à Equipe", type="primary"):
+                if not username_novo or not senha_provisoria:
+                    st.warning("Usuário e senha provisória são obrigatórios.")
+                else:
+                    payload = {
+                        "username": username_novo, "password": senha_provisoria, "role": role_novo,
+                        "departamento_id": opcoes_depto.get(depto_novo),
+                        "nome": nome_novo or None, "email": email_novo or None, "telefone": telefone_novo or None
+                    }
+                    resp = api_post_json("/usuarios/", payload)
+                    if resp.status_code == 200:
+                        st.success(f"Colaborador '{username_novo}' adicionado com sucesso!")
+                        st.rerun()
+                    elif resp.status_code == 400:
+                        st.error(resp.json().get("detail", "Este usuário já existe."))
+                    else:
+                        st.error(f"Erro ao cadastrar: {resp.text}")
+
+    with tab_list:
+        resp_usuarios = api_get("/usuarios/")
+        if resp_usuarios.status_code == 200 and resp_usuarios.json():
+            df_equipe = pd.DataFrame(resp_usuarios.json())
+            df_equipe["perfil_completo"] = df_equipe["perfil_completo"].map({True: "✅ Completo", False: "⏳ Pendente"})
+            df_equipe = df_equipe.rename(columns={
+                "username": "Usuário", "nome": "Nome", "email": "E-mail", "telefone": "WhatsApp",
+                "role": "Cargo", "perfil_completo": "Perfil"
+            })[["Usuário", "Nome", "E-mail", "WhatsApp", "Cargo", "Perfil"]]
+            st.dataframe(df_equipe, use_container_width=True, hide_index=True)
+        else:
+            st.info("Nenhum colaborador cadastrado ainda.")
+
+
+# --- ABA 6: AUDITORIA E ACESSOS (Admin Master, dados reais do backend) ---
+elif menu == "🔐 Auditoria e Acessos":
+    st.markdown("<h1 style='color: #0F172A; font-weight: 800; letter-spacing:-0.5px;'>Módulo de Auditoria e Segurança (LGPD)</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='color: #64748B;'>Rastreamento completo e imutável de transações, edições de cronograma e justificativas.</p>", unsafe_allow_html=True)
+
+    if role != "Admin Master":
+        st.error("🔒 Acesso restrito ao Admin Master.")
+        st.stop()
+
+    resp_audit = api_get("/auditoria/")
+    if resp_audit.status_code != 200:
+        st.error("Não foi possível carregar os logs de auditoria.")
+        st.stop()
+
+    dados_audit = resp_audit.json()
+    if not dados_audit:
+        st.info("Nenhum evento de auditoria registrado ainda.")
+        st.stop()
+
+    df_audit = pd.DataFrame(dados_audit)
+    df_audit["timestamp"] = pd.to_datetime(df_audit["timestamp"]).dt.strftime("%d/%m/%Y %H:%M:%S")
+
+    total_eventos = len(df_audit)
+    falhas_login = int(df_audit["acao"].str.contains("LOGIN_FAILED").sum())
+    alteracoes_cronograma = int(df_audit["acao"].str.contains("CRONOGRAMA").sum())
+
+    c_sec1, c_sec2, c_sec3 = st.columns(3)
+    c_sec1.markdown(f"<div class='kpi-card' style='border-left-color: #10B981;'><b>Eventos Registrados</b><h3 style='color:#10B981; margin:5px 0 0 0;'>{total_eventos}</h3></div>", unsafe_allow_html=True)
+    c_sec2.markdown(f"<div class='kpi-card' style='border-left-color: #EF4444;'><b>Tentativas de Login Falhas</b><h3 style='color:#EF4444; margin:5px 0 0 0;'>{falhas_login}</h3></div>", unsafe_allow_html=True)
+    c_sec3.markdown(f"<div class='kpi-card' style='border-left-color: #F59E0B;'><b>Alterações de Escala</b><h3 style='color:#F59E0B; margin:5px 0 0 0;'>{alteracoes_cronograma}</h3></div>", unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown("### 🔍 Histórico de Operações")
+
+    df_audit_exibir = df_audit.rename(columns={
+        "timestamp": "Data/Hora", "usuario_nome": "Nome", "usuario_login": "Usuário",
+        "ip_origem": "IP de Origem", "acao": "Ação", "detalhes": "Detalhes"
+    })[["Data/Hora", "Nome", "Usuário", "Ação", "Detalhes", "IP de Origem"]]
+
+    col1, col2 = st.columns(2)
+    with col1:
+        filtro_acao = st.multiselect("Filtrar por Ação", sorted(df_audit_exibir["Ação"].unique()))
+    with col2:
+        filtro_usuario = st.multiselect("Filtrar por Usuário", sorted(u for u in df_audit_exibir["Usuário"].unique() if u))
+
+    df_audit_view = df_audit_exibir.copy()
+    if filtro_acao:
+        df_audit_view = df_audit_view[df_audit_view["Ação"].isin(filtro_acao)]
+    if filtro_usuario:
+        df_audit_view = df_audit_view[df_audit_view["Usuário"].isin(filtro_usuario)]
+
+    st.dataframe(df_audit_view, use_container_width=True, hide_index=True)
+    st.caption("🔒 Os logs gerados nesta plataforma são imutáveis e não podem ser apagados ou editados por nenhum perfil, incluindo Admin Master.")
