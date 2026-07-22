@@ -4,11 +4,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, List
-from models import Base, Usuario
-from auth import verificar_senha, criar_token_acesso, obter_hash_senha
+
+# CORREÇÃO DOS IMPORTS (Apontando corretamente para dentro da pasta backend)
 from backend.models import Base, Usuario
 from backend.database import engine, get_db
-# (faça o mesmo para schemas ou outras importações locais que estejam no main.py)
+from backend.auth import verificar_senha, criar_token_acesso, obter_hash_senha
 
 # -----------------------------------------------------------------------------
 # Inicialização e Criação das Tabelas
@@ -126,9 +126,8 @@ def cadastrar_usuario(user_in: UsuarioCreate, db: Session = Depends(get_db)):
 
 @app.get("/usuarios/me", response_model=UsuarioResponse, summary="Obter dados do usuário logado")
 def obter_perfil_atual(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    # Rota mock/suporte para perfil atual
     from jose import jwt, JWTError
-    from auth import SECRET_KEY, ALGORITHM
+    from backend.auth import SECRET_KEY, ALGORITHM
 
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
@@ -148,7 +147,7 @@ def obter_perfil_atual(token: str = Depends(oauth2_scheme), db: Session = Depend
 @app.put("/usuarios/me", summary="Completar / Atualizar Perfil")
 def atualizar_perfil(dados: UsuarioUpdate, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     from jose import jwt, JWTError
-    from auth import SECRET_KEY, ALGORITHM
+    from backend.auth import SECRET_KEY, ALGORITHM
 
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
@@ -171,5 +170,4 @@ def atualizar_perfil(dados: UsuarioUpdate, token: str = Depends(oauth2_scheme), 
 
 @app.get("/cronograma/", summary="Listar Cronograma Operacional")
 def listar_cronograma(token: str = Depends(oauth2_scheme)):
-    # Rota base para sincronização do cronograma
     return {"msg": "Rota de cronograma operacional ativa", "dados": []}
