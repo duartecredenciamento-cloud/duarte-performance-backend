@@ -4,6 +4,7 @@ import pandas as pd
 import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
+import os
 
 # Importação dos módulos das telas
 from views.login import render_login
@@ -26,11 +27,12 @@ st.set_page_config(
 )
 
 # Carregamento seguro do CSS com codificação UTF-8
+css_path = os.path.join(os.path.dirname(__file__), "styles.css")
 try:
-    with open("styles.css", "r", encoding="utf-8") as f:
+    with open(css_path, "r", encoding="utf-8") as f:
         st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 except Exception as e:
-    st.warning("⚠️ Não foi possível aplicar o stylesheet customizado. Usando padrão.")
+    st.warning(f"⚠️ Não foi possível aplicar o stylesheet customizado: {e}. Usando padrão.")
 
 # ===================== 2. GERENCIAMENTO DE ESTADO (SESSION STATE) =====================
 ESTADOS_INICIAIS = {
@@ -85,7 +87,7 @@ def carregar_cronograma_cache(_token):
 def carregar_cronograma():
     return carregar_cronograma_cache(st.session_state.token)
 
-# ===================== 4. GUILD E SEGURANÇA (AUTENTICAÇÃO) =====================
+# ===================== 4. GUARD E SEGURANÇA (AUTENTICAÇÃO) =====================
 if not st.session_state.get("token"):
     render_login()
     st.stop()
