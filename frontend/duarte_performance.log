@@ -1,0 +1,103 @@
+2026-07-16 11:39:58,723 - __main__ - INFO - Login bem-sucedido: Administrador Geral (Admin Master)
+2026-07-16 11:39:59,366 - __main__ - INFO - GET /registros/ - Status: 405
+2026-07-16 11:39:59,369 - __main__ - INFO - Aplicação Duarte Performance finalizada com sucesso
+2026-07-16 11:40:02,841 - __main__ - INFO - GET /cronograma/ - Status: 500
+2026-07-16 11:40:02,861 - __main__ - ERROR - Erro ao carregar cronograma: 500
+2026-07-16 11:40:02,888 - __main__ - INFO - Aplicação Duarte Performance finalizada com sucesso
+2026-07-16 11:40:06,320 - __main__ - INFO - GET /registros/ - Status: 405
+2026-07-16 11:40:06,327 - __main__ - INFO - Aplicação Duarte Performance finalizada com sucesso
+2026-07-16 11:40:07,758 - __main__ - INFO - GET /cronograma/ - Status: 500
+2026-07-16 11:40:07,759 - __main__ - ERROR - Erro ao carregar cronograma: 500
+2026-07-16 11:40:07,767 - __main__ - INFO - Aplicação Duarte Performance finalizada com sucesso
+2026-07-16 11:40:10,169 - __main__ - INFO - GET /cronograma/ - Status: 500
+2026-07-16 11:40:10,184 - __main__ - ERROR - Erro ao carregar cronograma: 500
+2026-07-16 11:40:10,190 - __main__ - INFO - Aplicação Duarte Performance finalizada com sucesso
+2026-07-16 11:40:12,002 - __main__ - INFO - GET /usuarios/ - Status: 200
+2026-07-16 11:40:12,015 - __main__ - INFO - Aplicação Duarte Performance finalizada com sucesso
+2026-07-16 11:40:24,252 - __main__ - INFO - GET /auditoria/ - Status: 200
+2026-07-16 11:40:24,272 - __main__ - ERROR - Erro ao criar filtro de usuário: '<' not supported between instances of 'float' and 'str'
+2026-07-16 11:40:24,922 - __main__ - INFO - PDF gerado: Auditoria Operacional
+2026-07-16 11:40:24,928 - __main__ - INFO - Aplicação Duarte Performance finalizada com sucesso
+2026-07-16 11:40:38,506 - __main__ - INFO - GET /usuarios/ - Status: 200
+2026-07-16 11:40:38,520 - __main__ - INFO - Aplicação Duarte Performance finalizada com sucesso
+2026-07-16 11:40:39,590 - __main__ - INFO - GET /cronograma/ - Status: 500
+2026-07-16 11:40:39,591 - __main__ - ERROR - Erro ao carregar cronograma: 500
+2026-07-16 11:40:39,594 - __main__ - INFO - Aplicação Duarte Performance finalizada com sucesso
+2026-07-16 11:40:40,021 - __main__ - INFO - GET /cronograma/ - Status: 500
+2026-07-16 11:40:40,027 - __main__ - INFO - Aplicação Duarte Performance finalizada com sucesso
+2026-07-16 11:41:43,218 - __main__ - INFO - GET /registros/ - Status: 405
+2026-07-16 11:41:43,219 - __main__ - INFO - Aplicação Duarte Performance finalizada com sucesso
+2026-07-16 11:41:56,849 - __main__ - INFO - GET /cronograma/ - Status: 500
+2026-07-16 11:41:56,851 - __main__ - INFO - Aplicação Duarte Performance finalizada com sucesso
+2026-07-16 11:45:08,708 - asyncio - ERROR - Exception in callback _ProactorBasePipeTransport._call_connection_lost()
+handle: <Handle _ProactorBasePipeTransport._call_connection_lost()>
+Traceback (most recent call last):
+  File "C:\Users\User\AppData\Local\Programs\Python\Python314\Lib\asyncio\events.py", line 94, in _run
+    self._context.run(self._callback, *self._args)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\User\AppData\Local\Programs\Python\Python314\Lib\asyncio\proactor_events.py", line 165, in _call_connection_lost
+    self._sock.shutdown(socket.SHUT_RDWR)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+ConnectionResetError: [WinError 10054] Foi forçado o cancelamento de uma conexão existente pelo host remoto
+2026-07-16 12:00:00,952 - __main__ - INFO - Login: Administrador Geral
+2026-07-16 12:00:01,595 - __main__ - INFO - GET /registros/ - 405
+2026-07-16 12:00:10,143 - __main__ - INFO - GET /cronograma/ - 500
+2026-07-16 12:00:24,719 - __main__ - INFO - GET /cronograma/ - 500
+2026-07-16 12:00:27,438 - __main__ - INFO - GET /cronograma/ - 500
+2026-07-16 12:00:28,948 - __main__ - INFO - GET /usuarios/ - 200
+2026-07-16 12:00:33,290 - __main__ - INFO - GET /auditoria/ - 200
+2026-07-16 12:00:33,322 - __main__ - ERROR - Erro Auditoria: '<' not supported between instances of 'float' and 'str'
+2026-07-16 12:00:36,215 - __main__ - INFO - GET /cronograma/ - 500
+2026-07-16 12:03:18,189 - asyncio - ERROR - Exception in callback _ProactorBasePipeTransport._call_connection_lost()
+handle: <Handle _ProactorBasePipeTransport._call_connection_lost()>
+Traceback (most recent call last):
+  File "C:\Users\User\AppData\Local\Programs\Python\Python314\Lib\asyncio\events.py", line 94, in _run
+    self._context.run(self._callback, *self._args)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\User\AppData\Local\Programs\Python\Python314\Lib\asyncio\proactor_events.py", line 165, in _call_connection_lost
+    self._sock.shutdown(socket.SHUT_RDWR)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+ConnectionResetError: [WinError 10054] Foi forçado o cancelamento de uma conexão existente pelo host remoto
+2026-07-16 12:03:25,165 - asyncio - ERROR - Exception in callback _ProactorBasePipeTransport._call_connection_lost()
+handle: <Handle _ProactorBasePipeTransport._call_connection_lost()>
+Traceback (most recent call last):
+  File "C:\Users\User\AppData\Local\Programs\Python\Python314\Lib\asyncio\events.py", line 94, in _run
+    self._context.run(self._callback, *self._args)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\User\AppData\Local\Programs\Python\Python314\Lib\asyncio\proactor_events.py", line 165, in _call_connection_lost
+    self._sock.shutdown(socket.SHUT_RDWR)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+ConnectionResetError: [WinError 10054] Foi forçado o cancelamento de uma conexão existente pelo host remoto
+2026-07-16 12:04:29,755 - __main__ - INFO - Login: Administrador Geral
+2026-07-16 12:04:30,471 - __main__ - INFO - GET /registros/ - 405
+2026-07-16 12:04:38,858 - __main__ - INFO - GET /cronograma/ - 500
+2026-07-16 12:04:39,895 - __main__ - INFO - GET /cronograma/ - 500
+2026-07-16 12:04:46,905 - __main__ - INFO - GET /cronograma/ - 500
+2026-07-16 12:04:52,959 - __main__ - INFO - GET /usuarios/ - 200
+2026-07-16 12:04:54,597 - __main__ - INFO - GET /auditoria/ - 200
+2026-07-16 12:04:54,623 - __main__ - ERROR - Erro Auditoria: '<' not supported between instances of 'float' and 'str'
+2026-07-16 12:05:07,704 - __main__ - INFO - GET /cronograma/ - 500
+2026-07-16 12:05:08,426 - __main__ - INFO - GET /cronograma/ - 500
+2026-07-16 12:05:40,053 - __main__ - INFO - GET /cronograma/ - 500
+2026-07-16 12:05:45,894 - __main__ - INFO - GET /cronograma/ - 500
+2026-07-16 13:12:41,751 - asyncio - ERROR - Exception in callback _ProactorBasePipeTransport._call_connection_lost()
+handle: <Handle _ProactorBasePipeTransport._call_connection_lost()>
+Traceback (most recent call last):
+  File "C:\Users\User\AppData\Local\Programs\Python\Python314\Lib\asyncio\events.py", line 94, in _run
+    self._context.run(self._callback, *self._args)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\User\AppData\Local\Programs\Python\Python314\Lib\asyncio\proactor_events.py", line 165, in _call_connection_lost
+    self._sock.shutdown(socket.SHUT_RDWR)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+ConnectionResetError: [WinError 10054] Foi forçado o cancelamento de uma conexão existente pelo host remoto
+2026-07-16 13:12:54,530 - __main__ - INFO - Login: Administrador Geral
+2026-07-16 13:12:55,151 - __main__ - INFO - GET /registros/ - 405
+2026-07-16 13:13:27,568 - __main__ - INFO - Login: Administrador Geral
+2026-07-16 13:13:28,259 - __main__ - INFO - GET /registros/ - 405
+2026-07-16 14:38:07,346 - __main__ - INFO - Login: Administrador Geral
+2026-07-16 14:38:07,980 - __main__ - INFO - GET /registros/ - 405
+2026-07-16 14:38:14,783 - __main__ - INFO - GET /cronograma/ - 500
+2026-07-16 14:39:17,161 - __main__ - INFO - GET /registros/ - 405
+2026-07-16 14:39:41,544 - __main__ - INFO - GET /cronograma/ - 500
+2026-07-16 14:41:01,198 - __main__ - INFO - GET /usuarios/ - 200
+2026-07-16 14:41:04,406 - __main__ - INFO - GET /auditoria/ - 200
