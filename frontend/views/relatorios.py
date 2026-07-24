@@ -1,224 +1,112 @@
 import pandas as pd
 import streamlit as st
-
+from datetime import datetime
 
 def render_relatorios(api_get):
-    st.title("📑 Relatórios Operacionais")
+    # ===================== CSS PREMIUM =====================
+    st.markdown("""
+    <style>
+        .report-header {
+            background: linear-gradient(135deg, #001E57 0%, #0A2540 100%);
+            padding: 30px;
+            border-radius: 20px;
+            color: white;
+            margin-bottom: 25px;
+        }
+        .metric-card {
+            background: white;
+            padding: 22px;
+            border-radius: 16px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.07);
+            text-align: center;
+        }
+        .stDownloadButton > button {
+            background: #FF9200;
+            color: white;
+            font-weight: 700;
+        }
+    </style>
+    """, unsafe_allow_html=True)
 
-    st.caption(
-        "Consolidação dos registros operacionais da equipe."
-    )
+    st.markdown("""
+    <div class="report-header">
+        <h2 style="margin:0;">📑 Relatórios Operacionais</h2>
+        <p style="margin:8px 0 0 0; opacity:0.9;">Consolidação e análise completa dos apontamentos</p>
+    </div>
+    """, unsafe_allow_html=True)
 
-    resposta = api_get("/registros/")
+    # Carregar dados
+    with st.spinner("Carregando relatórios..."):
+        resp = api_get("/registros/")
 
-    if resposta is None:
-        st.error("Erro de comunicação com o backend.")
+    if resp is None or resp.status_code != 200:
+        st.error("Erro ao carregar dados.")
         return
 
-    if resposta.status_code != 200:
-        st.error("Não foi possível carregar os registros.")
-        return
+    df = pd.DataFrame(resp.json())
 
-    registros = resposta.json()
-
-    if not registros:
+    if df.empty:
         st.info("Nenhum registro encontrado.")
         return
 
-    df = pd.DataFrame(registros)
+    if "data_registro" in df.columns:
+        df["data_registro"] = pd.to_datetime(df["data_registro"], errors="coerce")
 
-    df["data_registro"] = pd.to_datetime(
-        df["data_registro"],
-        errors="coerce"
-    )
-
-    # ===========================
-    # FILTROS
-    # ===========================
-
+    # Filtros
     col1, col2, col3 = st.columns(3)
-
     with col1:
-
-        operador = st.selectbox(
-            "Operador",
-            ["Todos"] +
-            sorted(df["operador_nome"].dropna().unique())
-        )
-
+        operador = st.selectbox("Operador", ["Todos"] + sorted(df["operador_nome"].dropna().unique().tolist()))
     with col2:
-
-        status = st.selectbox(
-            "Status",
-            ["Todos"] +
-            sorted(df["status"].dropna().unique())
-        )
-
+        status = st.selectbox("Status", ["Todos"] + sorted(df["status"].dropna().unique().tolist()))
     with col3:
+        data_inicio = st.date_input("A partir de", value=df["data_registro"].min().date() if not df.empty else datetime.now().date())
 
-        periodo = st.date_input(
-            "A partir de",
-            value=df["data_registro"].min().date()
-        )
-
+    # Aplicar filtros
+    df_filtered = df.copy()
     if operador != "Todos":
-
-        df = df[
-            df["operador_nome"] == operador
-        ]
-
+        df_filtered = df_filtered[df_filtered["operador_nome"] == operador]
     if status != "Todos":
+        df_filtered = df_filtered[df_filtered["status"] == status]
+    df_filtered = df_filtered[df_filtered["data_registro"].dt.date >= data_inicio]
 
-        df = df[
-            df["status"] == status
-        ]
+    # Métricas
+    total = len(df_filtered)
+    concluidos = len(df_filtered[df_filtered["status"] == "Realizado Total"])
+    taxa = round((concluidos / total * 100), 1) if total > 0 else 0
 
-    df = df[
-        df["data_registro"].dt.date >= periodo
-    ]
-
-    # ===========================
-    # MÉTRICAS
-    # ===========================
-
-    total = len(df)
-
-    realizados = len(
-        df[
-            df["status"] ==
-            "Realizado Total"
-        ]
-    )
-
-    parcial = len(
-        df[
-            df["status"] ==
-            "Realizado Parcial"
-        ]
-    )
-
-    nao = len(
-        df[
-            df["status"] ==
-            "Não Realizado"
-        ]
-    )
-
-    c1, c2, c3, c4 = st.columns(4)
-
-    c1.metric(
-        "Total",
-        total
-    )
-
-    c2.metric(
-        "Realizados",
-        realizados
-    )
-
-    c3.metric(
-        "Parciais",
-        parcial
-    )
-
-    c4.metric(
-        "Não Realizados",
-        nao
-    )
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Total Registros", total)
+    c2.metric("Concluídos", concluidos)
+    c3.metric("Taxa de Conclusão", f"{taxa}%")
 
     st.divider()
 
-    # ===========================
-    # TABELA
-    # ===========================
-
-    st.subheader(
-        "Detalhamento"
-    )
-
+    # Tabela
+    st.subheader("📋 Detalhamento dos Registros")
     st.dataframe(
-
-        df.sort_values(
-            "data_registro",
-            ascending=False
-        ),
-
+        df_filtered.sort_values("data_registro", ascending=False),
         use_container_width=True,
-
         hide_index=True
-
     )
 
+    # Gráficos
+    col_g1, col_g2 = st.columns(2)
+    with col_g1:
+        st.subheader("📊 Por Operador")
+        if "operador_nome" in df_filtered.columns:
+            st.bar_chart(df_filtered["operador_nome"].value_counts())
+
+    with col_g2:
+        st.subheader("📈 Distribuição por Status")
+        st.bar_chart(df_filtered["status"].value_counts())
+
+    # Exportação
     st.divider()
-
-    # ===========================
-    # PRODUÇÃO POR OPERADOR
-    # ===========================
-
-    st.subheader(
-        "Produção por Operador"
-    )
-
-    producao = (
-
-        df.groupby(
-            "operador_nome"
-        )
-
-        .size()
-
-        .sort_values(
-            ascending=False
-        )
-
-    )
-
-    st.bar_chart(
-        producao
-    )
-
-    st.divider()
-
-    # ===========================
-    # STATUS
-    # ===========================
-
-    st.subheader(
-        "Distribuição por Status"
-    )
-
-    status_chart = (
-
-        df["status"]
-
-        .value_counts()
-
-    )
-
-    st.bar_chart(
-        status_chart
-    )
-
-    st.divider()
-
-    # ===========================
-    # EXPORTAÇÃO
-    # ===========================
-
-    csv = df.to_csv(
-        index=False
-    ).encode("utf-8")
-
+    csv = df_filtered.to_csv(index=False).encode("utf-8")
     st.download_button(
-
-        "📥 Exportar CSV",
-
-        csv,
-
-        "relatorio_operacional.csv",
-
-        "text/csv",
-
+        label="📥 Baixar Relatório CSV",
+        data=csv,
+        file_name=f"relatorio_{datetime.now().strftime('%Y%m%d')}.csv",
+        mime="text/csv",
         use_container_width=True
-
     )
