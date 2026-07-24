@@ -24,6 +24,7 @@ import models
 import schemas
 import auth
 
+# Cria as tabelas no banco de dados se não existirem
 models.Base.metadata.create_all(bind=engine)
 
 UPLOAD_DIR = "./armazenamento_evidencias"
@@ -51,6 +52,34 @@ def sanitizar_username(raw: str) -> str:
     """Deixa só letras/números/underscore, minúsculo, sem espaço (ex: 'Erick Duarte' -> 'erick_duarte')."""
     raw = (raw or "").strip().lower().replace(" ", "_")
     return "".join(c for c in raw if c.isalnum() or c == "_")
+
+
+# =====================================================
+# INICIALIZAÇÃO AUTOMÁTICA (Garante Admin na Nuvem)
+# =====================================================
+@app.on_event("startup")
+def inicializar_admin_padrao():
+    """Garante que o usuário admin mestre exista no banco de dados na inicialização."""
+    db: Session = next(get_db())
+    try:
+        username_admin = "admin"
+        admin_existente = db.query(models.Usuario).filter(models.Usuario.username == username_admin).first()
+        if not admin_existente:
+            novo_admin = models.Usuario(
+                username=username_admin,
+                password_hash=auth.obter_hash_senha("Duarte1234#"),
+                nome="Administrador Duarte",
+                email="admin@duartegestao.com.br",
+                role="Admin Master",
+                perfil_completo=True
+            )
+            db.add(novo_admin)
+            db.commit()
+            print("✅ Usuário 'admin' padrão criado com sucesso no banco de dados!")
+    except Exception as e:
+        print(f"⚠️ Erro ao verificar/criar admin padrão: {e}")
+    finally:
+        db.close()
 
 
 # =====================================================
@@ -160,11 +189,12 @@ def cadastro_publico(
     dados: schemas.UserSignupPublic,
     db: Session = Depends(get_db)
 ):
-    if db.query(models.Usuario).filter(models.Usuario.username == dados.username).first():
+    username_limpo = sanitizar_username(dados.username)
+    if db.query(models.Usuario).filter(models.Usuario.username == username_limpo).first():
         raise HTTPException(status_code=400, detail="Este nome de usuário já está em uso.")
 
     novo_usuario = models.Usuario(
-        username=dados.username,
+        username=username_limpo,
         password_hash=auth.obter_hash_senha(dados.password),
         nome=dados.nome,
         email=dados.email,
@@ -182,7 +212,6 @@ def cadastro_publico(
         request=request, login=novo_usuario.username, nome=novo_usuario.nome
     )
 
-    # Já devolve token de acesso, pra pessoa entrar direto sem precisar logar de novo
     token_jwt = auth.criar_token_acesso(data={"sub": novo_usuario.username, "role": novo_usuario.role})
     return {
         "access_token": token_jwt,
@@ -471,16 +500,15 @@ def cadastrar_colaborador(
     if current_user.role != "Admin Master":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Apenas o Admin Master pode cadastrar colaboradores no sistema.")
 
-    if db.query(models.Usuario).filter(models.Usuario.username == novo_usuario.username).first():
+    username_limpo = sanitizar_username(novo_usuario.username)
+    if db.query(models.Usuario).filter(models.Usuario.username == username_limpo).first():
         raise HTTPException(status_code=400, detail="Este nome de usuário já está em uso.")
 
     senha_hasheada = auth.obter_hash_senha(novo_usuario.password)
-    # Se o Admin já preencheu o nome na hora, consideramos o perfil completo;
-    # senão, a pessoa é obrigada a completar (nome/email/telefone) no primeiro login.
     perfil_ja_completo = bool(novo_usuario.nome)
 
     usuario_db = models.Usuario(
-        username=novo_usuario.username,
+        username=username_limpo,
         password_hash=senha_hasheada,
         nome=novo_usuario.nome,
         email=novo_usuario.email,
