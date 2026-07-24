@@ -1,5 +1,4 @@
 import os
-import inspect
 import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -16,6 +15,7 @@ from views.lancamento import render_lancamento
 from views.editor import render_editor
 
 # ===================== CONFIGURAÇÃO =====================
+# ⚠️ st.set_page_config precisa ser SEMPRE a primeira instrução Streamlit do arquivo.
 st.set_page_config(
     page_title="Duarte Performance | Gestão Operacional",
     page_icon="🟠",
@@ -43,72 +43,147 @@ for key, val in {
     "user_nome": None,
     "role": "Operador",
     "user_role": "Operador",
-    "perfil_completo": True
+    "perfil_completo": True,
 }.items():
     if key not in st.session_state:
         st.session_state[key] = val
 
-# ===================== HELPERS API =====================
-def get_headers():
+
+# ===================== HELPERS DE API (camada completa de comunicação) =====================
+def get_headers() -> dict:
+    """Monta o cabeçalho de autenticação com o token JWT salvo na sessão."""
     token = st.session_state.get("token")
     return {"Authorization": f"Bearer {token}"} if token else {}
 
-def api_get(endpoint):
+
+def _tratar_sessao_expirada(resp: requests.Response) -> None:
+    """Se o backend disser que o token expirou (401), derruba a sessão local
+    pra forçar um novo login limpo na próxima interação, em vez de deixar a
+    pessoa presa numa tela autenticada que na verdade não funciona mais."""
+    if resp is not None and resp.status_code == 401:
+        st.session_state.clear()
+        st.warning("🔒 Sua sessão expirou. Faça login novamente.")
+        time.sleep(1.2)
+        st.rerun()
+
+
+def api_get(endpoint: str):
+    """GET autenticado no backend. Retorna a Response ou None em caso de falha de rede."""
     try:
-        return requests.get(f"{API_URL}{endpoint}", headers=get_headers(), timeout=15)
+        resp = requests.get(f"{API_URL}{endpoint}", headers=get_headers(), timeout=30)
+        _tratar_sessao_expirada(resp)
+        return resp
+    except requests.exceptions.Timeout:
+        st.error("⏳ O servidor demorou para responder. O Render pode estar acordando — tente novamente em instantes.")
+        return None
+    except requests.exceptions.ConnectionError:
+        st.error("❌ Não foi possível conectar ao backend. Verifique se o serviço no Render está no ar.")
+        return None
     except Exception as e:
-        st.error(f"Erro ao buscar dados: {e}")
+        st.error(f"⚠️ Erro ao buscar dados: {e}")
         return None
 
-def api_post_json(endpoint, payload):
+
+def api_post_form(endpoint: str, data: dict = None, files: dict = None):
+    """POST autenticado enviando dados como formulário (form-urlencoded/multipart)."""
+    try:
+        resp = requests.post(f"{API_URL}{endpoint}", data=data, files=files, headers=get_headers(), timeout=30)
+        _tratar_sessao_expirada(resp)
+        return resp
+    except requests.exceptions.Timeout:
+        st.error("⏳ O servidor demorou para responder. O Render pode estar acordando — tente novamente em instantes.")
+        return None
+    except requests.exceptions.ConnectionError:
+        st.error("❌ Não foi possível conectar ao backend. Verifique se o serviço no Render está no ar.")
+        return None
+    except Exception as e:
+        st.error(f"⚠️ Erro ao enviar formulário: {e}")
+        return None
+
+
+def api_post_json(endpoint: str, payload: dict):
+    """POST autenticado enviando um corpo JSON."""
     try:
         headers = get_headers()
         headers["Content-Type"] = "application/json"
-        return requests.post(f"{API_URL}{endpoint}", json=payload, headers=headers, timeout=20)
+        resp = requests.post(f"{API_URL}{endpoint}", json=payload, headers=headers, timeout=30)
+        _tratar_sessao_expirada(resp)
+        return resp
+    except requests.exceptions.Timeout:
+        st.error("⏳ O servidor demorou para responder. O Render pode estar acordando — tente novamente em instantes.")
+        return None
+    except requests.exceptions.ConnectionError:
+        st.error("❌ Não foi possível conectar ao backend. Verifique se o serviço no Render está no ar.")
+        return None
     except Exception as e:
-        st.error(f"Erro ao enviar: {e}")
+        st.error(f"⚠️ Erro ao enviar requisição: {e}")
         return None
 
-def api_post_form(endpoint, data=None, files=None):
-    try:
-        return requests.post(f"{API_URL}{endpoint}", data=data, files=files, headers=get_headers(), timeout=20)
-    except Exception as e:
-        st.error(f"Erro ao enviar formulário: {e}")
-        return None
 
-def api_put_json(endpoint, payload):
+def api_put_json(endpoint: str, payload: dict):
+    """PUT autenticado enviando um corpo JSON (usado para editar registros/cronograma)."""
     try:
         headers = get_headers()
         headers["Content-Type"] = "application/json"
-        return requests.put(f"{API_URL}{endpoint}", json=payload, headers=headers, timeout=20)
+        resp = requests.put(f"{API_URL}{endpoint}", json=payload, headers=headers, timeout=30)
+        _tratar_sessao_expirada(resp)
+        return resp
+    except requests.exceptions.Timeout:
+        st.error("⏳ O servidor demorou para responder. O Render pode estar acordando — tente novamente em instantes.")
+        return None
+    except requests.exceptions.ConnectionError:
+        st.error("❌ Não foi possível conectar ao backend. Verifique se o serviço no Render está no ar.")
+        return None
     except Exception as e:
-        st.error(f"Erro ao atualizar: {e}")
+        st.error(f"⚠️ Erro ao atualizar registro: {e}")
         return None
 
-def api_delete(endpoint):
+
+def api_delete(endpoint: str):
+    """DELETE autenticado."""
     try:
-        return requests.delete(f"{API_URL}{endpoint}", headers=get_headers(), timeout=20)
-    except Exception as e:
-        st.error(f"Erro ao excluir: {e}")
+        resp = requests.delete(f"{API_URL}{endpoint}", headers=get_headers(), timeout=30)
+        _tratar_sessao_expirada(resp)
+        return resp
+    except requests.exceptions.Timeout:
+        st.error("⏳ O servidor demorou para responder. O Render pode estar acordando — tente novamente em instantes.")
         return None
+    except requests.exceptions.ConnectionError:
+        st.error("❌ Não foi possível conectar ao backend. Verifique se o serviço no Render está no ar.")
+        return None
+    except Exception as e:
+        st.error(f"⚠️ Erro ao excluir registro: {e}")
+        return None
+
 
 @st.cache_data(ttl=30, show_spinner=False)
 def carregar_cronograma_cache(_token):
     try:
-        resp = requests.get(f"{API_URL}/cronograma/", headers={"Authorization": f"Bearer {_token}"}, timeout=15)
+        resp = requests.get(f"{API_URL}/cronograma/", headers={"Authorization": f"Bearer {_token}"}, timeout=30)
         if resp.status_code == 200:
             return pd.DataFrame(resp.json())
-    except:
+    except Exception:
         pass
     return pd.DataFrame()
+
 
 def carregar_cronograma():
     return carregar_cronograma_cache(st.session_state.get("token"))
 
+
 # ===================== LOGIN =====================
+# Nunca carrega nada do dashboard sem autenticação — a checagem do token
+# tem que vir antes de qualquer outra coisa na tela.
 if not st.session_state.get("token"):
     render_login()
     st.stop()
+
+# Mantém as variáveis "espelho" (user_nome/user_role) sincronizadas, já que
+# algumas views mais antigas ainda podem consultar esses nomes alternativos.
+if st.session_state.get("nome") and not st.session_state.get("user_nome"):
+    st.session_state["user_nome"] = st.session_state["nome"]
+if st.session_state.get("role") and not st.session_state.get("user_role"):
+    st.session_state["user_role"] = st.session_state["role"]
 
 # ===================== SIDEBAR =====================
 nome_raw = st.session_state.get("nome") or st.session_state.get("username") or "Usuário"
@@ -130,6 +205,7 @@ if role in PAPEIS_GESTAO:
 
 menu = st.sidebar.radio("Navegação", menus, label_visibility="collapsed")
 
+# Botão de Sair — estilizado via styles.css (tema escuro, sem fundo branco padrão)
 if st.sidebar.button("🚪 Sair do Sistema", use_container_width=True):
     st.session_state.clear()
     st.rerun()
@@ -142,6 +218,6 @@ elif menu == "🗓️ Escala Semanal":
 elif menu == "📑 Relatórios Operacionais":
     render_relatorios(api_get)
 elif menu == "📝 Lançar Execução Diária":
-    render_lancamento(api_post_json)
+    render_lancamento(api_post_form)
 elif menu == "✏️ Editor de Apontamentos":
     render_editor(api_get, api_put_json, api_delete)

@@ -1,8 +1,9 @@
 import streamlit as st
 import time
 
+
 def render_lancamento(api_post):
-    # ===================== CSS PREMIUM =====================
+    # ===================== CSS PREMIUM (idêntico ao original — cores e identidade Duarte) =====================
     st.markdown("""
     <style>
         .lancamento-card {
@@ -25,6 +26,9 @@ def render_lancamento(api_post):
         .justificativa-box {
             border-left: 4px solid #FF9200;
             background: #FFF9F0;
+            padding: 14px 16px;
+            border-radius: 8px;
+            margin-bottom: 6px;
         }
     </style>
     """, unsafe_allow_html=True)
@@ -33,44 +37,54 @@ def render_lancamento(api_post):
     st.markdown("### 📝 Lançar Execução Diária")
     st.caption("Registre as atividades realizadas hoje")
 
-    with st.form("form_lancamento", clear_on_submit=True):
-        col1, col2 = st.columns(2)
+    # IMPORTANTE: aqui NÃO usamos st.form. Dentro de um st.form, mudar o
+    # selectbox de status não dispara um rerender imediato — o campo de
+    # justificativa só apareceria depois de clicar em salvar, o que não é
+    # o comportamento pedido ("aparece assim que escolher o status").
+    # Por isso os campos ficam soltos, e só o clique final é tratado como
+    # "salvar".
+    col1, col2 = st.columns(2)
 
-        with col1:
-            cliente = st.text_input(
-                "🏢 Cliente / Prestador *",
-                placeholder="Ex: Vivest, Hospital Santa Casa..."
-            )
+    with col1:
+        cliente = st.text_input(
+            "🏢 Cliente / Prestador *",
+            placeholder="Ex: Vivest, Hospital Santa Casa...",
+            key="lanc_cliente",
+        )
 
-        with col2:
-            status = st.selectbox(
-                "📌 Status da Execução *",
-                [
-                    "Realizado Total",
-                    "Realizado Parcial",
-                    "Não Realizado",
-                    "Não Se Aplica",
-                ],
-                key="status_select"
-            )
+    with col2:
+        status = st.selectbox(
+            "📌 Status da Execução *",
+            [
+                "Realizado Total",
+                "Realizado Parcial",
+                "Não Realizado",
+                "Não Se Aplica",
+            ],
+            key="lanc_status",
+        )
 
-        # LÓGICA DE JUSTIFICATIVA OBRIGATÓRIA
+    # Justificativa só existe (é criada) quando o status exige. Para
+    # "Realizado Total" ela nem aparece na tela.
+    justificativa = ""
+    exige_justificativa = status != "Realizado Total"
+
+    if exige_justificativa:
+        st.markdown('<div class="justificativa-box">', unsafe_allow_html=True)
         justificativa = st.text_area(
-            "⚠️ Justificativa / Observação",
-            placeholder="Explique o motivo (obrigatório para status não total)...",
-            height=120,
-            key="justif"
+            "⚠️ Motivo / Justificativa *",
+            placeholder="Explique o motivo deste status (obrigatório)...",
+            height=110,
+            key="lanc_justificativa",
         )
+        st.markdown("</div>", unsafe_allow_html=True)
 
-        # Validação visual
-        if status != "Realizado Total":
-            st.warning("⚠️ Justificativa é **obrigatória** para este status.")
-
-        salvar = st.form_submit_button(
-            "💾 Salvar Lançamento", 
-            use_container_width=True,
-            type="primary"
-        )
+    salvar = st.button(
+        "💾 Salvar Lançamento",
+        use_container_width=True,
+        type="primary",
+        key="lanc_salvar",
+    )
 
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -79,23 +93,38 @@ def render_lancamento(api_post):
             st.error("❌ Informe o nome do cliente.")
             return
 
-        if status != "Realizado Total" and not justificativa.strip():
+        if exige_justificativa and not justificativa.strip():
             st.error("❌ Justificativa é obrigatória para este status!")
             return
 
         payload = {
             "cliente_nome": cliente.strip(),
             "status": status,
-            "justificativa": justificativa.strip()
+            "justificativa": justificativa.strip(),
+            # Campo extra de segurança: caso o backend ainda exija saber
+            # quem lançou (não vinha no seu payload de referência, mas
+            # evita um 422 caso o endpoint /registros/ ainda peça esse
+            # campo obrigatoriamente). Não atrapalha se o backend ignorar.
+            "operador_nome": (
+                st.session_state.get("nome")
+                or st.session_state.get("username")
+                or ""
+            ),
         }
 
         with st.spinner("Salvando..."):
             resposta = api_post("/registros/", payload)
 
-        if resposta and resposta.status_code in [200, 201]:
+        if resposta is not None and resposta.status_code in [200, 201]:
             st.success("✅ Lançamento registrado com sucesso!")
             st.balloons()
             time.sleep(1.2)
             st.rerun()
+        elif resposta is not None:
+            try:
+                detalhe = resposta.json().get("detail", resposta.text)
+            except Exception:
+                detalhe = resposta.text
+            st.error(f"❌ Erro ao salvar (status {resposta.status_code}): {detalhe}")
         else:
-            st.error("❌ Erro ao salvar. Verifique a conexão.")
+            st.error("❌ Erro ao salvar. Verifique a conexão com o backend.")
