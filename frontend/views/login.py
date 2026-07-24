@@ -3,12 +3,13 @@ import requests
 import time
 import os
 
+# URL Base do Backend no Render
 API_URL = os.getenv("BACKEND_URL", "https://duarte-performance-backend.onrender.com")
 
 def render_login():
     st.set_page_config(page_title="Duarte Performance", layout="wide")
     
-    # Estilização CSS
+    # Estilização CSS com as cores corporativas (Azul #001E57 e Laranja #FF9200)
     st.markdown("""
     <style>
         .big-title { font-size: 3.5rem; font-weight: 900; color: #001E57; margin: 0; }
@@ -39,6 +40,7 @@ def render_login():
         if st.button("🚀 ENTRAR NA PLATAFORMA", type="primary", use_container_width=True):
             if username and password:
                 try:
+                    # Envia os dados como Form Data (requerido pelo FastAPI OAuth2PasswordRequestForm)
                     resp = requests.post(
                         f"{API_URL}/token", 
                         data={"username": username.strip(), "password": password.strip()}
@@ -47,7 +49,7 @@ def render_login():
                     if resp.status_code == 200:
                         data = resp.json()
                         
-                        # 🔑 REGISTRA A SESSÃO NO STREAMLIT
+                        # Salvando o token e perfil do usuário na sessão do Streamlit
                         st.session_state["token"] = data.get("access_token")
                         st.session_state["user_role"] = data.get("role")
                         st.session_state["user_nome"] = data.get("nome")
