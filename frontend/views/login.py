@@ -3,13 +3,11 @@ import requests
 import time
 import os
 
-# URL Base do Backend no Render
 API_URL = os.getenv("BACKEND_URL", "https://duarte-performance-backend.onrender.com")
 
 def render_login():
     st.set_page_config(page_title="Duarte Performance", layout="wide")
     
-    # Estilização CSS com as cores corporativas (Azul #001E57 e Laranja #FF9200)
     st.markdown("""
     <style>
         .big-title { font-size: 3.5rem; font-weight: 900; color: #001E57; margin: 0; }
@@ -39,31 +37,34 @@ def render_login():
 
         if st.button("🚀 ENTRAR NA PLATAFORMA", type="primary", use_container_width=True):
             if username and password:
-                try:
-                    # Envia os dados como Form Data (requerido pelo FastAPI OAuth2PasswordRequestForm)
-                    resp = requests.post(
-                        f"{API_URL}/token", 
-                        data={"username": username.strip(), "password": password.strip()}
-                    )
-                    
-                    if resp.status_code == 200:
-                        data = resp.json()
+                with st.spinner("Conectando ao servidor..."):
+                    try:
+                        resp = requests.post(
+                            f"{API_URL}/token", 
+                            data={"username": username.strip(), "password": password.strip()},
+                            timeout=15
+                        )
                         
-                        # Salvando o token e perfil do usuário na sessão do Streamlit
-                        st.session_state["token"] = data.get("access_token")
-                        st.session_state["user_role"] = data.get("role")
-                        st.session_state["user_nome"] = data.get("nome")
-                        st.session_state["username"] = data.get("username")
-                        st.session_state["logged_in"] = True
-                        
-                        st.success(f"✅ Autenticado com sucesso! Bem-vindo(a), {data.get('nome', username)}.")
-                        time.sleep(1)
-                        st.rerun()
-                    else:
-                        st.error("❌ Credenciais erradas ou usuário não cadastrado.")
-                except Exception as e:
-                    st.error(f"Erro de conexão com o backend: {e}")
-            else:
-                st.warning("Preencha os campos de usuário e senha.")
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            st.session_state["token"] = data.get("access_token")
+                            st.session_state["user_role"] = data.get("role")
+                            st.session_state["user_nome"] = data.get("nome")
+                            st.session_state["username"] = data.get("username")
+                            st.session_state["logged_in"] = True
+                            st.success(f"✅ Autenticado com sucesso!")
+                            time.sleep(1)
+                            st.rerun()
+                        elif resp.status_code == 401:
+                            st.error("❌ Usuário ou senha incorretos.")
+                        else:
+                            st.warning(f"⚠️ O servidor está inicializando (Status: {resp.status_code}). Aguarde 20 segundos e tente novamente.")
 
-    st.caption("Ainda com problema? Tente reiniciar o Streamlit (Ctrl+C e rode novamente)")
+                    except requests.exceptions.Timeout:
+                        st.warning("⏳ O servidor do backend estava dormindo e está ligando agora. Aguarde ~30 segundos e clique em Entrar novamente.")
+                    except Exception as e:
+                        st.error(f"Erro de comunicação: O backend pode estar offline ou inicializando.")
+            else:
+                st.warning("Preencha todos os campos.")
+
+    st.caption("Central de Acesso • Duarte Performance")

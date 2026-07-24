@@ -1,104 +1,116 @@
+import os
+import requests
 import streamlit as st
-import time
 
-def render_lancamento(api_post_form):
-    # Header Principal
-    st.markdown("""
-    <div style="margin-bottom: 25px;">
-        <h1 style="color: #001E57; font-weight: 900; font-size: 2.2rem; margin-bottom: 4px;">
-            📝 Apontamento de Execução Diária
-        </h1>
-        <p style="color: #64748B; font-size: 1rem; margin: 0;">
-            Registre os resultados operacionais, pendências e justificativas das entregas do dia.
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
+# URL base da API (obtida de variável de ambiente ou fallback)
+API_URL = os.getenv("BACKEND_URL", "https://duarte-performance-backend.onrender.com")
 
-    # Identificação do Operador Conectado
-    operador_atual = st.session_state.get("nome") or st.session_state.get("username") or "Operador"
 
-    st.markdown(f"""
-    <div style="background: rgba(0, 30, 87, 0.04); border-left: 4px solid #FF9200; padding: 12px 18px; border-radius: 8px; margin-bottom: 25px; display: flex; align-items: center; justify-content: space-between;">
-        <span style="color: #001E57; font-weight: 700;">👤 Responsável pelo Apontamento: <strong style="color: #FF9200;">{operador_atual}</strong></span>
-        <span style="background: #001E57; color: #FFF; font-size: 0.75rem; padding: 4px 10px; border-radius: 99px; font-weight: 700;">SESSÃO ATIVA</span>
-    </div>
-    """, unsafe_allow_html=True)
+def render_lancamento():
+    st.title("📝 Apontamento de Execução Diária")
+    st.caption(
+        "Registre os resultados operacionais, pendências e justificativas das entregas do dia."
+    )
 
-    # Formulário Principal Envelopado
-    with st.form("form_diario_pro", clear_on_submit=True):
-        col1, col2 = st.columns([1.5, 1], gap="medium")
+    # Identificação do usuário ativo na sessão
+    user_nome = st.session_state.get("user_nome", "Operador")
+    st.info(f"👤 **Responsável pelo Apontamento:** {user_nome}")
 
-        with col1:
-            cliente_nome = st.text_input(
+    st.markdown("---")
+
+    # Formulário de inserção com limpeza automática ao enviar
+    with st.form("form_execucao", clear_on_submit=True):
+        col_form, col_orientacao = st.columns([2, 1], gap="large")
+
+        with col_form:
+            cliente = st.text_input(
                 "🏢 Nome do Cliente / Provedor *",
-                placeholder="Ex: Vivest, Clinica X, Hospital Y...",
-                help="Informe o nome exato do cliente ou prestador em atualização."
+                placeholder="Ex: Vivest, Clínica X, Hospital Y...",
             )
 
-            status = st.selectbox(
+            status_execucao = st.selectbox(
                 "📌 Status da Execução *",
-                options=["Realizado Total", "Realizado Parcial", "Não Realizado"],
-                help="Selecione o resultado do trabalho executado hoje."
+                ["Realizado Total", "Realizado Parcial", "Não Realizado", "Não Se Aplica"],
+                index=0,
             )
 
-        with col2:
+            # 🎯 REGRA CONDICIONAL: Ouve o status e só exibe o campo se for Parcial ou Não Realizado
+            observacoes = ""
+            if status_execucao in ["Realizado Parcial", "Não Realizado", "Não Se Aplica"]:
+                observacoes = st.text_area(
+                    "💬 Observações / Justificativa Detalhada *",
+                    placeholder=(
+                        "Descreva o motivo da pendência, bloqueios de sistema,"
+                        " falhas ou itens pendentes..."
+                    ),
+                    height=120,
+                )
+
+        with col_orientacao:
             st.markdown("""
-            <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 12px; padding: 16px; margin-top: 25px;">
-                <h5 style="color: #001E57; margin-bottom: 8px; font-weight: 800;">💡 Orientação Rápida</h5>
-                <ul style="color: #64748B; font-size: 0.85rem; padding-left: 18px; margin: 0;">
-                    <li><strong>Realizado Total:</strong> Processo 100% concluído.</li>
-                    <li><strong>Realizado Parcial:</strong> Faltaram dados ou houve bloqueio.</li>
-                    <li><strong>Não Realizado:</strong> Detalhar o motivo na justificativa.</li>
-                </ul>
-            </div>
-            """, unsafe_allow_html=True)
+            ### 💡 Orientação Rápida
 
-        st.markdown("<br>", unsafe_allow_html=True)
+            * **Realizado Total:**  
+              Processo 100% concluído e sem pendências.
 
-        # Campo Dinâmico de Justificativa
-        justificativa = st.text_area(
-            "💬 Observações / Justificativa Detalhada",
-            placeholder="Descreva o que foi realizado ou o motivo de pendências/imprevistos...",
-            height=120,
-            help="Obrigatório para status Parcial ou Não Realizado."
+            * **Realizado Parcial:**  
+              Faltaram dados, documentos ou o sistema apresentou bloqueios parciais.
+
+            * **Não Realizado:**  
+              Entrega não efetuada. **Obrigatório informar a justificativa.**
+            """)
+
+        st.markdown("---")
+        submit = st.form_submit_button(
+            "🚀 GRAVAR EXECUÇÃO", type="primary", use_container_width=True
         )
 
-        # Upload de Evidência / Print (Opcional)
-        arquivo_evidencia = st.file_uploader(
-            "📎 Anexar Evidência / Comprovante (Opcional)",
-            type=["png", "jpg", "pdf", "xlsx"],
-            help="Anexe relatórios ou prints do sistema que comprovem a execução."
-        )
+        if submit:
+            # 1. Validação do Nome do Cliente
+            if not cliente.strip():
+                st.warning("⚠️ Preencha o nome do cliente / provedor.")
 
-        st.markdown("<br>", unsafe_allow_html=True)
+            # 2. Validação da Observação Condicional
+            elif (
+                status_execucao in ["Realizado Parcial", "Não Realizado", "Não Se Aplica"]
+                and not observacoes.strip()
+            ):
+                st.error(
+                    "⚠️ Para status Parcial ou Não Realizado, o campo de"
+                    " Observação/Justificativa é obrigatório!"
+                )
 
-        # Botão de Envio
-        btn_submeter = st.form_submit_button("🚀 REGISTRAR APONTAMENTO DIÁRIO", type="primary", use_container_width=True)
-
-    # Processamento do Formulário ao Clicar
-    if btn_submeter:
-        if not cliente_nome.strip():
-            st.warning("⚠️ Por favor, informe o nome do cliente antes de enviar.")
-        elif status != "Realizado Total" and not justificativa.strip():
-            st.warning("⚠️ Para status 'Parcial' ou 'Não Realizado', a justificativa é obrigatória.")
-        else:
-            payload = {
-                "operador_nome": operador_atual,
-                "cliente_nome": cliente_nome.strip(),
-                "status": status,
-                "justificativa": justificativa.strip()
-            }
-
-            files_dict = None
-            if arquivo_evidencia:
-                files_dict = {"file": (arquivo_evidencia.name, arquivo_evidencia.getvalue(), arquivo_evidencia.type)}
-
-            with st.spinner("Gravando dados no backend..."):
-                resp = api_post_form("/registros/", data=payload, files=files_dict)
-
-            if resp and resp.status_code in [200, 201]:
-                st.balloons()
-                st.success(f"✨ Apontamento do cliente **'{cliente_nome}'** gravado com sucesso!")
-                time.sleep(1)
+            # 3. Processamento do Envio para o Backend
             else:
-                st.error("❌ Não foi possível gravar o apontamento. Verifique a conexão com o servidor.")
+                payload = {
+                    "cliente": cliente.strip(),
+                    "status": status_execucao,
+                    "observacoes": observacoes.strip(),
+                }
+
+                # Recupera token do usuário se houver autenticação
+                token = st.session_state.get("token", "")
+                headers = {"Authorization": f"Bearer {token}"} if token else {}
+
+                try:
+                    res = requests.post(
+                        f"{API_URL}/execucoes/", json=payload, headers=headers
+                    )
+
+                    if res.status_code in [200, 201]:
+                        st.success("✅ Execução registrada com sucesso!")
+                        st.balloons()
+                    else:
+                        st.error(
+                            f"❌ Erro ao salvar registro ({res.status_code}):"
+                            f" {res.text}"
+                        )
+
+                except Exception as e:
+                    st.error(
+                        f"❌ Erro de conexão com o servidor backend: {e}"
+                    )
+
+
+# Execução direta do render da tela
+render_lancamento()
