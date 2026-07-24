@@ -3,33 +3,37 @@ import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-# Fuso horário do Brasil — necessário pra saber corretamente "qual dia da
-# semana é hoje" mesmo rodando num servidor em UTC (Render).
-FUSO_BR = ZoneInfo("America/Sao_Paulo")
+# Fonte real da escala: é a MESMA função que views/escala.py usa (a tabela
+# fixa da matriz de Credenciamento). O backend tem uma rota /cronograma/,
+# mas quem realmente popula a tela de Escala Semanal hoje é essa função
+# local — então é dela que também puxamos os clientes daqui.
+from views.escala import get_cronograma_credenciamento
+
 DIAS_SEMANA_PT = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
+FUSO_BR = ZoneInfo("America/Sao_Paulo")
 
 
 def _dia_semana_atual_brasil() -> str:
     return DIAS_SEMANA_PT[datetime.now(FUSO_BR).weekday()]
 
 
-def _clientes_do_operador_hoje(df_crono, nome_operador: str, dia_hoje: str) -> list:
-    """Filtra o cronograma (formato vindo direto do backend: colunas
-    operador, dia_semana, cliente, ...) pra achar só os clientes/serviços
-    atribuídos a essa pessoa nesse dia da semana."""
-    if df_crono is None or df_crono.empty:
-        return []
-    colunas_necessarias = {"operador", "dia_semana", "cliente"}
-    if not colunas_necessarias.issubset(df_crono.columns):
+def _clientes_do_operador_hoje(nome_operador: str, dia_hoje: str) -> list:
+    """Usa a mesma tabela (formato largo: Operador, Periodo, Segunda...Sexta)
+    que a tela de Escala Semanal usa de verdade, e pega só a coluna do dia
+    de hoje pra esse operador."""
+    df_escala = get_cronograma_credenciamento()
+
+    if dia_hoje not in df_escala.columns:
+        # Sábado/Domingo não existem na matriz — não tem escala nesses dias.
         return []
 
-    nome_operador = (nome_operador or "").strip().lower()
-    filtro = (
-        df_crono["operador"].astype(str).str.strip().str.lower() == nome_operador
-    ) & (df_crono["dia_semana"] == dia_hoje)
+    nome_operador = (nome_operador or "").strip()
+    if not nome_operador:
+        return []
 
-    clientes = df_crono.loc[filtro, "cliente"].dropna().astype(str).str.strip()
-    clientes = [c for c in clientes.unique().tolist() if c and c != "-"]
+    filtro = df_escala["Operador"].astype(str).str.contains(nome_operador, case=False, na=False)
+    valores = df_escala.loc[filtro, dia_hoje].dropna().astype(str).str.strip()
+    clientes = [v for v in valores.unique().tolist() if v and v != "-"]
     return sorted(clientes)
 
 
@@ -70,10 +74,14 @@ def render_lancamento(api_post, carregar_cronograma=None):
 
     # --- Monta a lista de Clientes/Serviços de hoje, a partir da escala real ---
     dia_hoje = _dia_semana_atual_brasil()
-    nome_operador = st.session_state.get("nome") or st.session_state.get("username") or ""
+    nome_operador = (
+        st.session_state.get("nome")
+        or st.session_state.get("user_nome")
+        or st.session_state.get("username")
+        or ""
+    )
 
-    df_crono = carregar_cronograma() if carregar_cronograma else None
-    clientes_hoje = _clientes_do_operador_hoje(df_crono, nome_operador, dia_hoje)
+    clientes_hoje = _clientes_do_operador_hoje(nome_operador, dia_hoje)
 
     st.caption(f"📅 Hoje é **{dia_hoje}-feira** — mostrando os clientes/serviços da sua escala de hoje.")
 

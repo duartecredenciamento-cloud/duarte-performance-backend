@@ -216,7 +216,7 @@ if menu == "📊 Dashboard Gerencial":
 elif menu == "🗓️ Escala Semanal":
     render_escala(carregar_cronograma)
 elif menu == "📑 Relatórios Operacionais":
-    render_relatorios(api_get)
+    render_relatorios()
 elif menu == "📝 Lançar Execução Diária":
     render_lancamento(api_post_form, carregar_cronograma)
 elif menu == "✏️ Editor de Apontamentos":
