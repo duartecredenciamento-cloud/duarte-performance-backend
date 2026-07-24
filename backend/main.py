@@ -1,23 +1,51 @@
-from fastapi import FastAPI, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordRequestForm
+from fastapi import (
+    FastAPI,
+    Depends,
+    HTTPException,
+    status
+)
+
+from fastapi.security import (
+    OAuth2PasswordRequestForm,
+    OAuth2PasswordBearer
+)
+
 from fastapi.middleware.cors import CORSMiddleware
+
 from sqlalchemy.orm import Session
 
-# Importações internas do seu projeto
-import models
-import auth
-from database import get_db, engine
+from jose import JWTError, jwt
 
-# Cria automaticamente as tabelas no PostgreSQL caso não existam
-models.Base.metadata.create_all(bind=engine)
+import models
+import schemas
+import auth
+
+from database import (
+    get_db,
+    engine
+)
+
+
+# =====================================================
+# CRIAÇÃO DAS TABELAS
+# =====================================================
+
+models.Base.metadata.create_all(
+    bind=engine
+)
+
+
+# =====================================================
+# CONFIGURAÇÃO API
+# =====================================================
 
 app = FastAPI(
     title="Duarte Performance API",
-    description="Backend de Inteligência Operacional & Credenciamento de Saúde",
-    version="2.4"
+    description="Gestão Operacional Duarte Gestão",
+    version="2.5"
 )
 
-# Configuração de CORS (Libera o frontend no Streamlit para fazer requisições)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -26,105 +54,491 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# =====================================================
-# INICIALIZAÇÃO AUTOMÁTICA (Startup)
-# =====================================================
-@app.on_event("startup")
-def inicializar_admin_padrao():
-    """Garante que o usuário admin master exista e esteja com a senha correta ao subir a aplicação."""
-    try:
-        db: Session = next(get_db())
-        username_admin = "admin"
-        admin = db.query(models.Usuario).filter(models.Usuario.username == username_admin).first()
-        
-        if not admin:
-            novo_admin = models.Usuario(
-                username=username_admin,
-                password_hash=auth.obter_hash_senha("Duarte1234#"),
-                nome="Administrador Duarte",
-                email="admin@duartegestao.com.br",
-                role="Admin Master",
-                perfil_completo=True
-            )
-            db.add(novo_admin)
-            db.commit()
-            print("✅ Usuário 'admin' padrão criado com sucesso no banco!")
-        else:
-            admin.password_hash = auth.obter_hash_senha("Duarte1234#")
-            admin.role = "Admin Master"
-            db.commit()
-            print("✅ Senha do usuário 'admin' redefinida para 'Duarte1234#' com sucesso!")
-        db.close()
-    except Exception as e:
-        print(f"⚠️ Aviso na inicialização do admin: {e}")
 
 
 # =====================================================
-# ROTAS DE DIAGNÓSTICO E EMERGÊNCIA
+# JWT
 # =====================================================
-@app.get("/")
-def health_check():
-    return {"status": "online", "sistema": "Duarte Performance Backend", "versao": "2.4"}
+
+oauth2_scheme = OAuth2PasswordBearer(
+    tokenUrl="/token"
+)
 
 
-@app.get("/criar-admin-agora")
-def criar_admin_emergencia(db: Session = Depends(get_db)):
-    """
-    Rota de emergência acessível pelo navegador para forçar a criação/reset do admin.
-    URL: https://duarte-performance-backend.onrender.com/criar-admin-agora
-    """
-    try:
-        admin = db.query(models.Usuario).filter(models.Usuario.username == "admin").first()
-        if not admin:
-            admin = models.Usuario(
-                username="admin",
-                password_hash=auth.obter_hash_senha("Duarte1234#"),
-                nome="Administrador Duarte",
-                email="admin@duartegestao.com.br",
-                role="Admin Master",
-                perfil_completo=True
-            )
-            db.add(admin)
-        else:
-            admin.password_hash = auth.obter_hash_senha("Duarte1234#")
-            admin.role = "Admin Master"
-        
-        db.commit()
-        return {
-            "status": "SUCESSO", 
-            "mensagem": "Usuário 'admin' registrado no PostgreSQL com a senha 'Duarte1234#'!"
-        }
-    except Exception as e:
-        return {"status": "ERRO", "detalhe": str(e)}
 
-
-# =====================================================
-# ROTA DE AUTENTICAÇÃO (LOGIN JWT)
-# =====================================================
-@app.post("/token")
-def login_para_acesso_token(
-    form_data: OAuth2PasswordRequestForm = Depends(),
+def usuario_logado(
+    token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db)
 ):
-    """Endpoint oficial de login exigido pelo Streamlit."""
-    username_limpo = form_data.username.strip()
-    password_limpa = form_data.password.strip()
 
-    user = db.query(models.Usuario).filter(models.Usuario.username == username_limpo).first()
-    
-    if not user or not auth.verificar_senha(password_limpa, user.password_hash):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Usuário ou senha incorretos",
-            headers={"WWW-Authenticate": "Bearer"},
+    try:
+
+        payload = jwt.decode(
+            token,
+            auth.SECRET_KEY,
+            algorithms=[
+                auth.ALGORITHM
+            ]
         )
-    
-    access_token = auth.criar_token_acesso(data={"sub": user.username, "role": user.role})
-    
+
+
+        username = payload.get(
+            "sub"
+        )
+
+
+        if not username:
+
+            raise HTTPException(
+                status_code=401,
+                detail="Token inválido"
+            )
+
+
+    except JWTError:
+
+        raise HTTPException(
+            status_code=401,
+            detail="Token expirado ou inválido"
+        )
+
+
+
+    usuario = (
+        db.query(models.Usuario)
+        .filter(
+            models.Usuario.username == username
+        )
+        .first()
+    )
+
+
+    if not usuario:
+
+        raise HTTPException(
+            status_code=404,
+            detail="Usuário não encontrado"
+        )
+
+
+    return usuario
+
+
+
+# =====================================================
+# HEALTH CHECK
+# =====================================================
+
+@app.get("/")
+def home():
+
     return {
-        "access_token": access_token,
-        "token_type": "bearer",
-        "username": user.username,
-        "nome": user.nome or user.username,
-        "role": user.role
+
+        "status":"online",
+
+        "sistema":
+        "Duarte Performance API",
+
+        "versao":"2.5"
+
     }
+
+
+
+# =====================================================
+# LOGIN
+# =====================================================
+
+
+@app.post("/token")
+def login(
+
+    form_data:
+    OAuth2PasswordRequestForm = Depends(),
+
+    db:
+    Session = Depends(get_db)
+
+):
+
+
+    usuario = (
+
+        db.query(models.Usuario)
+
+        .filter(
+            models.Usuario.username
+            ==
+            form_data.username
+        )
+
+        .first()
+
+    )
+
+
+
+    if not usuario:
+
+        raise HTTPException(
+            status_code=401,
+            detail="Usuário ou senha inválidos"
+        )
+
+
+
+    if not auth.verificar_senha(
+
+        form_data.password,
+
+        usuario.password_hash
+
+    ):
+
+        raise HTTPException(
+            status_code=401,
+            detail="Usuário ou senha inválidos"
+        )
+
+
+
+    token = auth.criar_token_acesso(
+
+        {
+
+            "sub":
+            usuario.username,
+
+
+            "nome":
+            usuario.nome,
+
+
+            "role":
+            usuario.role,
+
+
+            "id":
+            usuario.id
+
+        }
+
+    )
+
+
+    return {
+
+
+        "access_token":
+        token,
+
+
+        "token_type":
+        "bearer",
+
+
+        "username":
+        usuario.username,
+
+
+        "nome":
+        usuario.nome,
+
+
+        "role":
+        usuario.role
+
+    }
+
+
+
+
+
+# =====================================================
+# PERFIL DO USUÁRIO
+# =====================================================
+
+
+@app.get("/usuarios/me")
+def meu_usuario(
+
+    usuario:
+    models.Usuario = Depends(usuario_logado)
+
+):
+
+    return {
+
+        "id":
+        usuario.id,
+
+        "username":
+        usuario.username,
+
+        "nome":
+        usuario.nome,
+
+        "email":
+        usuario.email,
+
+        "role":
+        usuario.role,
+
+        "perfil_completo":
+        usuario.perfil_completo
+
+    }
+
+
+
+
+
+# =====================================================
+# REGISTROS OPERACIONAIS
+# =====================================================
+
+
+@app.post(
+    "/registros/",
+    response_model=schemas.RegistroOut
+)
+def criar_registro(
+
+    registro:
+    schemas.RegistroCreate,
+
+    db:
+    Session = Depends(get_db),
+
+    usuario:
+    models.Usuario = Depends(usuario_logado)
+
+):
+
+
+    novo = models.RegistroModel(
+
+        operador_nome=
+        usuario.nome,
+
+
+        cliente_nome=
+        registro.cliente_nome,
+
+
+        status=
+        registro.status,
+
+
+        justificativa=
+        registro.justificativa
+
+    )
+
+
+    db.add(novo)
+
+    db.commit()
+
+    db.refresh(novo)
+
+
+    return novo
+
+
+
+
+
+@app.get(
+    "/registros/",
+    response_model=list[schemas.RegistroOut]
+)
+def listar_registros(
+
+    db:
+    Session = Depends(get_db),
+
+    usuario:
+    models.Usuario = Depends(usuario_logado)
+
+):
+
+
+    registros = (
+
+        db.query(
+            models.RegistroModel
+        )
+
+        .order_by(
+            models.RegistroModel.data_registro.desc()
+        )
+
+        .all()
+
+    )
+
+
+    return registros
+
+
+
+
+
+@app.put(
+    "/registros/{registro_id}"
+)
+def atualizar_registro(
+
+    registro_id:int,
+
+    dados:
+    schemas.RegistroUpdate,
+
+    db:
+    Session = Depends(get_db),
+
+    usuario:
+    models.Usuario = Depends(usuario_logado)
+
+):
+
+
+    registro = (
+
+        db.query(
+            models.RegistroModel
+        )
+
+        .filter(
+            models.RegistroModel.id
+            ==
+            registro_id
+        )
+
+        .first()
+
+    )
+
+
+    if not registro:
+
+        raise HTTPException(
+            404,
+            "Registro não encontrado"
+        )
+
+
+    for campo, valor in dados.dict(
+        exclude_unset=True
+    ).items():
+
+        setattr(
+            registro,
+            campo,
+            valor
+        )
+
+
+    db.commit()
+
+
+    return {
+
+        "status":
+        "Atualizado"
+
+    }
+
+
+
+
+
+@app.delete(
+    "/registros/{registro_id}"
+)
+def deletar_registro(
+
+    registro_id:int,
+
+    db:
+    Session = Depends(get_db),
+
+    usuario:
+    models.Usuario = Depends(usuario_logado)
+
+):
+
+
+    registro = (
+
+        db.query(
+            models.RegistroModel
+        )
+
+        .filter(
+            models.RegistroModel.id
+            ==
+            registro_id
+        )
+
+        .first()
+
+    )
+
+
+    if not registro:
+
+        raise HTTPException(
+            404,
+            "Registro não encontrado"
+        )
+
+
+    db.delete(registro)
+
+    db.commit()
+
+
+    return {
+
+        "status":
+        "Excluído"
+
+    }
+
+
+
+
+
+# =====================================================
+# CRONOGRAMA
+# =====================================================
+
+
+@app.get(
+    "/cronograma/"
+)
+def listar_cronograma(
+
+    db:
+    Session = Depends(get_db),
+
+    usuario:
+    models.Usuario = Depends(usuario_logado)
+
+):
+
+
+    dados = (
+
+        db.query(
+            models.CronogramaModel
+        )
+
+        .all()
+
+    )
+
+
+    return dados

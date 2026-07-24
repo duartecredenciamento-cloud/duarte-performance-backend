@@ -1,77 +1,127 @@
 import streamlit as st
 import time
 
-def render_lancamento(api_post, api_get=None):
-    st.markdown("## 📝 Lançar Execução Diária")
-    st.caption("Cadastre o status das entregas operacionais do dia.")
 
-    with st.form("form_lancamento_diario", clear_on_submit=True):
+def render_lancamento(api_post):
+    st.markdown("## 📝 Lançar Execução Diária")
+    st.caption(
+        "Registre a execução das atividades operacionais realizadas no dia."
+    )
+
+    with st.form("form_lancamento", clear_on_submit=True):
+
         col1, col2 = st.columns(2)
 
         with col1:
-            cliente_nome = st.text_input(
-                "🏢 Nome do Cliente / Provedor *",
-                placeholder="Ex: Vivest, Clínica X, Hospital Y..."
+            cliente = st.text_input(
+                "🏢 Cliente / Prestador *",
+                placeholder="Ex: Vivest, Hospital X..."
             )
 
         with col2:
-            status_execucao = st.selectbox(
+            status = st.selectbox(
                 "📌 Status da Execução *",
-                options=[
+                [
                     "Realizado Total",
                     "Realizado Parcial",
                     "Não Realizado",
-                    "Não Se Aplica"
-                ]
+                    "Não Se Aplica",
+                ],
             )
 
-        # CAMPO DINÂMICO DE JUSTIFICATIVA/OBSERVAÇÃO
-        # Aparece automaticamente se houver qualquer ressalva ou pendência
         justificativa = ""
-        if status_execucao in ["Realizado Parcial", "Não Realizado", "Não Se Aplica"]:
+
+        if status != "Realizado Total":
+
             justificativa = st.text_area(
-                "⚠️ Observação / Justificativa (Obrigatório) *",
-                placeholder="Descreva o motivo da pendência, falta de documento ou bloqueio operacional...",
-                help="Informe com clareza o motivo do status selecionado."
+                "⚠️ Justificativa *",
+                placeholder="Explique o motivo..."
             )
+
         else:
+
             justificativa = st.text_area(
                 "💬 Observação (Opcional)",
-                placeholder="Detalhes adicionais sobre a execução, se houver..."
+                placeholder="Informações adicionais..."
             )
 
-        submitted = st.form_submit_button("🚀 Confirmar e Salvar Lançamento", type="primary")
+        salvar = st.form_submit_button(
+            "🚀 Salvar Lançamento",
+            use_container_width=True,
+            type="primary",
+        )
 
-        if submitted:
-            # Validações dos campos obrigatórios
-            if not cliente_nome.strip():
-                st.error("❌ O nome do cliente/provedor é obrigatório.")
-                return
+    if not salvar:
+        return
 
-            if status_execucao in ["Realizado Parcial", "Não Realizado", "Não Se Aplica"] and not justificativa.strip():
-                st.warning("⚠️ É necessário preencher a justificativa para este status de execução.")
-                return
+    # ==========================
+    # VALIDAÇÕES
+    # ==========================
 
-            payload = {
-                "cliente": cliente_nome.strip(),
-                "status": status_execucao,
-                "observacoes": justificativa.strip(),
-                "justificativa": justificativa.strip() # Envia em ambas chaves para compatibilidade com a API
-            }
+    if not cliente.strip():
 
-            with st.spinner("Gravando dados no backend..."):
-                try:
-                    # Tenta a rota /execucoes/ e fallback para /registros/
-                    res = api_post("/execucoes/", payload)
-                    if not res or getattr(res, "status_code", None) not in [200, 201]:
-                        res = api_post("/registros/", payload)
+        st.error("Informe o cliente.")
 
-                    if res and getattr(res, "status_code", None) in [200, 201]:
-                        st.success("✅ Lançamento registrado com sucesso!")
-                        st.balloons()
-                        time.sleep(1)
-                        st.rerun()
-                    else:
-                        st.error("❌ Falha ao salvar no banco. Verifique se o backend está ativo e autenticado.")
-                except Exception as e:
-                    st.error(f"❌ Erro de comunicação com a API: {e}")
+        return
+
+    if (
+        status != "Realizado Total"
+        and not justificativa.strip()
+    ):
+
+        st.warning(
+            "Informe uma justificativa."
+        )
+
+        return
+
+    payload = {
+
+        "cliente_nome": cliente.strip(),
+
+        "status": status,
+
+        "justificativa": justificativa.strip(),
+
+    }
+
+    with st.spinner("Salvando lançamento..."):
+
+        resposta = api_post(
+            "/registros/",
+            payload
+        )
+
+    if resposta is None:
+
+        st.error(
+            "Erro de comunicação com o servidor."
+        )
+
+        return
+
+    if resposta.status_code in [200, 201]:
+
+        st.success(
+            "✅ Lançamento registrado com sucesso!"
+        )
+
+        st.balloons()
+
+        time.sleep(1)
+
+        st.rerun()
+
+    else:
+
+        try:
+
+            erro = resposta.json()
+
+        except Exception:
+
+            erro = resposta.text
+
+        st.error(
+            f"Erro ao salvar: {erro}"
+        )

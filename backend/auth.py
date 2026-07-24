@@ -1,54 +1,204 @@
 import os
-from datetime import datetime, timedelta
+
+from datetime import datetime, timedelta, timezone
+
 import bcrypt
-from jose import jwt
 
-# -----------------------------------------------------------------------------
-# Configurações de Segurança e JWT
-# -----------------------------------------------------------------------------
-# Busca a chave nas variáveis do Render; se não encontrar, usa a chave de backup.
-SECRET_KEY = os.getenv("SECRET_KEY", "duarte_chave_secreta_2026_super_segura")
+from jose import jwt, JWTError
+
+
+
+# =====================================================
+# CONFIGURAÇÕES JWT
+# =====================================================
+
+SECRET_KEY = os.getenv(
+    "SECRET_KEY"
+)
+
+
+if not SECRET_KEY:
+    SECRET_KEY = (
+        "DUARTE_PERFORMANCE_DEV_KEY_"
+        "ALTERAR_EM_PRODUCAO"
+    )
+
+
+
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # Expira em 24 horas
 
-# -----------------------------------------------------------------------------
-# Funções de Criptografia de Senha (bcrypt nativo)
-# -----------------------------------------------------------------------------
-def obter_hash_senha(senha: str) -> str:
+
+ACCESS_TOKEN_EXPIRE_MINUTES = int(
+    os.getenv(
+        "JWT_EXPIRE_MINUTES",
+        "1440"
+    )
+)
+
+
+
+# =====================================================
+# HASH DE SENHAS
+# =====================================================
+
+
+def obter_hash_senha(
+    senha: str
+) -> str:
+
     """
-    Gera o hash da senha utilizando bcrypt.
-    Trunca a senha em 72 bytes para prevenir erros de limitação do bcrypt.
+    Cria hash seguro utilizando bcrypt.
     """
+
     if not senha:
-        raise ValueError("A senha não pode estar vazia.")
-    
-    senha_bytes = senha.encode('utf-8')[:72]
+
+        raise ValueError(
+            "Senha obrigatória."
+        )
+
+
+    senha_bytes = (
+        senha
+        .encode("utf-8")
+        [:72]
+    )
+
+
     salt = bcrypt.gensalt()
-    return bcrypt.hashpw(senha_bytes, salt).decode('utf-8')
 
 
-def verificar_senha(senha_plana: str, senha_hash: str) -> bool:
+    hash_senha = bcrypt.hashpw(
+        senha_bytes,
+        salt
+    )
+
+
+    return hash_senha.decode(
+        "utf-8"
+    )
+
+
+
+def verificar_senha(
+    senha_plana: str,
+    senha_hash: str
+) -> bool:
+
     """
-    Verifica se a senha digitada corresponde ao hash gravado no banco de dados.
+    Compara senha digitada
+    com hash armazenado.
     """
+
     if not senha_plana or not senha_hash:
-        return False
-    try:
-        senha_bytes = senha_plana.encode('utf-8')[:72]
-        hash_bytes = senha_hash.encode('utf-8')
-        return bcrypt.checkpw(senha_bytes, hash_bytes)
-    except Exception:
+
         return False
 
-# -----------------------------------------------------------------------------
-# Geração de Tokens JWT
-# -----------------------------------------------------------------------------
-def criar_token_acesso(data: dict) -> str:
+
+    try:
+
+        senha_bytes = (
+            senha_plana
+            .encode("utf-8")
+            [:72]
+        )
+
+
+        hash_bytes = (
+            senha_hash
+            .encode("utf-8")
+        )
+
+
+        return bcrypt.checkpw(
+            senha_bytes,
+            hash_bytes
+        )
+
+
+    except Exception:
+
+        return False
+
+
+
+# =====================================================
+# CRIAÇÃO DO TOKEN JWT
+# =====================================================
+
+
+def criar_token_acesso(
+    dados_usuario: dict
+) -> str:
+
     """
-    Gera o token JWT assinado para autenticação nas rotas protegidas.
-    """
-    to_encode = data.copy()
-    expiracao = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    to_encode.update({"exp": expiracao})
+    Cria token JWT.
+
+    Campos recomendados:
     
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    sub   -> login do usuário
+    nome  -> nome exibido
+    role  -> permissão
+    """
+
+    payload = dados_usuario.copy()
+
+
+    expiracao = (
+        datetime.now(timezone.utc)
+        +
+        timedelta(
+            minutes=
+            ACCESS_TOKEN_EXPIRE_MINUTES
+        )
+    )
+
+
+    payload.update(
+        {
+            "exp": expiracao
+        }
+    )
+
+
+    token = jwt.encode(
+        payload,
+        SECRET_KEY,
+        algorithm=ALGORITHM
+    )
+
+
+    return token
+
+
+
+# =====================================================
+# DECODIFICAÇÃO DO TOKEN
+# =====================================================
+
+
+def validar_token(
+    token: str
+):
+
+    """
+    Valida e retorna dados
+    existentes no JWT.
+    """
+
+    try:
+
+        payload = jwt.decode(
+            token,
+            SECRET_KEY,
+            algorithms=[
+                ALGORITHM
+            ]
+        )
+
+
+        return payload
+
+
+    except JWTError:
+
+        return None

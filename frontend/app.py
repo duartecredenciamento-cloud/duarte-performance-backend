@@ -153,10 +153,35 @@ menu = st.sidebar.radio("Navegação Principal", menus_disponiveis, label_visibi
 
 st.sidebar.markdown("---")
 
-# Botão de Logout com limpeza completa de estado
-if st.sidebar.button("🚪 Encerrar Sessão", use_container_width=True):
+
+# Estilização do Botão de Sair / Logout na Sidebar
+st.sidebar.markdown(
+    """
+    <style>
+        div[data-testid="stSidebar"] button[kind="secondary"], 
+        div[data-testid="stSidebar"] button {
+            background: linear-gradient(135deg, #FF4B4B 0%, #B30000 100%) !important;
+            color: #FFFFFF !important;
+            border: none !important;
+            border-radius: 12px !important;
+            font-weight: 700 !important;
+            padding: 10px 16px !important;
+            box-shadow: 0 4px 12px rgba(255, 75, 75, 0.3) !important;
+            transition: all 0.3s ease !important;
+        }
+        div[data-testid="stSidebar"] button:hover {
+            transform: translateY(-2px) !important;
+            box-shadow: 0 6px 18px rgba(255, 75, 75, 0.5) !important;
+            background: linear-gradient(135deg, #FF6B6B 0%, #D32F2F 100%) !important;
+        }
+    </style>
+""",
+    unsafe_allow_html=True,
+)
+
+# No local onde você desenha o botão de logout:
+if st.sidebar.button("🚪 Sair do Sistema", use_container_width=True):
     st.session_state.clear()
-    st.cache_data.clear()
     st.rerun()
 
 # Badge na base da sidebar
@@ -190,7 +215,7 @@ elif menu == "📑 Relatórios Operacionais":
     executar_view(render_relatorios, api_get)
 
 elif menu == "📝 Lançar Execução Diária":
-    executar_view(render_lancamento, api_post_form)
+    executar_view(render_lancamento, api_post_json)
 
 elif menu == "✏️ Editor de Apontamentos":
     executar_view(render_editor, api_get, api_put_json, api_delete)
