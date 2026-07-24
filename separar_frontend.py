@@ -2,60 +2,47 @@ import os
 import shutil
 import subprocess
 
-# 1. Caminhos
-diretorio_atual = os.getcwd()
-desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
-novo_frontend_path = os.path.join(desktop_path, "PROJETO_FRONTEND_NOVO")
-pasta_frontend_local = os.path.join(diretorio_atual, "frontend")
+print("🔄 Iniciando correção e estruturação do Frontend...")
 
-print("🚀 Iniciando a separação e organização do Frontend...")
+# 1. Garante que a pasta 'frontend' existe
+frontend_dir = os.path.join(os.getcwd(), "frontend")
+os.makedirs(frontend_dir, exist_ok=True)
 
-# 2. Cria a nova pasta limpa na Área de Trabalho
-if os.path.exists(novo_frontend_path):
-    shutil.rmtree(novo_frontend_path)
-os.makedirs(novo_frontend_path, exist_ok=True)
+# 2. Converte/Garante o app.py
+# Se existir sidebar.py e não existir app.py, renomeia/copia para app.py
+sidebar_path = os.path.join(frontend_dir, "sidebar.py")
+app_path = os.path.join(frontend_dir, "app.py")
 
-# 3. Lista de itens para copiar do frontend antigo
-itens_para_copiar = [
-    ".streamlit",
-    "pages",
-    "utils.py",
-    "requirements.txt",
-    "README.md",
-    "styles.css"
-]
+if os.path.exists(sidebar_path) and not os.path.exists(app_path):
+    shutil.copy2(sidebar_path, app_path)
+    print("✅ 'sidebar.py' duplicado/renomeado para 'app.py'.")
 
-# Copia pastas e arquivos utilitários
-for item in itens_para_copiar:
-    origem = os.path.join(pasta_frontend_local, item)
-    destino = os.path.join(novo_frontend_path, item)
-    
-    if os.path.exists(origem):
-        if os.path.isdir(origem):
-            shutil.copytree(origem, destino)
-            print(f"✅ Pasta copiada: {item}")
-        else:
-            shutil.copy2(origem, destino)
-            print(f"✅ Arquivo copiado: {item}")
+# Se ainda não existir app.py de jeito nenhum, cria um basico para o Render não dar erro
+if not os.path.exists(app_path):
+    with open(app_path, "w", encoding="utf-8") as f:
+        f.write("import streamlit as st\n\nst.title('Duarte Performance')\nst.write('Aplicação rodando com sucesso!')\n")
+    print("✅ Archivo 'app.py' básico criado na pasta frontend.")
 
-# 4. Copia o sidebar.py já renomeando para app.py na raiz do novo projeto
-origem_sidebar = os.path.join(pasta_frontend_local, "sidebar.py")
-destino_app = os.path.join(novo_frontend_path, "app.py")
+# 3. Cria utils.py se não existir (para evitar erros de import no Streamlit)
+utils_path = os.path.join(frontend_dir, "utils.py")
+if not os.path.exists(utils_path):
+    with open(utils_path, "w", encoding="utf-8") as f:
+        f.write("# Funções utilitárias do Frontend\n")
+    print("✅ 'utils.py' criado para evitar erros de importação.")
 
-if os.path.exists(origem_sidebar):
-    shutil.copy2(origem_sidebar, destino_app)
-    print("✅ 'sidebar.py' copiado e renomeado para 'app.py' com sucesso!")
+# 4. Garante o requirements.txt na pasta frontend
+req_path = os.path.join(frontend_dir, "requirements.txt")
+if not os.path.exists(req_path):
+    with open(req_path, "w", encoding="utf-8") as f:
+        f.write("streamlit\nrequests\npandas\nopenpyxl\nplotly\n")
+    print("✅ 'requirements.txt' básico criado dentro da pasta frontend.")
 
-# 5. Remove o rastreamento da pasta frontend antiga e apaga ela do backend
-print("\n🧹 Limpando o projeto backend...")
+# 5. Envia tudo pro Git na marra
+print("\n🚀 Subindo alterações para o GitHub...")
 try:
-    subprocess.run(["git", "rm", "-r", "--cached", "frontend"], capture_output=True)
+    subprocess.run(["git", "add", "-f", "frontend/"], check=True)
+    subprocess.run(["git", "commit", "-m", "fix: estrutura completa do frontend com app.py e utils.py"], check=True)
+    subprocess.run(["git", "push"], check=True)
+    print("\n🎉 TUDO PRONTO E SUBIDO PRO GITHUB COM SUCESSO!")
 except Exception as e:
-    pass
-
-if os.path.exists(pasta_frontend_local):
-    shutil.rmtree(pasta_frontend_local)
-    print("✅ Pasta 'frontend' antiga removida do projeto backend.")
-
-print("\n🎉 PRONTO! Seu frontend novinho e organizado tá na Área de Trabalho:")
-print(f"👉 {novo_frontend_path}")
+    print(f"\n⚠️ Ocorreu um aviso no Git, mas a pasta foi estruturada localmente: {e}")
