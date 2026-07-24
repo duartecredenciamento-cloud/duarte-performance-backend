@@ -1,8 +1,39 @@
 import streamlit as st
 import time
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+# Fuso horário do Brasil — necessário pra saber corretamente "qual dia da
+# semana é hoje" mesmo rodando num servidor em UTC (Render).
+FUSO_BR = ZoneInfo("America/Sao_Paulo")
+DIAS_SEMANA_PT = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
 
 
-def render_lancamento(api_post):
+def _dia_semana_atual_brasil() -> str:
+    return DIAS_SEMANA_PT[datetime.now(FUSO_BR).weekday()]
+
+
+def _clientes_do_operador_hoje(df_crono, nome_operador: str, dia_hoje: str) -> list:
+    """Filtra o cronograma (formato vindo direto do backend: colunas
+    operador, dia_semana, cliente, ...) pra achar só os clientes/serviços
+    atribuídos a essa pessoa nesse dia da semana."""
+    if df_crono is None or df_crono.empty:
+        return []
+    colunas_necessarias = {"operador", "dia_semana", "cliente"}
+    if not colunas_necessarias.issubset(df_crono.columns):
+        return []
+
+    nome_operador = (nome_operador or "").strip().lower()
+    filtro = (
+        df_crono["operador"].astype(str).str.strip().str.lower() == nome_operador
+    ) & (df_crono["dia_semana"] == dia_hoje)
+
+    clientes = df_crono.loc[filtro, "cliente"].dropna().astype(str).str.strip()
+    clientes = [c for c in clientes.unique().tolist() if c and c != "-"]
+    return sorted(clientes)
+
+
+def render_lancamento(api_post, carregar_cronograma=None):
     # ===================== CSS PREMIUM (idêntico ao original — cores e identidade Duarte) =====================
     st.markdown("""
     <style>
@@ -37,20 +68,45 @@ def render_lancamento(api_post):
     st.markdown("### 📝 Lançar Execução Diária")
     st.caption("Registre as atividades realizadas hoje")
 
-    # IMPORTANTE: aqui NÃO usamos st.form. Dentro de um st.form, mudar o
-    # selectbox de status não dispara um rerender imediato — o campo de
-    # justificativa só apareceria depois de clicar em salvar, o que não é
-    # o comportamento pedido ("aparece assim que escolher o status").
-    # Por isso os campos ficam soltos, e só o clique final é tratado como
-    # "salvar".
+    # --- Monta a lista de Clientes/Serviços de hoje, a partir da escala real ---
+    dia_hoje = _dia_semana_atual_brasil()
+    nome_operador = st.session_state.get("nome") or st.session_state.get("username") or ""
+
+    df_crono = carregar_cronograma() if carregar_cronograma else None
+    clientes_hoje = _clientes_do_operador_hoje(df_crono, nome_operador, dia_hoje)
+
+    st.caption(f"📅 Hoje é **{dia_hoje}-feira** — mostrando os clientes/serviços da sua escala de hoje.")
+
     col1, col2 = st.columns(2)
 
     with col1:
-        cliente = st.text_input(
-            "🏢 Cliente / Prestador *",
-            placeholder="Ex: Vivest, Hospital Santa Casa...",
-            key="lanc_cliente",
+        opcoes_cliente = ["Selecione..."] + clientes_hoje + ["Suporte", "Outro (fora da escala de hoje)"]
+        if not clientes_hoje:
+            st.info("ℹ️ Não encontramos nenhum cliente/serviço na sua escala de hoje. Use 'Suporte' ou 'Outro'.")
+
+        cliente_sel = st.selectbox(
+            "🏢 Cliente / Serviço *",
+            opcoes_cliente,
+            key="lanc_cliente_sel",
         )
+
+        # Se escolher Suporte, abre um segundo select com os clientes de
+        # hoje, formatados como "Suporte - Cliente" — assim fica registrado
+        # que foi um atendimento de suporte, e pra quem.
+        cliente_final = cliente_sel
+        if cliente_sel == "Suporte":
+            opcoes_suporte = ["Selecione..."] + [f"Suporte - {c}" for c in clientes_hoje]
+            cliente_final = st.selectbox(
+                "🛠️ Suporte para qual cliente?",
+                opcoes_suporte,
+                key="lanc_cliente_suporte",
+            )
+        elif cliente_sel == "Outro (fora da escala de hoje)":
+            cliente_final = st.text_input(
+                "Digite o nome do cliente/serviço",
+                placeholder="Ex: Vivest, Hospital Santa Casa...",
+                key="lanc_cliente_outro",
+            )
 
     with col2:
         status = st.selectbox(
@@ -89,8 +145,13 @@ def render_lancamento(api_post):
     st.markdown('</div>', unsafe_allow_html=True)
 
     if salvar:
-        if not cliente.strip():
-            st.error("❌ Informe o nome do cliente.")
+        cliente_invalido = (
+            cliente_sel == "Selecione..."
+            or not cliente_final
+            or cliente_final in ("Selecione...", "")
+        )
+        if cliente_invalido:
+            st.error("❌ Selecione o cliente/serviço antes de salvar.")
             return
 
         if exige_justificativa and not justificativa.strip():
@@ -98,18 +159,13 @@ def render_lancamento(api_post):
             return
 
         payload = {
-            "cliente_nome": cliente.strip(),
+            "cliente_nome": cliente_final.strip(),
             "status": status,
             "justificativa": justificativa.strip(),
             # Campo extra de segurança: caso o backend ainda exija saber
-            # quem lançou (não vinha no seu payload de referência, mas
-            # evita um 422 caso o endpoint /registros/ ainda peça esse
+            # quem lançou (evita um 422 caso /registros/ ainda peça esse
             # campo obrigatoriamente). Não atrapalha se o backend ignorar.
-            "operador_nome": (
-                st.session_state.get("nome")
-                or st.session_state.get("username")
-                or ""
-            ),
+            "operador_nome": nome_operador,
         }
 
         with st.spinner("Salvando..."):

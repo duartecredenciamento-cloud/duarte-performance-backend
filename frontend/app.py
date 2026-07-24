@@ -218,6 +218,6 @@ elif menu == "🗓️ Escala Semanal":
 elif menu == "📑 Relatórios Operacionais":
     render_relatorios(api_get)
 elif menu == "📝 Lançar Execução Diária":
-    render_lancamento(api_post_form)
+    render_lancamento(api_post_form, carregar_cronograma)
 elif menu == "✏️ Editor de Apontamentos":
     render_editor(api_get, api_put_json, api_delete)
