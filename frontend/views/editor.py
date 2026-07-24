@@ -1,3 +1,4 @@
+import time
 import pandas as pd
 import streamlit as st
 
@@ -322,19 +323,62 @@ def render_editor(api_get, api_put=None, api_delete=None):
         },
     )
 
-    # 6. BOTÃO DE SALVAR COM EFEITOS
+    # 6. BOTÃO DE SALVAR COM PROCESSAMENTO REAL NO BACKEND
     col_btn1, col_btn2 = st.columns([1.2, 3.8])
     with col_btn1:
         if st.button(
             "💾 Salvar Alterações", type="primary", use_container_width=True
         ):
             with st.spinner("Atualizando registros no banco..."):
-                # Se houver função de PUT configurada, dispara
-                st.toast(
-                    "Alterações sincronizadas com o banco!", icon="✅"
-                )
-                st.success("✅ Base atualizada com sucesso!")
-                st.balloons()
+                modificados = 0
+                erros = 0
+
+                # Itera sobre os dados editados para encontrar alterações
+                for _, row in df_edited.iterrows():
+                    row_id = row.get("id")
+                    if pd.isna(row_id):
+                        continue
+
+                    row_id = int(row_id)
+                    orig_match = df_reg[df_reg["id"] == row_id]
+
+                    if not orig_match.empty:
+                        orig = orig_match.iloc[0]
+
+                        # Verifica se algum campo sofreu modificação
+                        houve_mudanca = any(
+                            str(row.get(col, "")) != str(orig.get(col, ""))
+                            for col in ["status", "justificativa", "operador_nome", "cliente_nome"]
+                            if col in df_edited.columns
+                        )
+
+                        if houve_mudanca:
+                            payload = {
+                                "operador_nome": str(row.get("operador_nome", "")),
+                                "cliente_nome": str(row.get("cliente_nome", "")),
+                                "status": str(row.get("status", "")),
+                                "justificativa": str(row.get("justificativa", "")) if pd.notna(row.get("justificativa")) else ""
+                            }
+
+                            if api_put:
+                                resp_put = api_put(f"/registros/{row_id}", payload)
+                                if resp_put and getattr(resp_put, "status_code", None) in [200, 204]:
+                                    modificados += 1
+                                else:
+                                    erros += 1
+                            else:
+                                modificados += 1
+
+                if erros > 0:
+                    st.error(f"⚠️ Ocorreu falha ao salvar {erros} registro(s).")
+                elif modificados > 0:
+                    st.toast(f"{modificados} apontamento(s) atualizado(s) com sucesso!", icon="✅")
+                    st.success("✅ Base de dados atualizada!")
+                    st.balloons()
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.info("ℹ️ Nenhuma alteração foi detectada para salvar.")
 
     # 7. EXPANDER DE AUDITORIA E DELEÇÃO
     st.markdown("<br>", unsafe_allow_html=True)
@@ -367,9 +411,10 @@ def render_editor(api_get, api_put=None, api_delete=None):
                                 f"Registro #{id_para_deletar} excluído com"
                                 " sucesso!"
                             )
+                            time.sleep(0.8)
                             st.rerun()
                         else:
-                            st.error("Erro ao deletar registro via API.")
+                            st.error("Erro ao deletar registro via API. Verifique o ID informado.")
                     else:
                         st.toast(
                             f"Simulação: Registro #{id_para_deletar} removido.",
