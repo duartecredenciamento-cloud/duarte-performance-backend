@@ -330,3 +330,15 @@ class AuditoriaOut(BaseModel):
     model_config = ConfigDict(
         from_attributes=True
     )
+
+    from pydantic import BaseModel
+from typing import Optional
+
+# --- ADICIONE ESTA CLASSE NO SEU schemas.py ---
+class UsuarioCreate(BaseModel):
+    nome: str
+    username: str
+    email: Optional[str] = None
+    telefone: Optional[str] = None
+    senha: str
+    role: Optional[str] = "Operador"
