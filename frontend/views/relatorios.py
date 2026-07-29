@@ -1,12 +1,110 @@
 import os
+import io
+import zipfile
 import pandas as pd
 import requests
 import streamlit as st
+import plotly.graph_objects as go
+
+# Mesma fonte de dados da Escala Semanal — usada aqui só na aba de Backup,
+# pra permitir exportar cronograma junto com os registros, sem duplicar
+# nenhuma tabela nova.
+from views.escala import get_cronograma_credenciamento
 
 # URL base do backend
 API_URL = os.getenv(
-    "BACKEND_URL", "https://duarte-performance-backend.onrender.com"
+    "BACKEND_URL", "http://127.0.0.1:8000"
 )
+
+# ===================== PALETA DE CORES DUARTE PERFORMANCE =====================
+COR_AZUL_MARINHO = "#001E57"
+COR_LARANJA = "#FF9200"
+COR_VERDE = "#10B981"
+COR_AMARELO = "#F59E0B"
+COR_VERMELHO = "#EF4444"
+COR_CINZA = "#94A3B8"
+
+CORES_STATUS = {
+    "Realizado Total": COR_VERDE,
+    "Realizado Parcial": COR_AMARELO,
+    "Não Realizado": COR_VERMELHO,
+    "Não Se Aplica": COR_CINZA,
+}
+
+
+def _layout_padrao(fig, altura=320):
+    """Layout consistente com a identidade visual em qualquer figura Plotly."""
+    fig.update_layout(
+        height=altura,
+        margin=dict(l=10, r=10, t=40, b=10),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(family="Inter, sans-serif", color="#334155", size=13),
+        title_font=dict(color=COR_AZUL_MARINHO, size=16, family="Inter, sans-serif"),
+        legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5),
+    )
+    return fig
+
+
+def _grafico_status(df: pd.DataFrame, titulo: str, altura: int = 300):
+    """Gráfico de rosca com a distribuição de status, nas cores da marca.
+    Reaproveitado nas três abas (semanal, mensal, personalizado)."""
+    if df.empty or "status" not in df.columns:
+        st.info("Sem dados suficientes para exibir o gráfico.")
+        return
+
+    contagem = df["status"].value_counts().reset_index()
+    contagem.columns = ["status", "quantidade"]
+
+    fig = go.Figure(
+        data=[
+            go.Pie(
+                labels=contagem["status"],
+                values=contagem["quantidade"],
+                hole=0.55,
+                marker=dict(
+                    colors=[CORES_STATUS.get(s, COR_CINZA) for s in contagem["status"]]
+                ),
+                textinfo="percent+value",
+                textfont=dict(color="white", size=12),
+            )
+        ]
+    )
+    fig.update_layout(title=titulo)
+    fig = _layout_padrao(fig, altura=altura)
+    st.plotly_chart(fig, use_container_width=True)
+
+
+def _grafico_evolucao(df: pd.DataFrame, titulo: str, altura: int = 260):
+    """Linha temporal simples de quantidade de registros por dia."""
+    if df.empty or "data_dt" not in df.columns:
+        return
+
+    df_validos = df.dropna(subset=["data_dt"]).copy()
+    if df_validos.empty:
+        return
+
+    df_validos["dia"] = df_validos["data_dt"].dt.date
+    serie = df_validos.groupby("dia").size().reset_index(name="quantidade")
+
+    fig = go.Figure(
+        data=[
+            go.Scatter(
+                x=serie["dia"],
+                y=serie["quantidade"],
+                mode="lines+markers",
+                line=dict(color=COR_AZUL_MARINHO, width=3),
+                marker=dict(color=COR_LARANJA, size=7),
+                fill="tozeroy",
+                fillcolor="rgba(255, 146, 0, 0.08)",
+            )
+        ]
+    )
+    fig.update_layout(title=titulo)
+    fig.update_xaxes(showgrid=False)
+    fig.update_yaxes(showgrid=True, gridcolor="#F1F5F9")
+    fig = _layout_padrao(fig, altura=altura)
+    st.plotly_chart(fig, use_container_width=True)
 
 
 def fetch_report_data():
@@ -50,7 +148,7 @@ def inject_custom_css():
             margin-bottom: 24px;
             box-shadow: 0 10px 25px rgba(0, 30, 87, 0.15);
         }
-        
+
         .metric-card-summary {
             background: #FFFFFF;
             border-radius: 12px;
@@ -59,7 +157,7 @@ def inject_custom_css():
             text-align: center;
             box-shadow: 0 4px 12px rgba(0,0,0,0.03);
         }
-        
+
         .metric-card-summary h5 {
             color: #64748B;
             margin: 0;
@@ -67,12 +165,28 @@ def inject_custom_css():
             text-transform: uppercase;
             font-weight: 700;
         }
-        
+
         .metric-card-summary h3 {
             color: #001E57;
             margin: 6px 0 0 0;
             font-size: 1.6rem;
             font-weight: 800;
+        }
+
+        .chart-card {
+            background: white;
+            padding: 20px;
+            border-radius: 16px;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.05);
+            border: 1px solid #E2E8F0;
+        }
+
+        .backup-card {
+            background: #FFF9F0;
+            border-left: 4px solid #FF9200;
+            border-radius: 12px;
+            padding: 18px 20px;
+            margin-bottom: 16px;
         }
     </style>
     """,
@@ -119,7 +233,11 @@ def render_relatorios():
 
     df = pd.DataFrame(dados)
 
-    # Tratamento flexível de datas
+    # Tratamento flexível de datas.
+    # Importante: se nenhuma coluna de data for encontrada, NÃO preenchemos
+    # com "agora" pra todas as linhas (isso quebrava silenciosamente os
+    # filtros de Semana/Mês, fazendo tudo parecer "de hoje"). Em vez disso,
+    # deixamos a coluna vazia (NaT) e avisamos o usuário.
     date_col = None
     for candidate in ["created_at", "data_registro", "data", "created_date"]:
         if candidate in df.columns:
@@ -129,7 +247,12 @@ def render_relatorios():
     if date_col:
         df["data_dt"] = pd.to_datetime(df[date_col], errors="coerce")
     else:
-        df["data_dt"] = pd.Timestamp.now()
+        df["data_dt"] = pd.NaT
+        st.warning(
+            "⚠️ Não foi encontrada uma coluna de data reconhecida nos"
+            " registros. Os filtros de período (Semanal/Mensal) podem não"
+            " funcionar corretamente."
+        )
 
     # Normalização de colunas exibidas
     cols_display = [
@@ -161,11 +284,12 @@ def render_relatorios():
 
 
     # --- ABAS DE NAVEGAÇÃO DOS RELATÓRIOS ---
-    aba_semanal, aba_mensal, aba_personalizado, aba_exportar = st.tabs([
+    aba_semanal, aba_mensal, aba_personalizado, aba_exportar, aba_backup = st.tabs([
         "📅 Visão Semanal",
         "🗓️ Visão Mensal",
         "🔍 Filtro Personalizado",
         "📥 Exportar Dados",
+        "🗄️ Backup Completo",
     ])
 
     # ----------------------------------------------------
@@ -216,6 +340,19 @@ def render_relatorios():
                 f' style="color:#EF4444;">{nao_realizados}</h3></div>',
                 unsafe_allow_html=True,
             )
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # Gráficos: distribuição de status + evolução diária da semana
+        g1, g2 = st.columns([1, 1.4])
+        with g1:
+            st.markdown('<div class="chart-card">', unsafe_allow_html=True)
+            _grafico_status(df_semanal, "Distribuição de Status — Semana")
+            st.markdown('</div>', unsafe_allow_html=True)
+        with g2:
+            st.markdown('<div class="chart-card">', unsafe_allow_html=True)
+            _grafico_evolucao(df_semanal, "Execuções por Dia — Semana")
+            st.markdown('</div>', unsafe_allow_html=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
         st.dataframe(
@@ -277,6 +414,18 @@ def render_relatorios():
             )
 
         st.markdown("<br>", unsafe_allow_html=True)
+
+        g3, g4 = st.columns([1, 1.4])
+        with g3:
+            st.markdown('<div class="chart-card">', unsafe_allow_html=True)
+            _grafico_status(df_mensal, "Distribuição de Status — Mês")
+            st.markdown('</div>', unsafe_allow_html=True)
+        with g4:
+            st.markdown('<div class="chart-card">', unsafe_allow_html=True)
+            _grafico_evolucao(df_mensal, "Execuções por Dia — Mês")
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
         st.dataframe(
             df_mensal[cols_display].pipe(_ocultar_observacao_quando_total) if not df_mensal.empty else df_mensal,
             use_container_width=True,
@@ -321,6 +470,18 @@ def render_relatorios():
             df_custom = df_custom[df_custom["data_dt"].dt.date >= dt_inicio]
 
         st.markdown("<br>", unsafe_allow_html=True)
+
+        g5, g6 = st.columns([1, 1.4])
+        with g5:
+            st.markdown('<div class="chart-card">', unsafe_allow_html=True)
+            _grafico_status(df_custom, "Distribuição de Status — Filtro")
+            st.markdown('</div>', unsafe_allow_html=True)
+        with g6:
+            st.markdown('<div class="chart-card">', unsafe_allow_html=True)
+            _grafico_evolucao(df_custom, "Execuções por Dia — Filtro")
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
         st.dataframe(
             df_custom[cols_display].pipe(_ocultar_observacao_quando_total) if not df_custom.empty else df_custom,
             use_container_width=True,
@@ -347,6 +508,83 @@ def render_relatorios():
             ),
             mime="text/csv",
             use_container_width=True,
+        )
+
+    # ----------------------------------------------------
+    # 5. ABA BACKUP COMPLETO (NOVA)
+    # ----------------------------------------------------
+    with aba_backup:
+        st.subheader("🗄️ Backup Completo do Sistema")
+
+        st.markdown(
+            """
+            <div class="backup-card">
+                <strong>O que este backup inclui:</strong>
+                <ul style="margin: 8px 0 0 0;">
+                    <li>Todos os registros de execução diária (histórico completo)</li>
+                    <li>A matriz de escala/cronograma atual</li>
+                </ul>
+                <p style="margin: 10px 0 0 0; color: #64748B; font-size: 0.85rem;">
+                    Recomendado: gere um backup periodicamente (ex: semanal) e
+                    guarde o arquivo em um local seguro (Google Drive, OneDrive, etc.),
+                    como camada extra de segurança além do banco de dados principal.
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
+
+        # Monta o ZIP em memória com os dois CSVs (registros + cronograma)
+        buffer_zip = io.BytesIO()
+        try:
+            df_cronograma = get_cronograma_credenciamento()
+        except Exception:
+            df_cronograma = pd.DataFrame()
+
+        with zipfile.ZipFile(buffer_zip, "w", zipfile.ZIP_DEFLATED) as zip_arquivo:
+            zip_arquivo.writestr(
+                f"registros_{timestamp}.csv",
+                df.to_csv(index=False).encode("utf-8"),
+            )
+            if not df_cronograma.empty:
+                zip_arquivo.writestr(
+                    f"cronograma_{timestamp}.csv",
+                    df_cronograma.to_csv(index=False).encode("utf-8"),
+                )
+
+        buffer_zip.seek(0)
+
+        b1, b2, b3 = st.columns(3)
+        with b1:
+            st.markdown(
+                f'<div class="metric-card-summary"><h5>Registros no Backup</h5>'
+                f'<h3>{len(df)}</h3></div>',
+                unsafe_allow_html=True,
+            )
+        with b2:
+            st.markdown(
+                f'<div class="metric-card-summary"><h5>Linhas de Cronograma</h5>'
+                f'<h3>{len(df_cronograma)}</h3></div>',
+                unsafe_allow_html=True,
+            )
+        with b3:
+            st.markdown(
+                f'<div class="metric-card-summary"><h5>Gerado em</h5>'
+                f'<h3 style="font-size:1.1rem;">{pd.Timestamp.now().strftime("%d/%m %H:%M")}</h3></div>',
+                unsafe_allow_html=True,
+            )
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        st.download_button(
+            label="🗄️ Baixar Backup Completo (ZIP)",
+            data=buffer_zip,
+            file_name=f"backup_duarte_performance_{timestamp}.zip",
+            mime="application/zip",
+            use_container_width=True,
+            type="primary",
         )
 
 

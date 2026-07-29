@@ -24,7 +24,7 @@ st.set_page_config(
 )
 
 FUSO_BR = ZoneInfo("America/Sao_Paulo")
-API_URL = os.getenv("BACKEND_URL", "https://duarte-performance-backend.onrender.com")
+API_URL = os.getenv("BACKEND_URL", "http://127.0.0.1:8000")  # URL do backend (padrão localhost para dev local)
 PAPEIS_GESTAO = ["Admin Master", "Gestor", "Admin", "Coordenador"]
 
 # CSS
@@ -34,6 +34,31 @@ try:
         st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 except Exception as e:
     st.warning(f"⚠️ CSS não carregado: {e}")
+
+# Depois do st.set_page_config e carregamento do CSS
+
+# ===================== TELA DE CARREGAMENTO =====================
+if "carregando" not in st.session_state:
+    st.session_state["carregando"] = True
+
+if st.session_state["carregando"]:
+    st.markdown("""
+    <div style="
+        display:flex;
+        flex-direction:column;
+        align-items:center;
+        justify-content:center;
+        height:80vh;
+        text-align:center;
+    ">
+        <h1 style="color:#001E57; font-size:2.5rem;">Duarte Performance</h1>
+        <p style="color:#64748B;">Carregando sistema...</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    time.sleep(1.5)  # tempo de carregamento
+    st.session_state["carregando"] = False
+    st.rerun()
 
 # ===================== SESSION STATE =====================
 for key, val in {
@@ -205,8 +230,26 @@ if role in PAPEIS_GESTAO:
 
 menu = st.sidebar.radio("Navegação", menus, label_visibility="collapsed")
 
-# Botão de Sair — estilizado via styles.css (tema escuro, sem fundo branco padrão)
-if st.sidebar.button("🚪 Sair do Sistema", use_container_width=True):
+# ===================== BOTÃO SAIR =====================
+st.sidebar.markdown("""
+<style>
+    section[data-testid="stSidebar"] button {
+        background: linear-gradient(135deg, #FF9200 0%, #E07A00 100%) !important;
+        color: white !important;
+        font-weight: 700 !important;
+        border: none !important;
+        border-radius: 12px !important;
+        height: 48px !important;
+        box-shadow: 0 4px 12px rgba(255, 146, 0, 0.35) !important;
+    }
+    section[data-testid="stSidebar"] button:hover {
+        background: linear-gradient(135deg, #FFA733 0%, #FF9200 100%) !important;
+        transform: translateY(-2px) !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+if st.sidebar.button("🚪 Sair do Sistema", use_container_width=True, key="btn_logout"):
     st.session_state.clear()
     st.rerun()
 
@@ -218,6 +261,6 @@ elif menu == "🗓️ Escala Semanal":
 elif menu == "📑 Relatórios Operacionais":
     render_relatorios()
 elif menu == "📝 Lançar Execução Diária":
-    render_lancamento(api_post_form, carregar_cronograma)
+    render_lancamento(api_post_json, carregar_cronograma)
 elif menu == "✏️ Editor de Apontamentos":
     render_editor(api_get, api_put_json, api_delete)

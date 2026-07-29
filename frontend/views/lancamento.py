@@ -12,33 +12,74 @@ from views.escala import get_cronograma_credenciamento
 DIAS_SEMANA_PT = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
 FUSO_BR = ZoneInfo("America/Sao_Paulo")
 
+# Perfis que devem enxergar TODOS os clientes da escala do dia,
+# independentemente de estarem cadastrados como "Operador" na matriz.
+PERFIS_VISAO_GERAL = {"admin master", "admin", "gestor", "coordenador"}
+
+# Flag de desenvolvimento: liga/desliga o caption de diagnóstico
+# (usuário / perfil / quantidade de clientes encontrados). Basta trocar
+# para False (ou apagar o bloco marcado abaixo) para remover em produção.
+DEBUG_DIAGNOSTICO = True
+
 
 def _dia_semana_atual_brasil() -> str:
     return DIAS_SEMANA_PT[datetime.now(FUSO_BR).weekday()]
 
 
-def _clientes_do_operador_hoje(nome_operador: str, dia_hoje: str) -> list:
+def _perfil_usuario_atual() -> str:
+    """Busca o perfil/role do usuário logado tentando várias chaves
+    possíveis na sessão, sem quebrar caso alguma não exista.
+    Retorna o valor já em minúsculas e sem espaços nas pontas, para
+    facilitar a comparação com PERFIS_VISAO_GERAL."""
+    perfil = (
+        st.session_state.get("user_role")
+        or st.session_state.get("perfil")
+        or st.session_state.get("role")
+        or st.session_state.get("perfil_usuario")
+        or st.session_state.get("cargo")
+        or ""
+    )
+    return str(perfil).strip().lower()
+
+
+def _clientes_do_dia(nome_operador: str, dia_hoje: str, perfil_usuario: str) -> list:
     """Usa a mesma tabela (formato largo: Operador, Periodo, Segunda...Sexta)
-    que a tela de Escala Semanal usa de verdade, e pega só a coluna do dia
-    de hoje pra esse operador."""
+    que a tela de Escala Semanal usa de verdade, e decide automaticamente
+    se retorna:
+
+    - TODOS os clientes/serviços programados para o dia (perfis com visão
+      geral: Admin Master, Admin, Gestor, Coordenador); ou
+    - Somente os clientes vinculados ao operador logado (demais perfis).
+    """
     df_escala = get_cronograma_credenciamento()
 
     if dia_hoje not in df_escala.columns:
         # Sábado/Domingo não existem na matriz — não tem escala nesses dias.
         return []
 
-    nome_operador = (nome_operador or "").strip()
-    if not nome_operador:
-        return []
+    perfil_normalizado = (perfil_usuario or "").strip().lower()
+    visao_geral = perfil_normalizado in PERFIS_VISAO_GERAL
 
-    filtro = df_escala["Operador"].astype(str).str.contains(nome_operador, case=False, na=False)
-    valores = df_escala.loc[filtro, dia_hoje].dropna().astype(str).str.strip()
+    if visao_geral:
+        # Perfil de gestão: pega todos os valores da coluna do dia,
+        # sem filtrar por operador.
+        valores = df_escala[dia_hoje].dropna().astype(str).str.strip()
+    else:
+        nome_operador = (nome_operador or "").strip()
+        if not nome_operador:
+            return []
+
+        filtro = df_escala["Operador"].astype(str).str.contains(
+            nome_operador, case=False, na=False
+        )
+        valores = df_escala.loc[filtro, dia_hoje].dropna().astype(str).str.strip()
+
     clientes = [v for v in valores.unique().tolist() if v and v != "-"]
     return sorted(clientes)
 
 
 def render_lancamento(api_post, carregar_cronograma=None):
-    # ===================== CSS PREMIUM (idêntico ao original — cores e identidade Duarte) =====================
+    # ===================== CSS PREMIUM =====================
     st.markdown("""
     <style>
         .lancamento-card {
@@ -69,8 +110,26 @@ def render_lancamento(api_post, carregar_cronograma=None):
     """, unsafe_allow_html=True)
 
     st.markdown('<div class="lancamento-card">', unsafe_allow_html=True)
-    st.markdown("### 📝 Lançar Execução Diária")
-    st.caption("Registre as atividades realizadas hoje")
+
+    # ===================== CABEÇALHO =====================
+    st.markdown("""
+    <div style="
+        background: linear-gradient(135deg, #001E57 0%, #0A2540 100%);
+        padding: 28px 30px;
+        border-radius: 18px;
+        color: white;
+        margin-bottom: 25px;
+        border-left: 6px solid #FF9200;
+        box-shadow: 0 12px 28px rgba(0, 30, 87, 0.15);
+    ">
+        <h2 style="margin:0; font-weight:900; font-size:1.8rem;">
+            📝 Lançar Execução Diária
+        </h2>
+        <p style="margin:8px 0 0 0; color:#CBD5E1; font-size:0.95rem;">
+            Registre as atividades operacionais realizadas no dia
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
 
     # --- Monta a lista de Clientes/Serviços de hoje, a partir da escala real ---
     dia_hoje = _dia_semana_atual_brasil()
@@ -80,10 +139,20 @@ def render_lancamento(api_post, carregar_cronograma=None):
         or st.session_state.get("username")
         or ""
     )
+    perfil_usuario = _perfil_usuario_atual()
 
-    clientes_hoje = _clientes_do_operador_hoje(nome_operador, dia_hoje)
+    clientes_hoje = _clientes_do_dia(nome_operador, dia_hoje, perfil_usuario)
 
     st.caption(f"📅 Hoje é **{dia_hoje}-feira** — mostrando os clientes/serviços da sua escala de hoje.")
+
+    # ===================== BLOCO DE DIAGNÓSTICO =====================
+    if DEBUG_DIAGNOSTICO:
+        st.caption(
+            f"🛠️ [DEV] Usuário: {nome_operador or '(vazio)'} | "
+            f"Perfil detectado: {perfil_usuario or '(vazio)'} | "
+            f"Visão geral: {perfil_usuario in PERFIS_VISAO_GERAL} | "
+            f"Clientes encontrados: {len(clientes_hoje)}"
+        )
 
     col1, col2 = st.columns(2)
 
@@ -98,9 +167,6 @@ def render_lancamento(api_post, carregar_cronograma=None):
             key="lanc_cliente_sel",
         )
 
-        # Se escolher Suporte, abre um segundo select com os clientes de
-        # hoje, formatados como "Suporte - Cliente" — assim fica registrado
-        # que foi um atendimento de suporte, e pra quem.
         cliente_final = cliente_sel
         if cliente_sel == "Suporte":
             opcoes_suporte = ["Selecione..."] + [f"Suporte - {c}" for c in clientes_hoje]
@@ -128,18 +194,16 @@ def render_lancamento(api_post, carregar_cronograma=None):
             key="lanc_status",
         )
 
-    # Justificativa só existe (é criada) quando o status exige. Para
-    # "Realizado Total" ela nem aparece na tela.
     justificativa = ""
     exige_justificativa = status != "Realizado Total"
 
     if exige_justificativa:
         st.markdown('<div class="justificativa-box">', unsafe_allow_html=True)
         justificativa = st.text_area(
-            "⚠️ Motivo / Justificativa *",
-            placeholder="Explique o motivo deste status (obrigatório)...",
-            height=110,
-            key="lanc_justificativa",
+        "⚠️ Motivo / Justificativa *",
+        placeholder="Explique o motivo deste status (obrigatório)...",
+        height=110,
+        key="lanc_justificativa",
         )
         st.markdown("</div>", unsafe_allow_html=True)
 
@@ -170,9 +234,6 @@ def render_lancamento(api_post, carregar_cronograma=None):
             "cliente_nome": cliente_final.strip(),
             "status": status,
             "justificativa": justificativa.strip(),
-            # Campo extra de segurança: caso o backend ainda exija saber
-            # quem lançou (evita um 422 caso /registros/ ainda peça esse
-            # campo obrigatoriamente). Não atrapalha se o backend ignorar.
             "operador_nome": nome_operador,
         }
 

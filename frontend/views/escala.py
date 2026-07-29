@@ -104,6 +104,15 @@ def get_cronograma_credenciamento():
             "Quinta": "-",
             "Sexta": "MULHER MODERNA (2ª sem)",
         },
+        {
+                    "Operador": "admin",
+                    "Periodo": "TARDE",
+                    "Segunda": "-",
+                    "Terça": "-",
+                    "Quarta": "-",
+                    "Quinta": "-",
+                    "Sexta": "CLINICA TAMANDUA (2ª sem)",
+                },
     ]
     return pd.DataFrame(dados)
 
