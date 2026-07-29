@@ -13,6 +13,7 @@ from fastapi.security import (
 from fastapi.middleware.cors import CORSMiddleware
 
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 
 from jose import JWTError, jwt
 
@@ -35,11 +36,12 @@ models.Base.metadata.create_all(
     bind=engine
 )
 
+
 def criar_admin_inicial():
     """
     Verifica se o usuário administrador padrão existe.
     Caso não exista, cria automaticamente utilizando os campos
-    exatos do models.Usuario.
+    exatos do models.Usuario, com tratamento de erros para deploy.
     """
     db = SessionLocal()
     try:
@@ -65,11 +67,18 @@ def criar_admin_inicial():
             
             db.add(novo_admin)
             db.commit()
-            print("Usuário administrador criado com sucesso no banco de dados.")
+            print("✅ Usuário administrador criado com sucesso no banco de dados.")
+            
+    except IntegrityError:
+        # Evita erro fatal se múltiplos workers da Railway tentarem criar o admin ao mesmo tempo
+        db.rollback()
+        print("⚠️ Usuário admin já foi registrado por outro processo (IntegrityError evitado).")
     except Exception as e:
-        print(f"Erro ao criar usuário administrador inicial: {e}")
+        # Garante que qualquer outro erro não trave o banco (database is locked)
+        db.rollback()
+        print(f"❌ Erro ao criar usuário administrador inicial: {e}")
     finally:
-        # Garante que a sessão será fechada corretamente
+        # Garante que a sessão será fechada corretamente, liberando o banco
         db.close()
 
 
