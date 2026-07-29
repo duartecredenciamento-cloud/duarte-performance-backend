@@ -13,7 +13,7 @@ from views.escala import get_cronograma_credenciamento
 
 # URL base do backend
 API_URL = os.getenv(
-    "BACKEND_URL", "http://127.0.0.1:8000"
+    "BACKEND_URL", "https://duarte-performance-backend-production.up.railway.app/"
 )
 
 # ===================== PALETA DE CORES DUARTE PERFORMANCE =====================

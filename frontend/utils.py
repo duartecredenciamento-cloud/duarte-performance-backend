@@ -4,7 +4,7 @@ import pandas as pd
 import streamlit as st
 
 # URL Base do Backend no Render
-BACKEND_URL = os.getenv("BACKEND_URL", "http://127.0.0.1:8000/")
+BACKEND_URL = os.getenv("BACKEND_URL", "https://duarte-performance-backend-production.up.railway.app/")
 
 def get_auth_headers() -> dict:
     """
