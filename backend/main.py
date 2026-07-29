@@ -304,6 +304,53 @@ def login(
 
 
 
+# =====================================================
+# GESTÃO DE USUÁRIOS (CADASTRO)
+# =====================================================
+
+@app.post("/usuarios/", status_code=201)
+def criar_usuario(
+    dados: schemas.UsuarioCreate, 
+    db: Session = Depends(get_db)
+):
+    """
+    Cria um novo usuário no sistema garantindo hash da senha
+    e checagem de duplicidade.
+    """
+    
+    usuario_existente = (
+        db.query(models.Usuario)
+        .filter(models.Usuario.username == dados.username)
+        .first()
+    )
+
+    if usuario_existente:
+        raise HTTPException(
+            status_code=400, 
+            detail="Este nome de usuário/e-mail já existe."
+        )
+
+    senha_hash = auth.obter_hash_senha(dados.senha)
+
+    novo_usuario = models.Usuario(
+        username=dados.username,
+        email=dados.email if hasattr(dados, "email") and dados.email else dados.username,
+        nome=dados.nome,
+        password_hash=senha_hash,
+        role=dados.role if hasattr(dados, "role") and dados.role else "Operador",
+        perfil_completo=True,
+    )
+
+    db.add(novo_usuario)
+    db.commit()
+    db.refresh(novo_usuario)
+
+    return {
+        "status": "sucesso",
+        "mensagem": f"Usuário {novo_usuario.nome} criado com sucesso!",
+        "id": novo_usuario.id,
+    }
+
 
 
 # =====================================================
