@@ -24,7 +24,7 @@ st.set_page_config(
 )
 
 FUSO_BR = ZoneInfo("America/Sao_Paulo")
-API_URL = os.getenv("BACKEND_URL", "https://duarte-performance-backend-production.up.railway.app/")  # URL do backend (padrão localhost para dev local)
+API_URL = os.getenv("BACKEND_URL", "https://duarte-performance-backend-production.up.railway.app")  # URL do backend (padrão localhost para dev local)
 PAPEIS_GESTAO = ["Admin Master", "Gestor", "Admin", "Coordenador"]
 
 # CSS
