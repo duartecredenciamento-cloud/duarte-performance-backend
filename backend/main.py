@@ -22,17 +22,55 @@ import auth
 
 from database import (
     get_db,
-    engine
+    engine,
+    SessionLocal
 )
 
 
 # =====================================================
-# CRIAÇÃO DAS TABELAS
+# CRIAÇÃO DAS TABELAS E DADOS INICIAIS
 # =====================================================
 
 models.Base.metadata.create_all(
     bind=engine
 )
+
+def criar_admin_inicial():
+    """
+    Verifica se o usuário administrador padrão existe.
+    Caso não exista, cria automaticamente utilizando os campos
+    exatos do models.Usuario.
+    """
+    db = SessionLocal()
+    try:
+        # Verifica se o admin já existe pelo username
+        admin_existente = (
+            db.query(models.Usuario)
+            .filter(models.Usuario.username == "admin@duarte.com")
+            .first()
+        )
+
+        if not admin_existente:
+            # Nunca salva a senha em texto puro, utiliza o bcrypt do auth.py
+            senha_criptografada = auth.obter_hash_senha("123456")
+            
+            novo_admin = models.Usuario(
+                username="admin@duarte.com",
+                email="admin@duarte.com",
+                nome="Administrador",
+                password_hash=senha_criptografada,
+                role="Admin",
+                perfil_completo=True
+            )
+            
+            db.add(novo_admin)
+            db.commit()
+            print("Usuário administrador criado com sucesso no banco de dados.")
+    except Exception as e:
+        print(f"Erro ao criar usuário administrador inicial: {e}")
+    finally:
+        # Garante que a sessão será fechada corretamente
+        db.close()
 
 
 # =====================================================
@@ -44,6 +82,11 @@ app = FastAPI(
     description="Gestão Operacional Duarte Gestão",
     version="2.5"
 )
+
+# Aciona a função de criação do admin na inicialização da API
+@app.on_event("startup")
+def startup_event():
+    criar_admin_inicial()
 
 
 app.add_middleware(
