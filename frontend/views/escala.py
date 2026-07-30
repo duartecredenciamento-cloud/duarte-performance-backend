@@ -1,13 +1,15 @@
+import os
 import pandas as pd
 import streamlit as st
 import requests
 
+API_URL = os.getenv(
+    "BACKEND_URL",
+    "https://duarte-performance-backend-production.up.railway.app",
+)
+
 
 def _normalizar_colunas_escala(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Garante que o DataFrame tenha sempre as colunas padrão:
-    Operador, Periodo, Segunda, Terça, Quarta, Quinta, Sexta.
-    """
     if df is None or (hasattr(df, "empty") and df.empty):
         return pd.DataFrame(
             columns=["Operador", "Periodo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta"]
@@ -16,34 +18,17 @@ def _normalizar_colunas_escala(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
 
     mapa = {
-        "operador": "Operador",
-        "Operador": "Operador",
-        "OPERADOR": "Operador",
-        "analista": "Operador",
-        "Analista": "Operador",
-        "periodo": "Periodo",
-        "Periodo": "Periodo",
-        "PERIODO": "Periodo",
-        "período": "Periodo",
-        "Período": "Periodo",
-        "segunda": "Segunda",
-        "Segunda": "Segunda",
-        "SEGUNDA": "Segunda",
-        "terca": "Terça",
-        "terça": "Terça",
-        "Terca": "Terça",
-        "Terça": "Terça",
-        "TERÇA": "Terça",
-        "TERCA": "Terça",
-        "quarta": "Quarta",
-        "Quarta": "Quarta",
-        "QUARTA": "Quarta",
-        "quinta": "Quinta",
-        "Quinta": "Quinta",
-        "QUINTA": "Quinta",
-        "sexta": "Sexta",
-        "Sexta": "Sexta",
-        "SEXTA": "Sexta",
+        "operador": "Operador", "Operador": "Operador", "OPERADOR": "Operador",
+        "analista": "Operador", "Analista": "Operador",
+        "periodo": "Periodo", "Periodo": "Periodo", "PERIODO": "Periodo",
+        "período": "Periodo", "Período": "Periodo",
+        "segunda": "Segunda", "Segunda": "Segunda", "SEGUNDA": "Segunda",
+        "terca": "Terça", "terça": "Terça", "Terca": "Terça", "Terça": "Terça",
+        "TERÇA": "Terça", "TERCA": "Terça",
+        "quarta": "Quarta", "Quarta": "Quarta", "QUARTA": "Quarta",
+        "quinta": "Quinta", "Quinta": "Quinta", "QUINTA": "Quinta",
+        "sexta": "Sexta", "Sexta": "Sexta", "SEXTA": "Sexta",
+        "id": "id", "Id": "id", "ID": "id",
     }
 
     colunas_lower = {str(c).strip().lower(): c for c in df.columns}
@@ -65,16 +50,16 @@ def _normalizar_colunas_escala(df: pd.DataFrame) -> pd.DataFrame:
         df[col] = df[col].fillna("-").astype(str).str.strip()
         df[col] = df[col].replace({"": "-", "nan": "-", "None": "-"})
 
-    return df[obrigatorias]
+    cols_final = obrigatorias + (["id"] if "id" in df.columns else [])
+    return df[[c for c in cols_final if c in df.columns]]
 
 
 def get_cronograma_credenciamento(api_url=None, token=None):
-    """Tenta API; se falhar ou vier vazio, usa matriz local AGOSTO II."""
-
-    if api_url and token:
+    url = api_url or API_URL
+    if url and token:
         try:
             headers = {"Authorization": f"Bearer {token}"}
-            response = requests.get(f"{api_url}/cronograma/", headers=headers, timeout=5)
+            response = requests.get(f"{url}/cronograma/", headers=headers, timeout=8)
             if response.status_code == 200:
                 dados_api = response.json()
                 if dados_api:
@@ -82,7 +67,6 @@ def get_cronograma_credenciamento(api_url=None, token=None):
         except Exception:
             pass
 
-    # Fallback — GESTÃO COMERCIAL (AGOSTO II)
     dados = [
         {"Operador": "LARISSA", "Periodo": "MANHÃ", "Segunda": "EV-CITI", "Terça": "CONVACARE", "Quarta": "IMC", "Quinta": "MEDLIGTH", "Sexta": "PRÉ ALINHAMENTO"},
         {"Operador": "LARISSA", "Periodo": "TARDE", "Segunda": "-", "Terça": "-", "Quarta": "-", "Quinta": "-", "Sexta": "RESCINDIDOS - UNICLIN/MAR/SILMARO e ETC"},
@@ -98,6 +82,24 @@ def get_cronograma_credenciamento(api_url=None, token=None):
         {"Operador": "EDVÂNIA", "Periodo": "TARDE", "Segunda": "-", "Terça": "-", "Quarta": "-", "Quinta": "-", "Sexta": "MULHER MODERNA 2° SEMANA"},
     ]
     return _normalizar_colunas_escala(pd.DataFrame(dados))
+
+
+def _headers():
+    token = st.session_state.get("token")
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
+
+def _linhas_com_id(df: pd.DataFrame) -> list:
+    if df is None or df.empty or "id" not in df.columns:
+        return []
+    out = []
+    for _, r in df.iterrows():
+        try:
+            iid = int(float(r["id"]))
+            out.append(f"#{iid} — {r['Operador']} ({r['Periodo']})")
+        except Exception:
+            continue
+    return out
 
 
 def render_escala(carregar_cronograma_custom=None):
@@ -130,141 +132,75 @@ def render_escala(carregar_cronograma_custom=None):
             box-shadow: 0 12px 28px rgba(0, 30, 87, 0.2);
         }
         .badge-status-matriz {
-            background: #FF9200;
-            color: #FFF;
-            padding: 6px 14px;
-            border-radius: 99px;
-            font-weight: 800;
-            font-size: 0.78rem;
-            letter-spacing: 0.5px;
+            background: #FF9200; color: #FFF; padding: 6px 14px;
+            border-radius: 99px; font-weight: 800; font-size: 0.78rem;
             animation: pulseGlow 2s infinite;
         }
         .badge-lock {
-            background: #10B981;
-            color: #FFF;
-            padding: 6px 14px;
-            border-radius: 99px;
-            font-weight: 800;
-            font-size: 0.78rem;
+            background: #10B981; color: #FFF; padding: 6px 14px;
+            border-radius: 99px; font-weight: 800; font-size: 0.78rem;
         }
         .metric-card {
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(8px);
-            border: 1px solid #E2E8F0;
-            border-radius: 14px;
-            padding: 18px;
-            text-align: center;
+            background: rgba(255,255,255,0.95); border: 1px solid #E2E8F0;
+            border-radius: 14px; padding: 18px; text-align: center;
             box-shadow: 0 4px 15px rgba(0,0,0,0.03);
-            transition: all 0.3s ease;
-            animation: fadeIn 0.9s ease-out;
         }
-        .metric-card:hover {
-            transform: translateY(-4px);
-            border-color: #FF9200;
-            box-shadow: 0 8px 20px rgba(0, 30, 87, 0.08);
-        }
-        .metric-card h3 {
-            color: #001E57;
-            font-size: 1.9rem;
-            margin: 0;
-            font-weight: 800;
-        }
-        .metric-card p {
-            color: #64748B;
-            font-size: 0.8rem;
-            margin: 4px 0 0 0;
-            text-transform: uppercase;
-            font-weight: 700;
-        }
+        .metric-card h3 { color:#001E57; font-size:1.9rem; margin:0; font-weight:800; }
+        .metric-card p { color:#64748B; font-size:0.8rem; margin:4px 0 0 0; text-transform:uppercase; font-weight:700; }
         .op-card {
-            background: #FFFFFF;
-            border: 1px solid #E2E8F0;
-            border-radius: 16px;
-            padding: 20px;
-            margin-bottom: 16px;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            box-shadow: 0 4px 12px rgba(0,0,0,0.02);
-            animation: fadeIn 1s ease-out;
-            position: relative;
-            overflow: hidden;
+            background:#FFF; border:1px solid #E2E8F0; border-radius:16px;
+            padding:20px; margin-bottom:16px; position:relative; overflow:hidden;
         }
         .op-card::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 4px;
-            height: 100%;
-            background: #001E57;
-            transition: all 0.3s ease;
-        }
-        .op-card:hover {
-            border-color: #FF9200;
-            transform: translateY(-5px) scale(1.005);
-            box-shadow: 0 12px 25px rgba(255, 146, 0, 0.15);
-        }
-        .op-card:hover::before {
-            background: #FF9200;
+            content:''; position:absolute; top:0; left:0; width:4px; height:100%; background:#001E57;
         }
         .badge-manhatarde {
-            background: rgba(0, 30, 87, 0.08);
-            color: #001E57;
-            padding: 4px 10px;
-            border-radius: 6px;
-            font-size: 0.72rem;
-            font-weight: 800;
-            letter-spacing: 0.5px;
+            background:rgba(0,30,87,0.08); color:#001E57;
+            padding:4px 10px; border-radius:6px; font-size:0.72rem; font-weight:800;
         }
         .badge-cliente {
-            background: linear-gradient(135deg, rgba(255, 146, 0, 0.1) 0%, rgba(255, 146, 0, 0.05) 100%);
-            color: #B45309;
-            border: 1px solid rgba(255, 146, 0, 0.3);
-            padding: 6px 12px;
-            border-radius: 10px;
-            font-size: 0.9rem;
-            font-weight: 700;
-            display: inline-block;
-            margin-top: 6px;
+            background:linear-gradient(135deg, rgba(255,146,0,0.1), rgba(255,146,0,0.05));
+            color:#B45309; border:1px solid rgba(255,146,0,0.3);
+            padding:6px 12px; border-radius:10px; font-size:0.9rem; font-weight:700;
+            display:inline-block; margin-top:6px;
         }
     </style>
     """,
         unsafe_allow_html=True,
     )
 
-    user_nome_sessao = st.session_state.get("user_nome", "") or st.session_state.get("nome", "")
-    user_nome_sessao = str(user_nome_sessao).strip()
+    user_nome_sessao = str(
+        st.session_state.get("user_nome") or st.session_state.get("nome") or ""
+    ).strip()
     user_role = str(
         st.session_state.get("user_role") or st.session_state.get("role") or "operador"
     ).strip().lower()
 
     FUNCOES_VISAO_COMPLETA = ["gestor", "admin", "admin master", "coordenador", "visualizador"]
     tem_visao_completa = user_role in FUNCOES_VISAO_COMPLETA
+    is_admin_gestor = user_role in ["admin", "admin master", "gestor"]
     is_visualizador = user_role == "visualizador"
 
-    # ===== CARREGA ESCALA COM FALLBACK OBRIGATÓRIO =====
+    # ===== CARREGA ESCALA =====
     df_escala = None
-
     if carregar_cronograma_custom:
         try:
             df_escala = carregar_cronograma_custom()
         except Exception:
             df_escala = None
 
-    # Se veio vazio / None → usa matriz local
     if df_escala is None or (hasattr(df_escala, "empty") and df_escala.empty):
-        api_url = st.session_state.get("api_url")
-        token = st.session_state.get("token")
-        df_escala = get_cronograma_credenciamento(api_url, token)
+        df_escala = get_cronograma_credenciamento(API_URL, st.session_state.get("token"))
 
     df_escala = _normalizar_colunas_escala(df_escala)
 
-    # ===== FILTRO POR PERFIL =====
+    # ===== FILTRO PERFIL =====
     if not tem_visao_completa and user_nome_sessao:
-        df_escala_user = df_escala[
+        df_user = df_escala[
             df_escala["Operador"].astype(str).str.contains(user_nome_sessao, case=False, na=False)
         ]
-        if not df_escala_user.empty:
-            df_escala = df_escala_user
+        if not df_user.empty:
+            df_escala = df_user
             modo_isolado = True
         else:
             modo_isolado = False
@@ -273,22 +209,22 @@ def render_escala(carregar_cronograma_custom=None):
 
     # ===== HEADER =====
     if modo_isolado:
-        badge_header = f'<span class="badge-lock">🔒 MINHA AGENDA INDIVIDUAL ({user_nome_sessao.upper()})</span>'
+        badge_header = f'<span class="badge-lock">🔒 MINHA AGENDA ({user_nome_sessao.upper()})</span>'
     elif is_visualizador:
-        badge_header = '<span class="badge-status-matriz">👁️ MATRIZ GERAL — MODO SOMENTE LEITURA</span>'
+        badge_header = '<span class="badge-status-matriz">👁️ SOMENTE LEITURA</span>'
     else:
         badge_header = '<span class="badge-status-matriz">🌐 MATRIZ GERAL DA EQUIPE</span>'
 
     st.markdown(
         f"""
     <div class="escala-header">
-        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:15px;">
             <div>
-                <h2 style="margin:0; font-weight: 900; font-size: 1.85rem; color: #FFF;">
+                <h2 style="margin:0;font-weight:900;font-size:1.85rem;color:#FFF;">
                     🗓️ Escala Semanal de Credenciamento
                 </h2>
-                <p style="margin: 6px 0 0 0; color: #94A3B8; font-size: 0.95rem;">
-                    Distribuição Operacional & Gestão Comercial (Matriz Duarte Gestão — Agosto)
+                <p style="margin:6px 0 0 0;color:#94A3B8;font-size:0.95rem;">
+                    Matriz Duarte Gestão — Agosto
                 </p>
             </div>
             <div>{badge_header}</div>
@@ -299,95 +235,33 @@ def render_escala(carregar_cronograma_custom=None):
     )
 
     # ===== MÉTRICAS =====
-    dias_cols = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"]
-
-    if modo_isolado:
-        total_contas = sum(
-            (df_escala[dia] != "-").sum() for dia in dias_cols if dia in df_escala.columns
-        )
-        turnos_alocados = len(df_escala)
-        nome_curto = user_nome_sessao.split()[0] if user_nome_sessao else "Você"
-
-        c1, c2, c3, c4 = st.columns(4)
-        with c1:
-            st.markdown(
-                f'<div class="metric-card"><h3>1</h3><p>Analista Logado ({nome_curto})</p></div>',
-                unsafe_allow_html=True,
-            )
-        with c2:
-            st.markdown(
-                f'<div class="metric-card"><h3 style="color:#FF9200;">{total_contas}</h3><p>Meus Serviços / Contas</p></div>',
-                unsafe_allow_html=True,
-            )
-        with c3:
-            st.markdown(
-                f'<div class="metric-card"><h3 style="color:#001E57;">{turnos_alocados}</h3><p>Turnos Escalados</p></div>',
-                unsafe_allow_html=True,
-            )
-        with c4:
-            st.markdown(
-                '<div class="metric-card"><h3 style="color:#10B981;">100%</h3><p>Minha Capacidade</p></div>',
-                unsafe_allow_html=True,
-            )
-    else:
-        total_analistas = df_escala["Operador"].nunique() if not df_escala.empty else 0
-
-        c1, c2, c3, c4 = st.columns(4)
-        with c1:
-            st.markdown(
-                f'<div class="metric-card"><h3>{total_analistas}</h3><p>Analistas Escalados</p></div>',
-                unsafe_allow_html=True,
-            )
-        with c2:
-            st.markdown(
-                '<div class="metric-card"><h3>28+</h3><p>Contas Ativas</p></div>',
-                unsafe_allow_html=True,
-            )
-        with c3:
-            st.markdown(
-                '<div class="metric-card"><h3>5 Dias</h3><p>Cobertura Semanal</p></div>',
-                unsafe_allow_html=True,
-            )
-        with c4:
-            st.markdown(
-                '<div class="metric-card"><h3 style="color:#FF9200;">100%</h3><p>Capacidade Operacional</p></div>',
-                unsafe_allow_html=True,
-            )
+    total_analistas = df_escala["Operador"].nunique() if not df_escala.empty else 0
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        st.markdown(f'<div class="metric-card"><h3>{total_analistas}</h3><p>Analistas</p></div>', unsafe_allow_html=True)
+    with c2:
+        st.markdown('<div class="metric-card"><h3>28+</h3><p>Contas Ativas</p></div>', unsafe_allow_html=True)
+    with c3:
+        st.markdown('<div class="metric-card"><h3>5 Dias</h3><p>Cobertura</p></div>', unsafe_allow_html=True)
+    with c4:
+        st.markdown('<div class="metric-card"><h3 style="color:#FF9200;">100%</h3><p>Capacidade</p></div>', unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
 
     # ===== CONTROLES =====
     col_mode, col_dia, col_busca = st.columns([1.2, 1.2, 1.6])
-
     with col_mode:
-        modo_view = st.radio(
-            "Modo de Visão:",
-            ["🎴 Cards por Dia", "📊 Tabela Completa"],
-            horizontal=True,
-        )
-
+        modo_view = st.radio("Modo de Visão:", ["🎴 Cards por Dia", "📊 Tabela Completa"], horizontal=True)
     with col_dia:
-        dia_selecionado = st.selectbox(
-            "Filtrar Dia da Semana:",
-            ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"],
-        )
-
+        dia_selecionado = st.selectbox("Filtrar Dia:", ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"])
     with col_busca:
-        busca_termo = st.text_input(
-            "🔍 Pesquisa Rápida:",
-            placeholder="Ex: EV-CITI, Karine, Silvana...",
-        )
+        busca_termo = st.text_input("🔍 Pesquisa:", placeholder="Ex: EV-CITI, Karine...")
 
-    st.markdown(
-        "<hr style='border: 0; border-top: 1px solid #E2E8F0; margin: 20px 0;'>",
-        unsafe_allow_html=True,
-    )
+    st.markdown("<hr style='border:0;border-top:1px solid #E2E8F0;margin:20px 0;'>", unsafe_allow_html=True)
 
-    # ===== FILTRO BUSCA =====
     df_filtrado = df_escala.copy()
-
     if busca_termo:
-        condicao_busca = (
+        mask = (
             df_filtrado["Operador"].str.contains(busca_termo, case=False, na=False)
             | df_filtrado["Segunda"].str.contains(busca_termo, case=False, na=False)
             | df_filtrado["Terça"].str.contains(busca_termo, case=False, na=False)
@@ -395,75 +269,178 @@ def render_escala(carregar_cronograma_custom=None):
             | df_filtrado["Quinta"].str.contains(busca_termo, case=False, na=False)
             | df_filtrado["Sexta"].str.contains(busca_termo, case=False, na=False)
         )
-        df_filtrado = df_filtrado[condicao_busca]
+        df_filtrado = df_filtrado[mask]
 
-    # ===== CARDS =====
+    # ===== CARDS / TABELA =====
     if "Cards" in modo_view:
-        st.subheader(f"📌 Agenda de Atendimento — {dia_selecionado.upper()}-FEIRA")
-
+        st.subheader(f"📌 Agenda — {dia_selecionado.upper()}-FEIRA")
         ops = df_filtrado["Operador"].unique() if not df_filtrado.empty else []
-
         if len(ops) == 0:
-            st.info("ℹ️ Nenhum serviço encontrado para os filtros selecionados.")
-            return
-
-        cols_cards = st.columns(2, gap="medium")
-
-        for idx, op in enumerate(ops):
-            sub_df = df_filtrado[df_filtrado["Operador"] == op]
-            target_col = cols_cards[idx % 2]
-
-            with target_col:
-                st.markdown(
-                    f"""
-                <div class="op-card">
-                    <div style="display:flex; justify-content: space-between; align-items:center; margin-bottom: 12px;">
-                        <strong style="color: #001E57; font-size: 1.15rem; font-weight: 900;">👤 {op}</strong>
-                        <span style="font-size: 0.75rem; color: #64748B; font-weight: 700;">ANALYST</span>
-                    </div>
-                """,
-                    unsafe_allow_html=True,
-                )
-
-                tem_atendimento = False
-                for _, row in sub_df.iterrows():
-                    cliente_dia = row.get(dia_selecionado, "-")
-                    periodo = row.get("Periodo", "GERAL")
-
-                    if cliente_dia and cliente_dia != "-":
-                        tem_atendimento = True
-                        st.markdown(
-                            f"""
-                        <div style="margin-bottom: 12px;">
-                            <span class="badge-manhatarde">{periodo}</span><br>
-                            <div class="badge-cliente">🏥 {cliente_dia}</div>
-                        </div>
-                        """,
-                            unsafe_allow_html=True,
-                        )
-
-                if not tem_atendimento:
+            st.info("Nenhum serviço encontrado.")
+        else:
+            cols = st.columns(2, gap="medium")
+            for idx, op in enumerate(ops):
+                sub = df_filtrado[df_filtrado["Operador"] == op]
+                with cols[idx % 2]:
                     st.markdown(
-                        f"<p style='color: #94A3B8; font-size: 0.85rem; font-style: italic;'>Sem alocação para {dia_selecionado.lower()}.</p>",
+                        f"""<div class="op-card"><strong style="color:#001E57;font-size:1.15rem;">👤 {op}</strong>""",
                         unsafe_allow_html=True,
                     )
-
-                st.markdown("</div>", unsafe_allow_html=True)
-
-    # ===== TABELA =====
+                    tem = False
+                    for _, row in sub.iterrows():
+                        cli = row.get(dia_selecionado, "-")
+                        per = row.get("Periodo", "GERAL")
+                        if cli and cli != "-":
+                            tem = True
+                            st.markdown(
+                                f"""<div style="margin:10px 0;">
+                                <span class="badge-manhatarde">{per}</span><br>
+                                <div class="badge-cliente">🏥 {cli}</div></div>""",
+                                unsafe_allow_html=True,
+                            )
+                    if not tem:
+                        st.caption(f"Sem alocação em {dia_selecionado.lower()}.")
+                    st.markdown("</div>", unsafe_allow_html=True)
     else:
-        st.subheader("📋 Matriz Completa de Escala Semanal")
-        st.dataframe(
-            df_filtrado,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "Operador": st.column_config.TextColumn("Analista / Operador", width="medium"),
-                "Periodo": st.column_config.TextColumn("Período", width="small"),
-                "Segunda": st.column_config.TextColumn("Segunda-Feira"),
-                "Terça": st.column_config.TextColumn("Terça-Feira"),
-                "Quarta": st.column_config.TextColumn("Quarta-Feira"),
-                "Quinta": st.column_config.TextColumn("Quinta-Feira"),
-                "Sexta": st.column_config.TextColumn("Sexta-Feira"),
-            },
-        )
+        st.subheader("📋 Matriz Completa")
+        st.dataframe(df_filtrado, use_container_width=True, hide_index=True)
+
+    # =====================================================
+    # GESTÃO ADMIN — ADICIONAR / EDITAR / EXCLUIR
+    # =====================================================
+    if is_admin_gestor and not modo_isolado:
+        st.markdown("---")
+        st.subheader("🛠️ Gestão da Escala (Admin)")
+
+        tab_add, tab_edit, tab_del = st.tabs([
+            "➕ Adicionar",
+            "✏️ Editar linha",
+            "🗑️ Excluir",
+        ])
+
+        # ----- ADICIONAR -----
+        with tab_add:
+            st.caption("Cria uma nova linha na matriz (operador + período + clientes).")
+            c1, c2 = st.columns(2)
+            with c1:
+                novo_op = st.text_input("Nome do operador *", placeholder="Ex: MARIA", key="add_op")
+                novo_periodo = st.selectbox("Período *", ["MANHÃ", "TARDE", "INTEGRAL"], key="add_per")
+            with c2:
+                seg = st.text_input("Segunda", value="-", key="add_seg")
+                ter = st.text_input("Terça", value="-", key="add_ter")
+                qua = st.text_input("Quarta", value="-", key="add_qua")
+                qui = st.text_input("Quinta", value="-", key="add_qui")
+                sex = st.text_input("Sexta", value="-", key="add_sex")
+
+            if st.button("💾 Salvar na escala", type="primary", use_container_width=True, key="btn_add"):
+                if not novo_op.strip():
+                    st.error("Informe o nome do operador.")
+                else:
+                    payload = {
+                        "Operador": novo_op.strip().upper(),
+                        "Periodo": novo_periodo,
+                        "Segunda": seg.strip() or "-",
+                        "Terça": ter.strip() or "-",
+                        "Quarta": qua.strip() or "-",
+                        "Quinta": qui.strip() or "-",
+                        "Sexta": sex.strip() or "-",
+                    }
+                    try:
+                        r = requests.post(
+                            f"{API_URL}/cronograma/",
+                            json=payload,
+                            headers={**_headers(), "Content-Type": "application/json"},
+                            timeout=20,
+                        )
+                        if r.status_code in (200, 201):
+                            st.success("✅ Linha adicionada!")
+                            st.cache_data.clear()
+                            st.rerun()
+                        else:
+                            st.error(f"Erro: {r.text}")
+                    except Exception as e:
+                        st.error(f"Falha: {e}")
+
+        # ----- EDITAR -----
+        with tab_edit:
+            st.caption("Altera operador, período ou clientes de uma linha existente.")
+            linhas = _linhas_com_id(df_escala)
+
+            if not linhas:
+                st.warning(
+                    "A API ainda não retornou IDs (matriz local em uso). "
+                    "Depois que o backend gravar no banco, a edição aparece aqui."
+                )
+            else:
+                escolha = st.selectbox("Escolha a linha", linhas, key="edit_sel")
+                item_id = int(escolha.split("—")[0].replace("#", "").strip())
+                row = df_escala[df_escala["id"].astype(str).str.replace(".0", "", regex=False) == str(item_id)]
+                if row.empty:
+                    st.error("Linha não encontrada.")
+                else:
+                    row = row.iloc[0]
+                    periodos = ["MANHÃ", "TARDE", "INTEGRAL"]
+                    per_atual = str(row.get("Periodo", "MANHÃ"))
+                    idx_per = periodos.index(per_atual) if per_atual in periodos else 0
+
+                    e1, e2 = st.columns(2)
+                    with e1:
+                        ed_op = st.text_input("Operador", value=str(row["Operador"]), key="ed_op")
+                        ed_per = st.selectbox("Período", periodos, index=idx_per, key="ed_per")
+                    with e2:
+                        ed_seg = st.text_input("Segunda", value=str(row["Segunda"]), key="ed_seg")
+                        ed_ter = st.text_input("Terça", value=str(row["Terça"]), key="ed_ter")
+                        ed_qua = st.text_input("Quarta", value=str(row["Quarta"]), key="ed_qua")
+                        ed_qui = st.text_input("Quinta", value=str(row["Quinta"]), key="ed_qui")
+                        ed_sex = st.text_input("Sexta", value=str(row["Sexta"]), key="ed_sex")
+
+                    if st.button("💾 Salvar alterações", type="primary", use_container_width=True, key="btn_edit"):
+                        payload = {
+                            "Operador": ed_op.strip().upper(),
+                            "Periodo": ed_per,
+                            "Segunda": ed_seg.strip() or "-",
+                            "Terça": ed_ter.strip() or "-",
+                            "Quarta": ed_qua.strip() or "-",
+                            "Quinta": ed_qui.strip() or "-",
+                            "Sexta": ed_sex.strip() or "-",
+                        }
+                        try:
+                            r = requests.put(
+                                f"{API_URL}/cronograma/{item_id}",
+                                json=payload,
+                                headers={**_headers(), "Content-Type": "application/json"},
+                                timeout=20,
+                            )
+                            if r.status_code in (200, 201):
+                                st.success("✅ Escala atualizada!")
+                                st.cache_data.clear()
+                                st.rerun()
+                            else:
+                                st.error(f"Erro: {r.text}")
+                        except Exception as e:
+                            st.error(f"Falha: {e}")
+
+        # ----- EXCLUIR -----
+        with tab_del:
+            st.caption("Remove uma linha da matriz.")
+            linhas_del = _linhas_com_id(df_escala)
+            if not linhas_del:
+                st.warning("API ainda não retornou IDs (matriz local em uso).")
+            else:
+                escolha_del = st.selectbox("Linha para excluir", linhas_del, key="del_sel")
+                if st.button("🗑️ Confirmar exclusão", type="secondary", key="btn_del"):
+                    item_id = int(escolha_del.split("—")[0].replace("#", "").strip())
+                    try:
+                        r = requests.delete(
+                            f"{API_URL}/cronograma/{item_id}",
+                            headers=_headers(),
+                            timeout=20,
+                        )
+                        if r.status_code in (200, 204):
+                            st.success("Linha excluída!")
+                            st.cache_data.clear()
+                            st.rerun()
+                        else:
+                            st.error(f"Erro: {r.text}")
+                    except Exception as e:
+                        st.error(f"Falha: {e}")
