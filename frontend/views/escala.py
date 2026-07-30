@@ -7,16 +7,14 @@ def _normalizar_colunas_escala(df: pd.DataFrame) -> pd.DataFrame:
     """
     Garante que o DataFrame tenha sempre as colunas padrão:
     Operador, Periodo, Segunda, Terça, Quarta, Quinta, Sexta.
-    Aceita variações de maiúsculas/minúsculas e acentos.
     """
-    if df is None or df.empty:
+    if df is None or (hasattr(df, "empty") and df.empty):
         return pd.DataFrame(
             columns=["Operador", "Periodo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta"]
         )
 
     df = df.copy()
 
-    # Mapa de possíveis nomes vindos da API / Excel / fallback
     mapa = {
         "operador": "Operador",
         "Operador": "Operador",
@@ -48,7 +46,6 @@ def _normalizar_colunas_escala(df: pd.DataFrame) -> pd.DataFrame:
         "SEXTA": "Sexta",
     }
 
-    # Renomeia colunas existentes pelo mapa (case-insensitive)
     colunas_lower = {str(c).strip().lower(): c for c in df.columns}
     rename_dict = {}
     for chave_mapa, nome_padrao in mapa.items():
@@ -59,13 +56,11 @@ def _normalizar_colunas_escala(df: pd.DataFrame) -> pd.DataFrame:
     if rename_dict:
         df = df.rename(columns=rename_dict)
 
-    # Garante todas as colunas obrigatórias
     obrigatorias = ["Operador", "Periodo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta"]
     for col in obrigatorias:
         if col not in df.columns:
             df[col] = "-"
 
-    # Limpa valores nulos
     for col in obrigatorias:
         df[col] = df[col].fillna("-").astype(str).str.strip()
         df[col] = df[col].replace({"": "-", "nan": "-", "None": "-"})
@@ -74,9 +69,8 @@ def _normalizar_colunas_escala(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def get_cronograma_credenciamento(api_url=None, token=None):
-    """Estrutura conectada à API com fallback para a matriz local (AGOSTO II)."""
+    """Tenta API; se falhar ou vier vazio, usa matriz local AGOSTO II."""
 
-    # Tentativa de buscar os dados dinâmicos salvos no banco através da API
     if api_url and token:
         try:
             headers = {"Authorization": f"Bearer {token}"}
@@ -84,127 +78,29 @@ def get_cronograma_credenciamento(api_url=None, token=None):
             if response.status_code == 200:
                 dados_api = response.json()
                 if dados_api:
-                    df_api = pd.DataFrame(dados_api)
-                    return _normalizar_colunas_escala(df_api)
+                    return _normalizar_colunas_escala(pd.DataFrame(dados_api))
         except Exception:
             pass
 
-    # Fallback — Matriz GESTÃO COMERCIAL (AGOSTO II)
+    # Fallback — GESTÃO COMERCIAL (AGOSTO II)
     dados = [
-        {
-            "Operador": "LARISSA",
-            "Periodo": "MANHÃ",
-            "Segunda": "EV-CITI",
-            "Terça": "CONVACARE",
-            "Quarta": "IMC",
-            "Quinta": "MEDLIGTH",
-            "Sexta": "PRÉ ALINHAMENTO",
-        },
-        {
-            "Operador": "LARISSA",
-            "Periodo": "TARDE",
-            "Segunda": "-",
-            "Terça": "-",
-            "Quarta": "-",
-            "Quinta": "-",
-            "Sexta": "RESCINDIDOS - UNICLIN/MAR/SILMARO e ETC",
-        },
-        {
-            "Operador": "KARINE",
-            "Periodo": "MANHÃ",
-            "Segunda": "ALPHA LABs",
-            "Terça": "CLINICA TOPÁZIO",
-            "Quarta": "RALG 1° e 3° SEMANA",
-            "Quinta": "ATIVAMENTE",
-            "Sexta": "MVS",
-        },
-        {
-            "Operador": "KARINE",
-            "Periodo": "TARDE",
-            "Segunda": "-",
-            "Terça": "-",
-            "Quarta": "PRIME 2° SEMANA",
-            "Quinta": "-",
-            "Sexta": "DIOGO PARAUAPEBAS",
-        },
-        {
-            "Operador": "NEIA",
-            "Periodo": "MANHÃ",
-            "Segunda": "CLINICA VIVENCY",
-            "Terça": "RBL 1° e 3° SEMANA",
-            "Quarta": "CLINICA AMINO",
-            "Quinta": "CLINICA FARFALLA",
-            "Sexta": "INST. VER",
-        },
-        {
-            "Operador": "NEIA",
-            "Periodo": "TARDE",
-            "Segunda": "-",
-            "Terça": "-",
-            "Quarta": "-",
-            "Quinta": "-",
-            "Sexta": "-",
-        },
-        {
-            "Operador": "SILVANA",
-            "Periodo": "MANHÃ",
-            "Segunda": "PRO-EXAME",
-            "Terça": "CLIN COFFI",
-            "Quarta": "HOSP. AMATO",
-            "Quinta": "TRIDES",
-            "Sexta": "HARMONY",
-        },
-        {
-            "Operador": "SILVANA",
-            "Periodo": "TARDE",
-            "Segunda": "-",
-            "Terça": "-",
-            "Quarta": "LAB. BRUNO",
-            "Quinta": "-",
-            "Sexta": "-",
-        },
-        {
-            "Operador": "JULIA",
-            "Periodo": "MANHÃ",
-            "Segunda": "FR FISIO",
-            "Terça": "CANTAREIRA",
-            "Quarta": "CIE FISIO - SJC",
-            "Quinta": "CLINICA ROSANA",
-            "Sexta": "VIVA - TEA",
-        },
-        {
-            "Operador": "JULIA",
-            "Periodo": "TARDE",
-            "Segunda": "-",
-            "Terça": "-",
-            "Quarta": "-",
-            "Quinta": "-",
-            "Sexta": "-",
-        },
-        {
-            "Operador": "EDVÂNIA",
-            "Periodo": "MANHÃ",
-            "Segunda": "REGULAÇÃO",
-            "Terça": "EDITAIS",
-            "Quarta": "EDITAIS",
-            "Quinta": "FISO LIFE",
-            "Sexta": "EMS-BETESDA 1º e 3º SEMANA",
-        },
-        {
-            "Operador": "EDVÂNIA",
-            "Periodo": "TARDE",
-            "Segunda": "-",
-            "Terça": "-",
-            "Quarta": "-",
-            "Quinta": "-",
-            "Sexta": "MULHER MODERNA 2° SEMANA",
-        },
+        {"Operador": "LARISSA", "Periodo": "MANHÃ", "Segunda": "EV-CITI", "Terça": "CONVACARE", "Quarta": "IMC", "Quinta": "MEDLIGTH", "Sexta": "PRÉ ALINHAMENTO"},
+        {"Operador": "LARISSA", "Periodo": "TARDE", "Segunda": "-", "Terça": "-", "Quarta": "-", "Quinta": "-", "Sexta": "RESCINDIDOS - UNICLIN/MAR/SILMARO e ETC"},
+        {"Operador": "KARINE", "Periodo": "MANHÃ", "Segunda": "ALPHA LABs", "Terça": "CLINICA TOPÁZIO", "Quarta": "RALG 1° e 3° SEMANA", "Quinta": "ATIVAMENTE", "Sexta": "MVS"},
+        {"Operador": "KARINE", "Periodo": "TARDE", "Segunda": "-", "Terça": "-", "Quarta": "PRIME 2° SEMANA", "Quinta": "-", "Sexta": "DIOGO PARAUAPEBAS"},
+        {"Operador": "NEIA", "Periodo": "MANHÃ", "Segunda": "CLINICA VIVENCY", "Terça": "RBL 1° e 3° SEMANA", "Quarta": "CLINICA AMINO", "Quinta": "CLINICA FARFALLA", "Sexta": "INST. VER"},
+        {"Operador": "NEIA", "Periodo": "TARDE", "Segunda": "-", "Terça": "-", "Quarta": "-", "Quinta": "-", "Sexta": "-"},
+        {"Operador": "SILVANA", "Periodo": "MANHÃ", "Segunda": "PRO-EXAME", "Terça": "CLIN COFFI", "Quarta": "HOSP. AMATO", "Quinta": "TRIDES", "Sexta": "HARMONY"},
+        {"Operador": "SILVANA", "Periodo": "TARDE", "Segunda": "-", "Terça": "-", "Quarta": "LAB. BRUNO", "Quinta": "-", "Sexta": "-"},
+        {"Operador": "JULIA", "Periodo": "MANHÃ", "Segunda": "FR FISIO", "Terça": "CANTAREIRA", "Quarta": "CIE FISIO - SJC", "Quinta": "CLINICA ROSANA", "Sexta": "VIVA - TEA"},
+        {"Operador": "JULIA", "Periodo": "TARDE", "Segunda": "-", "Terça": "-", "Quarta": "-", "Quinta": "-", "Sexta": "-"},
+        {"Operador": "EDVÂNIA", "Periodo": "MANHÃ", "Segunda": "REGULAÇÃO", "Terça": "EDITAIS", "Quarta": "EDITAIS", "Quinta": "FISO LIFE", "Sexta": "EMS-BETESDA 1º e 3º SEMANA"},
+        {"Operador": "EDVÂNIA", "Periodo": "TARDE", "Segunda": "-", "Terça": "-", "Quarta": "-", "Quinta": "-", "Sexta": "MULHER MODERNA 2° SEMANA"},
     ]
     return _normalizar_colunas_escala(pd.DataFrame(dados))
 
 
 def render_escala(carregar_cronograma_custom=None):
-    # CSS Customizado Duarte Performance
     st.markdown(
         """
     <style>
@@ -329,38 +225,40 @@ def render_escala(carregar_cronograma_custom=None):
             font-weight: 700;
             display: inline-block;
             margin-top: 6px;
-            transition: all 0.2s ease;
-        }
-        .badge-cliente:hover {
-            background: rgba(255, 146, 0, 0.2);
-            transform: scale(1.02);
         }
     </style>
     """,
         unsafe_allow_html=True,
     )
 
-    # 1. IDENTIFICAÇÃO DO USUÁRIO
     user_nome_sessao = st.session_state.get("user_nome", "") or st.session_state.get("nome", "")
     user_nome_sessao = str(user_nome_sessao).strip()
-    user_role = str(st.session_state.get("user_role") or st.session_state.get("role") or "operador").strip().lower()
+    user_role = str(
+        st.session_state.get("user_role") or st.session_state.get("role") or "operador"
+    ).strip().lower()
 
     FUNCOES_VISAO_COMPLETA = ["gestor", "admin", "admin master", "coordenador", "visualizador"]
     tem_visao_completa = user_role in FUNCOES_VISAO_COMPLETA
     is_visualizador = user_role == "visualizador"
 
-    # 2. CARREGA BASE DE ESCALA
+    # ===== CARREGA ESCALA COM FALLBACK OBRIGATÓRIO =====
+    df_escala = None
+
     if carregar_cronograma_custom:
-        df_escala = carregar_cronograma_custom()
-    else:
+        try:
+            df_escala = carregar_cronograma_custom()
+        except Exception:
+            df_escala = None
+
+    # Se veio vazio / None → usa matriz local
+    if df_escala is None or (hasattr(df_escala, "empty") and df_escala.empty):
         api_url = st.session_state.get("api_url")
         token = st.session_state.get("token")
         df_escala = get_cronograma_credenciamento(api_url, token)
 
-    # >>> NORMALIZAÇÃO OBRIGATÓRIA (evita KeyError) <<<
     df_escala = _normalizar_colunas_escala(df_escala)
 
-    # 3. FILTRAGEM INDIVIDUAL x VISÃO GERAL
+    # ===== FILTRO POR PERFIL =====
     if not tem_visao_completa and user_nome_sessao:
         df_escala_user = df_escala[
             df_escala["Operador"].astype(str).str.contains(user_nome_sessao, case=False, na=False)
@@ -373,7 +271,7 @@ def render_escala(carregar_cronograma_custom=None):
     else:
         modo_isolado = False
 
-    # 4. HEADER
+    # ===== HEADER =====
     if modo_isolado:
         badge_header = f'<span class="badge-lock">🔒 MINHA AGENDA INDIVIDUAL ({user_nome_sessao.upper()})</span>'
     elif is_visualizador:
@@ -386,23 +284,21 @@ def render_escala(carregar_cronograma_custom=None):
     <div class="escala-header">
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
             <div>
-                <h2 style="margin:0; font-weight: 900; font-size: 1.85rem; color: #FFF; letter-spacing: -0.5px;">
+                <h2 style="margin:0; font-weight: 900; font-size: 1.85rem; color: #FFF;">
                     🗓️ Escala Semanal de Credenciamento
                 </h2>
                 <p style="margin: 6px 0 0 0; color: #94A3B8; font-size: 0.95rem;">
                     Distribuição Operacional & Gestão Comercial (Matriz Duarte Gestão — Agosto)
                 </p>
             </div>
-            <div>
-                {badge_header}
-            </div>
+            <div>{badge_header}</div>
         </div>
     </div>
     """,
         unsafe_allow_html=True,
     )
 
-    # 5. MÉTRICAS
+    # ===== MÉTRICAS =====
     dias_cols = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"]
 
     if modo_isolado:
@@ -460,11 +356,15 @@ def render_escala(carregar_cronograma_custom=None):
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # 6. CONTROLES
+    # ===== CONTROLES =====
     col_mode, col_dia, col_busca = st.columns([1.2, 1.2, 1.6])
 
     with col_mode:
-        modo_view = st.radio("Modo de Visão:", ["🎴 Cards por Dia", "📊 Tabela Completa"], horizontal=True)
+        modo_view = st.radio(
+            "Modo de Visão:",
+            ["🎴 Cards por Dia", "📊 Tabela Completa"],
+            horizontal=True,
+        )
 
     with col_dia:
         dia_selecionado = st.selectbox(
@@ -473,19 +373,17 @@ def render_escala(carregar_cronograma_custom=None):
         )
 
     with col_busca:
-        placeholder_busca = (
-            "Ex: EV-CITI, Hosp. Amato..."
-            if modo_isolado
-            else "Ex: EV-CITI, Karine, Silvana..."
+        busca_termo = st.text_input(
+            "🔍 Pesquisa Rápida:",
+            placeholder="Ex: EV-CITI, Karine, Silvana...",
         )
-        busca_termo = st.text_input("🔍 Pesquisa Rápida:", placeholder=placeholder_busca)
 
     st.markdown(
         "<hr style='border: 0; border-top: 1px solid #E2E8F0; margin: 20px 0;'>",
         unsafe_allow_html=True,
     )
 
-    # 7. FILTRAGEM
+    # ===== FILTRO BUSCA =====
     df_filtrado = df_escala.copy()
 
     if busca_termo:
@@ -499,14 +397,14 @@ def render_escala(carregar_cronograma_custom=None):
         )
         df_filtrado = df_filtrado[condicao_busca]
 
-    # 8. CARDS
+    # ===== CARDS =====
     if "Cards" in modo_view:
         st.subheader(f"📌 Agenda de Atendimento — {dia_selecionado.upper()}-FEIRA")
 
         ops = df_filtrado["Operador"].unique() if not df_filtrado.empty else []
 
         if len(ops) == 0:
-            st.info("ℹ️ Nenhum serviço ou atendimento encontrado para os filtros selecionados.")
+            st.info("ℹ️ Nenhum serviço encontrado para os filtros selecionados.")
             return
 
         cols_cards = st.columns(2, gap="medium")
@@ -520,12 +418,8 @@ def render_escala(carregar_cronograma_custom=None):
                     f"""
                 <div class="op-card">
                     <div style="display:flex; justify-content: space-between; align-items:center; margin-bottom: 12px;">
-                        <strong style="color: #001E57; font-size: 1.15rem; font-weight: 900;">
-                            👤 {op}
-                        </strong>
-                        <span style="font-size: 0.75rem; color: #64748B; font-weight: 700;">
-                            ANALYST
-                        </span>
+                        <strong style="color: #001E57; font-size: 1.15rem; font-weight: 900;">👤 {op}</strong>
+                        <span style="font-size: 0.75rem; color: #64748B; font-weight: 700;">ANALYST</span>
                     </div>
                 """,
                     unsafe_allow_html=True,
@@ -550,13 +444,13 @@ def render_escala(carregar_cronograma_custom=None):
 
                 if not tem_atendimento:
                     st.markdown(
-                        f"<p style='color: #94A3B8; font-size: 0.85rem; font-style: italic; margin: 5px 0;'>Sem alocação programada para {dia_selecionado.lower()}.</p>",
+                        f"<p style='color: #94A3B8; font-size: 0.85rem; font-style: italic;'>Sem alocação para {dia_selecionado.lower()}.</p>",
                         unsafe_allow_html=True,
                     )
 
                 st.markdown("</div>", unsafe_allow_html=True)
 
-    # 9. TABELA
+    # ===== TABELA =====
     else:
         st.subheader("📋 Matriz Completa de Escala Semanal")
         st.dataframe(
