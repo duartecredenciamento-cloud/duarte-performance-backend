@@ -39,15 +39,27 @@ models.Base.metadata.create_all(
 )
 
 
+# Matriz padrão AGOSTO II (Gestão Comercial)
+MATRIZ_AGOSTO_II = [
+    {"operador": "LARISSA", "periodo": "MANHÃ", "segunda": "EV-CITI", "terca": "CONVACARE", "quarta": "IMC", "quinta": "MEDLIGTH", "sexta": "PRÉ ALINHAMENTO"},
+    {"operador": "LARISSA", "periodo": "TARDE", "segunda": "-", "terca": "-", "quarta": "-", "quinta": "-", "sexta": "RESCINDIDOS - UNICLIN/MAR/SILMARO e ETC"},
+    {"operador": "KARINE", "periodo": "MANHÃ", "segunda": "ALPHA LABs", "terca": "CLINICA TOPÁZIO", "quarta": "RALG 1° e 3° SEMANA", "quinta": "ATIVAMENTE", "sexta": "MVS"},
+    {"operador": "KARINE", "periodo": "TARDE", "segunda": "-", "terca": "-", "quarta": "PRIME 2° SEMANA", "quinta": "-", "sexta": "DIOGO PARAUAPEBAS"},
+    {"operador": "NEIA", "periodo": "MANHÃ", "segunda": "CLINICA VIVENCY", "terca": "RBL 1° e 3° SEMANA", "quarta": "CLINICA AMINO", "quinta": "CLINICA FARFALLA", "sexta": "INST. VER"},
+    {"operador": "NEIA", "periodo": "TARDE", "segunda": "-", "terca": "-", "quarta": "-", "quinta": "-", "sexta": "-"},
+    {"operador": "SILVANA", "periodo": "MANHÃ", "segunda": "PRO-EXAME", "terca": "CLIN COFFI", "quarta": "HOSP. AMATO", "quinta": "TRIDES", "sexta": "HARMONY"},
+    {"operador": "SILVANA", "periodo": "TARDE", "segunda": "-", "terca": "-", "quarta": "LAB. BRUNO", "quinta": "-", "sexta": "-"},
+    {"operador": "JULIA", "periodo": "MANHÃ", "segunda": "FR FISIO", "terca": "CANTAREIRA", "quarta": "CIE FISIO - SJC", "quinta": "CLINICA ROSANA", "sexta": "VIVA - TEA"},
+    {"operador": "JULIA", "periodo": "TARDE", "segunda": "-", "terca": "-", "quarta": "-", "quinta": "-", "sexta": "-"},
+    {"operador": "EDVÂNIA", "periodo": "MANHÃ", "segunda": "REGULAÇÃO", "terca": "EDITAIS", "quarta": "EDITAIS", "quinta": "FISO LIFE", "sexta": "EMS-BETESDA 1º e 3º SEMANA"},
+    {"operador": "EDVÂNIA", "periodo": "TARDE", "segunda": "-", "terca": "-", "quarta": "-", "quinta": "-", "sexta": "MULHER MODERNA 2° SEMANA"},
+]
+
+
 def criar_admin_inicial():
-    """
-    Verifica se o usuário administrador padrão existe.
-    Caso não exista, cria automaticamente utilizando os campos
-    exatos do models.Usuario, com tratamento de erros para deploy.
-    """
+    """Cria o admin padrão se não existir."""
     db = SessionLocal()
     try:
-        # Verifica se o admin já existe pelo username
         admin_existente = (
             db.query(models.Usuario)
             .filter(models.Usuario.username == "admin@duarte.com")
@@ -55,9 +67,8 @@ def criar_admin_inicial():
         )
 
         if not admin_existente:
-            # Nunca salva a senha em texto puro, utiliza o bcrypt do auth.py
             senha_criptografada = auth.obter_hash_senha("123456")
-            
+
             novo_admin = models.Usuario(
                 username="admin@duarte.com",
                 email="admin@duarte.com",
@@ -66,21 +77,47 @@ def criar_admin_inicial():
                 role="Admin",
                 perfil_completo=True
             )
-            
+
             db.add(novo_admin)
             db.commit()
             print("✅ Usuário administrador criado com sucesso no banco de dados.")
-            
+
     except IntegrityError:
-        # Evita erro fatal se múltiplos workers da Railway tentarem criar o admin ao mesmo tempo
         db.rollback()
-        print("⚠️ Usuário admin já foi registrado por outro processo (IntegrityError evitado).")
+        print("⚠️ Usuário admin já foi registrado por outro processo.")
     except Exception as e:
-        # Garante que qualquer outro erro não trave o banco (database is locked)
         db.rollback()
         print(f"❌ Erro ao criar usuário administrador inicial: {e}")
     finally:
-        # Garante que a sessão será fechada corretamente, liberando o banco
+        db.close()
+
+
+def popular_cronograma_se_vazio():
+    """Se a tabela de cronograma estiver vazia, carrega a matriz AGOSTO II."""
+    db = SessionLocal()
+    try:
+        total = db.query(models.CronogramaModel).count()
+        if total == 0:
+            for item in MATRIZ_AGOSTO_II:
+                db.add(
+                    models.CronogramaModel(
+                        operador=item["operador"],
+                        periodo=item["periodo"],
+                        segunda=item["segunda"],
+                        terca=item["terca"],
+                        quarta=item["quarta"],
+                        quinta=item["quinta"],
+                        sexta=item["sexta"],
+                    )
+                )
+            db.commit()
+            print("✅ Cronograma AGOSTO II carregado no banco.")
+        else:
+            print(f"ℹ️ Cronograma já possui {total} registro(s).")
+    except Exception as e:
+        db.rollback()
+        print(f"❌ Erro ao popular cronograma: {e}")
+    finally:
         db.close()
 
 
@@ -94,10 +131,11 @@ app = FastAPI(
     version="2.6"
 )
 
-# Aciona a função de criação do admin na inicialização da API
+
 @app.on_event("startup")
 def startup_event():
     criar_admin_inicial()
+    popular_cronograma_se_vazio()
 
 
 app.add_middleware(
@@ -109,7 +147,6 @@ app.add_middleware(
 )
 
 
-
 # =====================================================
 # JWT & AUTENTICAÇÃO
 # =====================================================
@@ -117,6 +154,7 @@ app.add_middleware(
 oauth2_scheme = OAuth2PasswordBearer(
     tokenUrl="/token"
 )
+
 
 def usuario_logado(
     token: str = Depends(oauth2_scheme),
@@ -154,7 +192,6 @@ def usuario_logado(
     return usuario
 
 
-
 # =====================================================
 # HEALTH CHECK
 # =====================================================
@@ -162,9 +199,9 @@ def usuario_logado(
 @app.get("/")
 def home():
     return {
-        "status":"online",
-        "sistema":"Duarte Performance API",
-        "versao":"2.6"
+        "status": "online",
+        "sistema": "Duarte Performance API",
+        "versao": "2.6"
     }
 
 
@@ -258,14 +295,9 @@ def login(
 
 @app.post("/usuarios/", status_code=201)
 def criar_usuario(
-    dados: schemas.UsuarioCreate, 
+    dados: schemas.UsuarioCreate,
     db: Session = Depends(get_db)
 ):
-    """
-    Cria um novo usuário no sistema garantindo hash da senha
-    e checagem de duplicidade.
-    """
-    
     usuario_existente = (
         db.query(models.Usuario)
         .filter(models.Usuario.username == dados.username)
@@ -274,7 +306,7 @@ def criar_usuario(
 
     if usuario_existente:
         raise HTTPException(
-            status_code=400, 
+            status_code=400,
             detail="Este nome de usuário/e-mail já existe."
         )
 
@@ -314,7 +346,6 @@ class RoleUpdate(BaseModel):
 def exigir_admin_ou_gestor(
     usuario: models.Usuario = Depends(usuario_logado),
 ) -> models.Usuario:
-    """Libera o acesso apenas para Admin ou Gestor."""
     if usuario.role not in ("Admin", "Gestor"):
         raise HTTPException(
             status_code=403,
@@ -326,7 +357,6 @@ def exigir_admin_ou_gestor(
 def exigir_admin(
     usuario: models.Usuario = Depends(usuario_logado),
 ) -> models.Usuario:
-    """Libera o acesso apenas para Admin."""
     if usuario.role != "Admin":
         raise HTTPException(
             status_code=403,
@@ -340,7 +370,6 @@ def listar_todos_usuarios(
     db: Session = Depends(get_db),
     _: models.Usuario = Depends(exigir_admin_ou_gestor),
 ):
-    """Retorna id, nome, username, email e role de todos os usuários."""
     usuarios = db.query(models.Usuario).order_by(models.Usuario.nome).all()
     return [
         {
@@ -361,7 +390,6 @@ def atualizar_role_usuario(
     db: Session = Depends(get_db),
     _: models.Usuario = Depends(exigir_admin),
 ):
-    """Atualiza a função (role) de um usuário. Somente Admin pode chamar."""
     if dados.role not in ROLES_VALIDAS:
         raise HTTPException(
             status_code=400,
@@ -500,18 +528,24 @@ def listar_cronograma(
     db: Session = Depends(get_db),
     usuario: models.Usuario = Depends(usuario_logado)
 ):
-    """Busca toda a escala cadastrada no banco de dados."""
+    """Busca toda a escala cadastrada no banco (colunas sempre padronizadas)."""
     dados = db.query(models.CronogramaModel).all()
+
+    # Se vazio, tenta popular na hora
+    if not dados:
+        popular_cronograma_se_vazio()
+        dados = db.query(models.CronogramaModel).all()
+
     return [
         {
             "id": c.id,
-            "Operador": c.operador,
-            "Periodo": c.periodo,
-            "Segunda": c.segunda,
-            "Terça": c.terca,
-            "Quarta": c.quarta,
-            "Quinta": c.quinta,
-            "Sexta": c.sexta,
+            "Operador": c.operador or "-",
+            "Periodo": c.periodo or "-",
+            "Segunda": c.segunda or "-",
+            "Terça": c.terca or "-",
+            "Quarta": c.quarta or "-",
+            "Quinta": c.quinta or "-",
+            "Sexta": c.sexta or "-",
         }
         for c in dados
     ]
@@ -523,7 +557,6 @@ def criar_ou_atualizar_item_escala(
     db: Session = Depends(get_db),
     usuario: models.Usuario = Depends(usuario_logado),
 ):
-    """Adiciona um novo operador/escala ou atualiza um existente."""
     if usuario.role.lower() not in ["admin", "gestor"]:
         raise HTTPException(
             status_code=403, detail="Apenas Admin/Gestor pode alterar a escala."
@@ -551,7 +584,6 @@ def deletar_item_escala(
     db: Session = Depends(get_db),
     usuario: models.Usuario = Depends(usuario_logado),
 ):
-    """Exclui uma linha da escala (Remover operador ou turno)."""
     if usuario.role.lower() not in ["admin", "gestor"]:
         raise HTTPException(
             status_code=403, detail="Apenas Admin/Gestor pode excluir itens."
