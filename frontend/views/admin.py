@@ -5,7 +5,7 @@ import streamlit as st
 
 # URL base da API Backend (ajusta automaticamente via variável de ambiente ou padrão)
 API_URL = os.getenv(
-    "BACKEND_URL", "https://duarte-performance-backend-production.up.railway.app"
+    "BACKEND_URL", "https://duarte-performance-backend.onrender.com"
 )
 
 
@@ -81,10 +81,11 @@ def render_painel_admin():
     # =========================================================
     # 2. ESTRUTURA DE ABAS NATIVAS
     # =========================================================
-    aba_cadastrar, aba_usuarios, aba_funcoes, aba_auditoria = st.tabs([
+    aba_cadastrar, aba_usuarios, aba_funcoes, aba_senhas, aba_auditoria = st.tabs([
         "➕ Cadastrar Novo Usuário",
         "👥 Usuários e Acessos",
         "🔧 Gerenciar Funções",
+        "🔑 Solicitações de Senha",
         "📜 Logs de Auditoria",
     ])
 
@@ -365,7 +366,139 @@ def render_painel_admin():
                 )
 
     # ---------------------------------------------------------
-    # ABA 4: LOGS DE AUDITORIA
+    # ABA 4: SOLICITAÇÕES DE SENHA
+    # ---------------------------------------------------------
+    with aba_senhas:
+        st.markdown("### 🔑 Solicitações de Recuperação de Senha")
+        st.info(
+            "Você **autoriza** ou **rejeita** — nunca vê nem define a senha"
+            " de ninguém. Ao autorizar, o usuário tem **10 minutos** para"
+            " definir a própria senha nova."
+        )
+
+        try:
+            resp_solic = requests.get(
+                f"{API_URL}/admin/solicitacoes-senha",
+                headers=headers,
+                timeout=25,
+            )
+        except Exception as e:
+            resp_solic = None
+            st.error(f"🌐 Erro de conexão com o servidor: {e}")
+
+        if resp_solic is not None and resp_solic.status_code == 200:
+            solicitacoes = resp_solic.json()
+            pendentes = [s for s in solicitacoes if s["status"] == "pendente"]
+            outras = [s for s in solicitacoes if s["status"] != "pendente"]
+
+            st.markdown(f"#### 🟡 Pendentes ({len(pendentes)})")
+
+            if not pendentes:
+                st.caption("Nenhuma solicitação pendente no momento.")
+            else:
+                for s in pendentes:
+                    with st.container():
+                        st.markdown(
+                            f"""
+                            <div class="info-box" style="margin-bottom:10px;">
+                                <b>Usuário:</b> {s['username']}<br>
+                                <b>E-mail:</b> {s.get('email') or '-'}<br>
+                                <b>Telefone:</b> {s.get('telefone') or '-'}<br>
+                                <b>Solicitado em:</b> {s['solicitado_em']}
+                            </div>
+                            """,
+                            unsafe_allow_html=True,
+                        )
+                        col_aut, col_rej = st.columns(2)
+                        with col_aut:
+                            if st.button(
+                                "✅ Autorizar",
+                                key=f"btn_autorizar_{s['id']}",
+                                use_container_width=True,
+                                type="primary",
+                            ):
+                                try:
+                                    r = requests.post(
+                                        f"{API_URL}/admin/solicitacoes-senha"
+                                        f"/{s['id']}/autorizar",
+                                        headers=headers,
+                                        timeout=25,
+                                    )
+                                    if r.status_code == 200:
+                                        st.success(
+                                            "✅ Autorizado! O usuário tem 10"
+                                            " minutos para trocar a senha."
+                                        )
+                                        st.rerun()
+                                    else:
+                                        st.error(f"❌ Erro: {r.text}")
+                                except Exception as e:
+                                    st.error(f"🌐 Erro de conexão: {e}")
+                        with col_rej:
+                            if st.button(
+                                "🚫 Rejeitar",
+                                key=f"btn_rejeitar_{s['id']}",
+                                use_container_width=True,
+                            ):
+                                try:
+                                    r = requests.post(
+                                        f"{API_URL}/admin/solicitacoes-senha"
+                                        f"/{s['id']}/rejeitar",
+                                        headers=headers,
+                                        timeout=25,
+                                    )
+                                    if r.status_code == 200:
+                                        st.warning("🚫 Solicitação rejeitada.")
+                                        st.rerun()
+                                    else:
+                                        st.error(f"❌ Erro: {r.text}")
+                                except Exception as e:
+                                    st.error(f"🌐 Erro de conexão: {e}")
+                        st.divider()
+
+            with st.expander(f"📋 Histórico ({len(outras)})"):
+                if not outras:
+                    st.caption("Nenhuma solicitação anterior.")
+                else:
+                    ICONE_STATUS = {
+                        "autorizado": "🟢",
+                        "usado": "✅",
+                        "expirado": "⏱️",
+                        "rejeitado": "🚫",
+                    }
+                    df_hist = pd.DataFrame(outras)
+                    df_hist["status"] = df_hist["status"].apply(
+                        lambda s: f"{ICONE_STATUS.get(s, '')} {s}"
+                    )
+                    colunas = [
+                        "username",
+                        "status",
+                        "solicitado_em",
+                        "autorizado_em",
+                        "expira_em",
+                        "autorizado_por",
+                    ]
+                    colunas_existentes = [
+                        c for c in colunas if c in df_hist.columns
+                    ]
+                    st.dataframe(
+                        df_hist[colunas_existentes],
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+        elif resp_solic is not None:
+            if resp_solic.status_code == 403:
+                st.error(
+                    "⛔ Apenas o Admin pode ver as solicitações de senha."
+                )
+            else:
+                st.error(
+                    "❌ Não foi possível carregar as solicitações"
+                    f" (status {resp_solic.status_code})."
+                )
+
+    # ---------------------------------------------------------
+    # ABA 5: LOGS DE AUDITORIA
     # ---------------------------------------------------------
     with aba_auditoria:
         st.markdown("### 📜 Registros de Auditoria e Atividades")

@@ -149,19 +149,82 @@ def render_login():
         # ===================== TELA DE CADASTRO =====================
         elif st.session_state["tela_login"] == "cadastro":
             st.subheader("📝 Criar nova conta")
-
-            nome = st.text_input(
-                "Nome completo *",
-                placeholder="Seu nome completo",
-                key="cad_nome",
+            st.caption(
+                "Selecione seu nome na escala e complete com o sobrenome —"
+                " isso evita conflito quando duas pessoas tiverem o mesmo"
+                " primeiro nome."
             )
+
+            # Busca os nomes da escala que ainda não têm conta
+            if "cad_nomes_escala" not in st.session_state:
+                try:
+                    resp_nomes = requests.get(
+                        f"{API_URL}/nomes-escala-disponiveis", timeout=20
+                    )
+                    st.session_state["cad_nomes_escala"] = (
+                        resp_nomes.json()
+                        if resp_nomes.status_code == 200
+                        else []
+                    )
+                except Exception:
+                    st.session_state["cad_nomes_escala"] = []
+
+            nomes_disponiveis = st.session_state["cad_nomes_escala"]
+
+            if not nomes_disponiveis:
+                st.warning(
+                    "⚠️ Não há nomes disponíveis na escala no momento (ou"
+                    " todos já possuem conta). Fale com o Administrador."
+                )
+
+            nome_escala = st.selectbox(
+                "Seu nome na escala *",
+                ["Selecione..."] + nomes_disponiveis,
+                key="cad_nome_escala",
+            )
+            sobrenome = st.text_input(
+                "Seu sobrenome *",
+                placeholder="Ex: Martinez",
+                key="cad_sobrenome",
+            )
+
+            username_sugerido = ""
+            if nome_escala != "Selecione..." and sobrenome.strip():
+                try:
+                    resp_sug = requests.get(
+                        f"{API_URL}/sugerir-username",
+                        params={
+                            "nome_escala": nome_escala,
+                            "sobrenome": sobrenome.strip(),
+                        },
+                        timeout=20,
+                    )
+                    if resp_sug.status_code == 200:
+                        username_sugerido = resp_sug.json().get(
+                            "username_sugerido", ""
+                        )
+                except Exception:
+                    pass
+
             usuario = st.text_input(
-                "Usuário / E-mail *",
-                placeholder="Escolha um usuário ou e-mail",
+                "Usuário (login) *",
+                value=username_sugerido,
+                placeholder="Preenchido automaticamente após o sobrenome",
                 key="cad_user",
+                help=(
+                    "Sugerido no formato nome.sobrenome. Você pode ajustar"
+                    " se quiser."
+                ),
             )
             email = st.text_input(
-                "E-mail de contato", placeholder="seu@email.com", key="cad_email"
+                "E-mail de contato *",
+                placeholder="seu@email.com",
+                key="cad_email",
+            )
+            telefone = st.text_input(
+                "Telefone de contato",
+                placeholder="(11) 90000-0000",
+                key="cad_telefone",
             )
             senha = st.text_input(
                 "Senha *",
@@ -181,18 +244,32 @@ def render_login():
                 if st.button(
                     "💾 Cadastrar", use_container_width=True, type="primary"
                 ):
-                    if not nome or not usuario or not senha:
+                    nome_completo = (
+                        f"{nome_escala.strip().title()} {sobrenome.strip().title()}"
+                        if nome_escala != "Selecione..."
+                        else ""
+                    )
+                    if (
+                        nome_escala == "Selecione..."
+                        or not sobrenome.strip()
+                        or not usuario.strip()
+                        or not senha
+                    ):
                         st.warning("Preencha os campos obrigatórios (*).")
                     elif senha != senha2:
                         st.error("As senhas não coincidem.")
                     else:
                         try:
-                            # Rota corrigida para /usuarios/ enviando JSON compatível com o backend FastAPI
                             payload = {
-                                "nome": nome.strip(),
+                                "nome": nome_completo,
                                 "username": usuario.strip(),
                                 "email": (
-                                    email.strip() if email else usuario.strip()
+                                    email.strip()
+                                    if email
+                                    else usuario.strip()
+                                ),
+                                "telefone": (
+                                    telefone.strip() if telefone else None
                                 ),
                                 "senha": senha,
                                 "role": "Operador",
@@ -205,6 +282,9 @@ def render_login():
 
                             if resposta.status_code in [200, 201]:
                                 st.success("✅ Conta criada com sucesso!")
+                                st.session_state.pop(
+                                    "cad_nomes_escala", None
+                                )
                                 time.sleep(1.5)
                                 st.session_state["tela_login"] = "login"
                                 st.rerun()
@@ -222,17 +302,156 @@ def render_login():
 
             with col2:
                 if st.button("← Voltar", use_container_width=True):
+                    st.session_state.pop("cad_nomes_escala", None)
                     st.session_state["tela_login"] = "login"
                     st.rerun()
 
         # ===================== TELA RECUPERAR SENHA =====================
         elif st.session_state["tela_login"] == "recuperar":
             st.subheader("🔑 Recuperar Senha")
-            st.info(
-                "Para redefinir a sua senha, entre em contato com o"
-                " Administrador do sistema pelo Painel Executivo."
+
+            modo_recuperacao = st.radio(
+                "O que você precisa?",
+                [
+                    "📨 Solicitar recuperação",
+                    "✅ Já fui autorizado — definir nova senha",
+                ],
+                key="rec_modo",
+                label_visibility="collapsed",
             )
 
+            # --------- SOLICITAR RECUPERAÇÃO ---------
+            if "Solicitar" in modo_recuperacao:
+                st.info(
+                    "Informe seus dados. Um administrador vai analisar e"
+                    " autorizar a troca — ele **não vê nem define** sua"
+                    " senha, só libera o acesso por 10 minutos."
+                )
+
+                rec_usuario = st.text_input(
+                    "Usuário *", placeholder="Seu login", key="rec_user"
+                )
+                rec_email = st.text_input(
+                    "E-mail cadastrado",
+                    placeholder="seu@email.com",
+                    key="rec_email",
+                )
+                rec_telefone = st.text_input(
+                    "Telefone cadastrado",
+                    placeholder="(11) 90000-0000",
+                    key="rec_telefone",
+                )
+
+                if st.button(
+                    "📨 Solicitar recuperação",
+                    use_container_width=True,
+                    type="primary",
+                    key="btn_solicitar_rec",
+                ):
+                    if not rec_usuario.strip():
+                        st.warning("Informe o usuário.")
+                    else:
+                        try:
+                            payload = {
+                                "username": rec_usuario.strip(),
+                                "email": (
+                                    rec_email.strip() if rec_email else None
+                                ),
+                                "telefone": (
+                                    rec_telefone.strip()
+                                    if rec_telefone
+                                    else None
+                                ),
+                            }
+                            resposta = requests.post(
+                                f"{API_URL}/recuperar-senha",
+                                json=payload,
+                                timeout=30,
+                            )
+                            if resposta.status_code == 200:
+                                st.success(
+                                    "✅ Solicitação registrada! Aguarde a"
+                                    " autorização do administrador."
+                                )
+                            else:
+                                erro_detalhe = "Erro ao solicitar."
+                                try:
+                                    erro_detalhe = resposta.json().get(
+                                        "detail", resposta.text
+                                    )
+                                except Exception:
+                                    pass
+                                st.error(f"⚠️ {erro_detalhe}")
+                        except Exception as e:
+                            st.error(f"Erro de conexão: {e}")
+
+            # --------- DEFINIR NOVA SENHA (JÁ AUTORIZADO) ---------
+            else:
+                st.info(
+                    "Se o administrador já autorizou, você tem **10"
+                    " minutos** a partir da autorização para definir a"
+                    " nova senha aqui."
+                )
+
+                nova_usuario = st.text_input(
+                    "Usuário *", placeholder="Seu login", key="nova_user"
+                )
+                nova_senha = st.text_input(
+                    "Nova senha *",
+                    type="password",
+                    placeholder="Digite a nova senha",
+                    key="nova_senha1",
+                )
+                nova_senha2 = st.text_input(
+                    "Confirmar nova senha *",
+                    type="password",
+                    placeholder="Repita a nova senha",
+                    key="nova_senha2",
+                )
+
+                if st.button(
+                    "🔓 Definir nova senha",
+                    use_container_width=True,
+                    type="primary",
+                    key="btn_definir_senha",
+                ):
+                    if not nova_usuario.strip() or not nova_senha:
+                        st.warning("Preencha usuário e a nova senha.")
+                    elif nova_senha != nova_senha2:
+                        st.error("As senhas não coincidem.")
+                    else:
+                        try:
+                            payload = {
+                                "username": nova_usuario.strip(),
+                                "nova_senha": nova_senha,
+                                "confirmar_senha": nova_senha2,
+                            }
+                            resposta = requests.post(
+                                f"{API_URL}/redefinir-senha-autorizada",
+                                json=payload,
+                                timeout=30,
+                            )
+                            if resposta.status_code == 200:
+                                st.success(
+                                    "✅ Senha redefinida! Você já pode"
+                                    " entrar com a nova senha."
+                                )
+                                time.sleep(1.5)
+                                st.session_state["tela_login"] = "login"
+                                st.rerun()
+                            else:
+                                erro_detalhe = "Erro ao redefinir senha."
+                                try:
+                                    erro_detalhe = resposta.json().get(
+                                        "detail", resposta.text
+                                    )
+                                except Exception:
+                                    pass
+                                st.error(f"⚠️ {erro_detalhe}")
+                        except Exception as e:
+                            st.error(f"Erro de conexão: {e}")
+
+            st.markdown("<br>", unsafe_allow_html=True)
             if st.button(
                 "← Voltar ao Login",
                 use_container_width=True,
