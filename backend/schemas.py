@@ -175,3 +175,53 @@ class AuditoriaOut(BaseModel):
     detalhes: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+# =====================================================
+# RECUPERAÇÃO DE SENHA (Admin só autoriza; não define senha)
+# =====================================================
+
+class SolicitacaoSenhaCreate(BaseModel):
+    username: str
+    email: Optional[str] = None
+    telefone: Optional[str] = None
+
+
+class SolicitacaoSenhaOut(BaseModel):
+    id: int
+    username: str
+    email: Optional[str] = None
+    telefone: Optional[str] = None
+    status: str
+    solicitado_em: datetime
+    autorizado_em: Optional[datetime] = None
+    expira_em: Optional[datetime] = None
+    autorizado_por: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class RedefinirSenhaAutorizada(BaseModel):
+    username: str
+    nova_senha: str
+    confirmar_senha: str
+
+    @field_validator("confirmar_senha")
+    @classmethod
+    def senhas_conferem(cls, v, info):
+        nova = info.data.get("nova_senha")
+        if nova and v != nova:
+            raise ValueError("As senhas não coincidem.")
+        return v
+
+
+# =====================================================
+# NOMES DA ESCALA DISPONÍVEIS PARA CRIAR CONTA
+# =====================================================
+# Usado na tela "Criar Conta": lista quem já está na escala mas
+# ainda não tem usuário, junto com o login sugerido
+# (ex: "karine.martinez") calculado no backend.
+
+class NomeDisponivelOut(BaseModel):
+    nome: str
+    username_sugerido: str

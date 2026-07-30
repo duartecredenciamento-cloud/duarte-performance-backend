@@ -290,3 +290,73 @@ class AuditoriaModel(Base):
         Text,
         nullable=True
     )
+
+
+# =====================================================
+# SOLICITAÇÕES DE RECUPERAÇÃO DE SENHA
+# =====================================================
+# Fluxo: usuário solicita -> fica "pendente" -> Admin apenas
+# AUTORIZA (não vê e não define senha nenhuma) -> abre uma janela
+# de 10 minutos (expira_em) -> usuário troca a própria senha em
+# /redefinir-senha-autorizada -> status vira "usado".
+#
+# status possíveis: pendente / autorizado / usado / expirado / rejeitado
+
+class SolicitacaoSenhaModel(Base):
+
+    __tablename__ = "solicitacoes_senha"
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True
+    )
+
+    username = Column(
+        String(50),
+        nullable=False,
+        index=True
+    )
+
+    email = Column(
+        String(150),
+        nullable=True
+    )
+
+    telefone = Column(
+        String(20),
+        nullable=True
+    )
+
+    status = Column(
+        String(20),
+        default="pendente",
+        nullable=False,
+        index=True
+    )
+
+    solicitado_em = Column(
+        DateTime,
+        default=datetime.utcnow,
+        nullable=False
+    )
+
+    autorizado_em = Column(
+        DateTime,
+        nullable=True
+    )
+
+    expira_em = Column(
+        DateTime,
+        nullable=True
+    )
+
+    usado_em = Column(
+        DateTime,
+        nullable=True
+    )
+
+    autorizado_por = Column(
+        String(50),
+        nullable=True
+    )
