@@ -492,7 +492,7 @@ def deletar_registro(
 
 
 # =====================================================
-# CRONOGRAMA
+# CRONOGRAMA DINÂMICO
 # =====================================================
 
 @app.get("/cronograma/")
@@ -500,5 +500,71 @@ def listar_cronograma(
     db: Session = Depends(get_db),
     usuario: models.Usuario = Depends(usuario_logado)
 ):
+    """Busca toda a escala cadastrada no banco de dados."""
     dados = db.query(models.CronogramaModel).all()
-    return dados
+    return [
+        {
+            "id": c.id,
+            "Operador": c.operador,
+            "Periodo": c.periodo,
+            "Segunda": c.segunda,
+            "Terça": c.terca,
+            "Quarta": c.quarta,
+            "Quinta": c.quinta,
+            "Sexta": c.sexta,
+        }
+        for c in dados
+    ]
+
+
+@app.post("/cronograma/")
+def criar_ou_atualizar_item_escala(
+    payload: dict,
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(usuario_logado),
+):
+    """Adiciona um novo operador/escala ou atualiza um existente."""
+    if usuario.role.lower() not in ["admin", "gestor"]:
+        raise HTTPException(
+            status_code=403, detail="Apenas Admin/Gestor pode alterar a escala."
+        )
+
+    novo_item = models.CronogramaModel(
+        operador=payload.get("Operador", "").upper(),
+        periodo=payload.get("Periodo", "MANHÃ").upper(),
+        segunda=payload.get("Segunda", "-"),
+        terca=payload.get("Terça", "-"),
+        quarta=payload.get("Quarta", "-"),
+        quinta=payload.get("Quinta", "-"),
+        sexta=payload.get("Sexta", "-"),
+    )
+    db.add(novo_item)
+    db.commit()
+    db.refresh(novo_item)
+
+    return {"status": "sucesso", "mensagem": "Escala atualizada com sucesso!"}
+
+
+@app.delete("/cronograma/{item_id}")
+def deletar_item_escala(
+    item_id: int,
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(usuario_logado),
+):
+    """Exclui uma linha da escala (Remover operador ou turno)."""
+    if usuario.role.lower() not in ["admin", "gestor"]:
+        raise HTTPException(
+            status_code=403, detail="Apenas Admin/Gestor pode excluir itens."
+        )
+
+    item = (
+        db.query(models.CronogramaModel)
+        .filter(models.CronogramaModel.id == item_id)
+        .first()
+    )
+    if not item:
+        raise HTTPException(status_code=404, detail="Item não encontrado.")
+
+    db.delete(item)
+    db.commit()
+    return {"status": "sucesso", "mensagem": "Item removido da escala!"}

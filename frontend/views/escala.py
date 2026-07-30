@@ -1,9 +1,23 @@
 import pandas as pd
 import streamlit as st
+import requests
 
+def get_cronograma_credenciamento(api_url=None, token=None):
+    """Estrutura conectada à API com fallback para a matriz local de Credenciamento"""
+    
+    # Tentativa de buscar os dados dinâmicos salvos no banco através da API
+    if api_url and token:
+        try:
+            headers = {"Authorization": f"Bearer {token}"}
+            response = requests.get(f"{api_url}/cronograma/", headers=headers, timeout=5)
+            if response.status_code == 200:
+                dados_api = response.json()
+                if dados_api: # Retorna o DataFrame com os dados do banco, se houver
+                    return pd.DataFrame(dados_api)
+        except Exception:
+            pass # Em caso de erro de conexão, segue silenciosamente para o fallback abaixo
 
-def get_cronograma_credenciamento():
-    """Estrutura exata baseada na matriz de Credenciamento / Gestão Comercial"""
+    # Fallback (Matriz Local Atualizada - Junho/2026) caso a API não responda
     dados = [
         {
             "Operador": "LARISSA",
@@ -11,8 +25,8 @@ def get_cronograma_credenciamento():
             "Segunda": "EV-CITI",
             "Terça": "CONVACARE",
             "Quarta": "IMC",
-            "Quinta": "MEDLIGTH",
-            "Sexta": "PRÉ ALINHAMENTO",
+            "Quinta": "PRIME",
+            "Sexta": "CLINICA AMINO"
         },
         {
             "Operador": "LARISSA",
@@ -21,79 +35,106 @@ def get_cronograma_credenciamento():
             "Terça": "-",
             "Quarta": "-",
             "Quinta": "-",
-            "Sexta": "RESCINDIDOS (UNICLIN/MAR/SILMARO etc)",
+            "Sexta": "-"
         },
         {
             "Operador": "KARINE",
             "Periodo": "MANHÃ",
-            "Segunda": "ALPHA LABs",
-            "Terça": "CLINICA TOPÁZIO",
-            "Quarta": "RALG (1ª e 3ª sem)",
+            "Segunda": "REGULAÇÃO",
+            "Terça": "REGULAÇÃO /MALLING",
+            "Quarta": "RALG",
             "Quinta": "ATIVAMENTE",
-            "Sexta": "MVS",
+            "Sexta": "SIMARO/SALOMÃO/ mvs"
         },
         {
             "Operador": "KARINE",
             "Periodo": "TARDE",
             "Segunda": "-",
-            "Terça": "-",
-            "Quarta": "PRIME (2ª sem)",
-            "Quinta": "-",
-            "Sexta": "DIOGO PARAUAPEBAS",
+            "Terça": "EDITAIS",
+            "Quarta": "-",
+            "Quinta": "MAR ABA PG",
+            "Sexta": "DIOGO PARAUAPEBAS"
         },
         {
             "Operador": "NEIA",
             "Periodo": "MANHÃ",
-            "Segunda": "CLINICA VIVENCY",
-            "Terça": "LAB. BRUNO",
-            "Quarta": "CLINICA AMINO",
-            "Quinta": "CLINICA FARFALLA",
-            "Sexta": "PRO-EXAME",
+            "Segunda": "FÉRIAS",
+            "Terça": "FÉRIAS",
+            "Quarta": "FÉRIAS",
+            "Quinta": "FÉRIAS",
+            "Sexta": "FÉRIAS"
+        },
+        {
+            "Operador": "NEIA",
+            "Periodo": "TARDE",
+            "Segunda": "-",
+            "Terça": "-",
+            "Quarta": "-",
+            "Quinta": "-",
+            "Sexta": "-"
         },
         {
             "Operador": "VITÓRIA - I",
             "Periodo": "MANHÃ",
-            "Segunda": "SUPORTE GERAL",
-            "Terça": "SUPORTE GERAL",
-            "Quarta": "SUPORTE GERAL",
-            "Quinta": "SUPORTE GERAL",
-            "Sexta": "SUPORTE GERAL",
+            "Segunda": "CLINICA VIVENCY",
+            "Terça": "MEDLIGTH",
+            "Quarta": "INST. VER",
+            "Quinta": "CANTAREIRA",
+            "Sexta": "CLINICA ROSANA"
+        },
+        {
+            "Operador": "VITÓRIA - I",
+            "Periodo": "TARDE",
+            "Segunda": "-",
+            "Terça": "-",
+            "Quarta": "-",
+            "Quinta": "-",
+            "Sexta": "-"
         },
         {
             "Operador": "SILVANA",
             "Periodo": "MANHÃ",
             "Segunda": "HOSP. AMATO",
             "Terça": "CLIN COFFI",
-            "Quarta": "RBL (1ª e 3ª sem)",
-            "Quinta": "TRIDES",
-            "Sexta": "HARMONY",
+            "Quarta": "TRIDES",
+            "Quinta": "LAB. BRUNO",
+            "Sexta": "PRO-EXAME"
         },
         {
             "Operador": "SILVANA",
             "Periodo": "TARDE",
             "Segunda": "-",
             "Terça": "-",
-            "Quarta": "INST. VER (2ª sem)",
+            "Quarta": "HARMONY",
             "Quinta": "-",
-            "Sexta": "-",
+            "Sexta": "-"
         },
         {
             "Operador": "JULIA",
             "Periodo": "MANHÃ",
             "Segunda": "FR FISIO",
-            "Terça": "CANTAREIRA",
-            "Quarta": "CIE FISIO - SJC",
-            "Quinta": "CLINICA ROSANA",
-            "Sexta": "VIVA - TEA",
+            "Terça": "CIE FISIO - SJC",
+            "Quarta": "CLINICA FARFALLA",
+            "Quinta": "UNICLIN - LAB  PG",
+            "Sexta": "CLINICA TOPÁZIO"
+        },
+        {
+            "Operador": "JULIA",
+            "Periodo": "TARDE",
+            "Segunda": "-",
+            "Terça": "-",
+            "Quarta": "-",
+            "Quinta": "ALPHA LABs",
+            "Sexta": "-"
         },
         {
             "Operador": "EDVÂNIA",
             "Periodo": "MANHÃ",
-            "Segunda": "REGULAÇÃO",
-            "Terça": "EDITAIS",
-            "Quarta": "EDITAIS",
-            "Quinta": "FISO LIFE",
-            "Sexta": "EMS-BETESDA (1ª e 3ª sem)",
+            "Segunda": "FISIO LIFE",
+            "Terça": "EMS BETESDA",
+            "Quarta": "SUPORTE",
+            "Quinta": "SUPORTE",
+            "Sexta": "SUPORTE"
         },
         {
             "Operador": "EDVÂNIA",
@@ -102,17 +143,44 @@ def get_cronograma_credenciamento():
             "Terça": "-",
             "Quarta": "-",
             "Quinta": "-",
-            "Sexta": "MULHER MODERNA (2ª sem)",
+            "Sexta": "-"
         },
         {
-                    "Operador": "admin",
-                    "Periodo": "TARDE",
-                    "Segunda": "-",
-                    "Terça": "-",
-                    "Quarta": "-",
-                    "Quinta": "-",
-                    "Sexta": "CLINICA TAMANDUA (2ª sem)",
-                },
+            "Operador": "VITORIA REDE",
+            "Periodo": "MANHÃ",
+            "Segunda": "MULHER MODERNA",
+            "Terça": "SUPORTE",
+            "Quarta": "SUPORTE",
+            "Quinta": "SUPORTE",
+            "Sexta": "SUPORTE"
+        },
+        {
+            "Operador": "VITORIA REDE",
+            "Periodo": "TARDE",
+            "Segunda": "-",
+            "Terça": "SUPORTE/WHATSAPP",
+            "Quarta": "SUPORTE/WHATSAPP",
+            "Quinta": "SUPORTE/WHATSAPP",
+            "Sexta": "SUPORTE/WHATSAPP"
+        },
+        {
+            "Operador": "MARIA EDUARDA",
+            "Periodo": "MANHÃ",
+            "Segunda": "X",
+            "Terça": "X",
+            "Quarta": "X",
+            "Quinta": "SUPORTE",
+            "Sexta": "SUPORTE"
+        },
+        {
+            "Operador": "MARIA EDUARDA",
+            "Periodo": "TARDE",
+            "Segunda": "-",
+            "Terça": "-",
+            "Quarta": "-",
+            "Quinta": "-",
+            "Sexta": "-"
+        }
     ]
     return pd.DataFrame(dados)
 
@@ -276,32 +344,26 @@ def render_escala(carregar_cronograma_custom=None):
 
     # 1. IDENTIFICAÇÃO DO USUÁRIO E REGRA DE SEGURANÇA/ISOLAMENTO
     user_nome_sessao = st.session_state.get("user_nome", "").strip()
-    user_role = (
-        st.session_state.get("user_role", "operador").strip().lower()
-    )  # 'gestor', 'admin', 'coordenador', 'visualizador' ou 'operador'
+    user_role = st.session_state.get("user_role", "operador").strip().lower()
 
-    # Perfis com visão completa da escala de toda a equipe.
-    # "visualizador" enxerga tudo, mas em modo somente leitura (sem
-    # botões de ação nesta tela — a restrição de edição é aplicada
-    # nas telas de lançamento/edição, ex.: views/editor.py e
-    # views/lancamento.py, usando a mesma checagem de role).
     FUNCOES_VISAO_COMPLETA = ["gestor", "admin", "coordenador", "visualizador"]
     tem_visao_completa = user_role in FUNCOES_VISAO_COMPLETA
     is_visualizador = user_role == "visualizador"
 
-    # Carrega base bruta de escala
-    df_escala = get_cronograma_credenciamento()
+    # Carrega base de escala priorizando injeção via custom, API, e depois Fallback local
+    if carregar_cronograma_custom:
+        df_escala = carregar_cronograma_custom()
+    else:
+        api_url = st.session_state.get("api_url")
+        token = st.session_state.get("token")
+        df_escala = get_cronograma_credenciamento(api_url, token)
 
     # 2. FILTRAGEM INDIVIDUAL x VISÃO GERAL
     if not tem_visao_completa and user_nome_sessao:
-        # Tenta casar o nome do usuário logado com a coluna Operador
         df_escala_user = df_escala[
-            df_escala["Operador"]
-            .astype(str)
-            .str.contains(user_nome_sessao, case=False, na=False)
+            df_escala["Operador"].astype(str).str.contains(user_nome_sessao, case=False, na=False)
         ]
 
-        # Se encontrou registros específicos para este operador, aplica o isolamento
         if not df_escala_user.empty:
             df_escala = df_escala_user
             modo_isolado = True
@@ -312,20 +374,11 @@ def render_escala(carregar_cronograma_custom=None):
 
     # 3. HEADER PRINCIPAL DA TELA
     if modo_isolado:
-        badge_header = (
-            '<span class="badge-lock">🔒 MINHA AGENDA INDIVIDUAL'
-            f' ({user_nome_sessao.upper()})</span>'
-        )
+        badge_header = f'<span class="badge-lock">🔒 MINHA AGENDA INDIVIDUAL ({user_nome_sessao.upper()})</span>'
     elif is_visualizador:
-        badge_header = (
-            '<span class="badge-status-matriz">👁️ MATRIZ GERAL — MODO'
-            " SOMENTE LEITURA</span>"
-        )
+        badge_header = '<span class="badge-status-matriz">👁️ MATRIZ GERAL — MODO SOMENTE LEITURA</span>'
     else:
-        badge_header = (
-            '<span class="badge-status-matriz">🌐 MATRIZ GERAL DA'
-            " EQUIPE</span>"
-        )
+        badge_header = '<span class="badge-status-matriz">🌐 MATRIZ GERAL DA EQUIPE</span>'
 
     st.markdown(
         f"""
@@ -352,68 +405,30 @@ def render_escala(carregar_cronograma_custom=None):
     dias_cols = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"]
 
     if modo_isolado:
-        # Métricas focadas no Operador Logado
-        total_contas = sum(
-            (df_escala[dia] != "-").sum() for dia in dias_cols if dia in df_escala.columns
-        )
+        total_contas = sum((df_escala[dia] != "-").sum() for dia in dias_cols if dia in df_escala.columns)
         turnos_alocados = len(df_escala)
 
         c1, c2, c3, c4 = st.columns(4)
         with c1:
-            st.markdown(
-                f'<div class="metric-card"><h3>1</h3><p>Analista Logado ({user_nome_sessao.split()[0]})</p></div>',
-                unsafe_allow_html=True,
-            )
+            st.markdown(f'<div class="metric-card"><h3>1</h3><p>Analista Logado ({user_nome_sessao.split()[0]})</p></div>', unsafe_allow_html=True)
         with c2:
-            st.markdown(
-                f'<div class="metric-card"><h3'
-                f' style="color:#FF9200;">{total_contas}</h3><p>Meus Serviços'
-                " / Contas</p></div>",
-                unsafe_allow_html=True,
-            )
+            st.markdown(f'<div class="metric-card"><h3 style="color:#FF9200;">{total_contas}</h3><p>Meus Serviços / Contas</p></div>', unsafe_allow_html=True)
         with c3:
-            st.markdown(
-                f'<div class="metric-card"><h3'
-                f' style="color:#001E57;">{turnos_alocados}</h3><p>Turnos'
-                " Escalados</p></div>",
-                unsafe_allow_html=True,
-            )
+            st.markdown(f'<div class="metric-card"><h3 style="color:#001E57;">{turnos_alocados}</h3><p>Turnos Escalados</p></div>', unsafe_allow_html=True)
         with c4:
-            st.markdown(
-                '<div class="metric-card"><h3 style="color:#10B981;">100%</h3><p>Minha'
-                " Capacidade</p></div>",
-                unsafe_allow_html=True,
-            )
+            st.markdown('<div class="metric-card"><h3 style="color:#10B981;">100%</h3><p>Minha Capacidade</p></div>', unsafe_allow_html=True)
     else:
-        # Métricas Gerais da Operação
         total_analistas = df_escala["Operador"].nunique()
 
         c1, c2, c3, c4 = st.columns(4)
         with c1:
-            st.markdown(
-                f'<div class="metric-card"><h3>{total_analistas}</h3><p>Analistas'
-                " Escalados</p></div>",
-                unsafe_allow_html=True,
-            )
+            st.markdown(f'<div class="metric-card"><h3>{total_analistas}</h3><p>Analistas Escalados</p></div>', unsafe_allow_html=True)
         with c2:
-            st.markdown(
-                '<div class="metric-card"><h3>28+</h3><p>Contas'
-                " Ativas</p></div>",
-                unsafe_allow_html=True,
-            )
+            st.markdown('<div class="metric-card"><h3>28+</h3><p>Contas Ativas</p></div>', unsafe_allow_html=True)
         with c3:
-            st.markdown(
-                '<div class="metric-card"><h3>5 Dias</h3><p>Cobertura'
-                " Semanal</p></div>",
-                unsafe_allow_html=True,
-            )
+            st.markdown('<div class="metric-card"><h3>5 Dias</h3><p>Cobertura Semanal</p></div>', unsafe_allow_html=True)
         with c4:
-            st.markdown(
-                '<div class="metric-card"><h3'
-                ' style="color:#FF9200;">100%</h3><p>Capacidade'
-                " Operacional</p></div>",
-                unsafe_allow_html=True,
-            )
+            st.markdown('<div class="metric-card"><h3 style="color:#FF9200;">100%</h3><p>Capacidade Operacional</p></div>', unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -421,74 +436,39 @@ def render_escala(carregar_cronograma_custom=None):
     col_mode, col_dia, col_busca = st.columns([1.2, 1.2, 1.6])
 
     with col_mode:
-        modo_view = st.radio(
-            "Modo de Visão:",
-            ["🎴 Cards por Dia", "📊 Tabela Completa"],
-            horizontal=True,
-        )
+        modo_view = st.radio("Modo de Visão:", ["🎴 Cards por Dia", "📊 Tabela Completa"], horizontal=True)
 
     with col_dia:
-        dia_selecionado = st.selectbox(
-            "Filtrar Dia da Semana:",
-            ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"],
-        )
+        dia_selecionado = st.selectbox("Filtrar Dia da Semana:", ["Segunda", "Terça", "Quarta", "Quinta", "Sexta"])
 
     with col_busca:
-        # Se for gestor, permite filtrar por qualquer operador. Se for operador, pesquisa apenas seus serviços.
-        placeholder_busca = (
-            "Ex: EV-CITI, Hosp. Amato..."
-            if modo_isolado
-            else "Ex: EV-CITI, Karine, Silvana..."
-        )
-        busca_termo = st.text_input(
-            "🔍 Pesquisa Rápida:", placeholder=placeholder_busca
-        )
+        placeholder_busca = "Ex: EV-CITI, Hosp. Amato..." if modo_isolado else "Ex: EV-CITI, Karine, Silvana..."
+        busca_termo = st.text_input("🔍 Pesquisa Rápida:", placeholder=placeholder_busca)
 
-    st.markdown(
-        "<hr style='border: 0; border-top: 1px solid #E2E8F0; margin: 20px"
-        " 0;'>",
-        unsafe_allow_html=True,
-    )
+    st.markdown("<hr style='border: 0; border-top: 1px solid #E2E8F0; margin: 20px 0;'>", unsafe_allow_html=True)
 
     # 6. FILTRAGEM INTERATIVA
     df_filtrado = df_escala.copy()
 
     if busca_termo:
         condicao_busca = (
-            df_filtrado["Operador"].str.contains(
-                busca_termo, case=False, na=False
-            )
-            | df_filtrado["Segunda"].str.contains(
-                busca_termo, case=False, na=False
-            )
-            | df_filtrado["Terça"].str.contains(
-                busca_termo, case=False, na=False
-            )
-            | df_filtrado["Quarta"].str.contains(
-                busca_termo, case=False, na=False
-            )
-            | df_filtrado["Quinta"].str.contains(
-                busca_termo, case=False, na=False
-            )
-            | df_filtrado["Sexta"].str.contains(
-                busca_termo, case=False, na=False
-            )
+            df_filtrado["Operador"].str.contains(busca_termo, case=False, na=False)
+            | df_filtrado["Segunda"].str.contains(busca_termo, case=False, na=False)
+            | df_filtrado["Terça"].str.contains(busca_termo, case=False, na=False)
+            | df_filtrado["Quarta"].str.contains(busca_termo, case=False, na=False)
+            | df_filtrado["Quinta"].str.contains(busca_termo, case=False, na=False)
+            | df_filtrado["Sexta"].str.contains(busca_termo, case=False, na=False)
         )
         df_filtrado = df_filtrado[condicao_busca]
 
     # 7. MODO 1: CARDS ANIMADOS POR DIA
     if "Cards" in modo_view:
-        st.subheader(
-            f"📌 Agenda de Atendimento — {dia_selecionado.upper()}-FEIRA"
-        )
+        st.subheader(f"📌 Agenda de Atendimento — {dia_selecionado.upper()}-FEIRA")
 
         ops = df_filtrado["Operador"].unique()
 
         if len(ops) == 0:
-            st.info(
-                "ℹ️ Nenhum serviço ou atendimento encontrado para os filtros"
-                " selecionados."
-            )
+            st.info("ℹ️ Nenhum serviço ou atendimento encontrado para os filtros selecionados.")
             return
 
         cols_cards = st.columns(2, gap="medium")
@@ -532,9 +512,7 @@ def render_escala(carregar_cronograma_custom=None):
 
                 if not tem_atendimento:
                     st.markdown(
-                        "<p style='color: #94A3B8; font-size: 0.85rem;"
-                        " font-style: italic; margin: 5px 0;'>Sem alocação"
-                        f" programada para {dia_selecionado.lower()}.</p>",
+                        f"<p style='color: #94A3B8; font-size: 0.85rem; font-style: italic; margin: 5px 0;'>Sem alocação programada para {dia_selecionado.lower()}.</p>",
                         unsafe_allow_html=True,
                     )
 
@@ -548,12 +526,8 @@ def render_escala(carregar_cronograma_custom=None):
             use_container_width=True,
             hide_index=True,
             column_config={
-                "Operador": st.column_config.TextColumn(
-                    "Analista / Operador", width="medium"
-                ),
-                "Periodo": st.column_config.TextColumn(
-                    "Período", width="small"
-                ),
+                "Operador": st.column_config.TextColumn("Analista / Operador", width="medium"),
+                "Periodo": st.column_config.TextColumn("Período", width="small"),
                 "Segunda": st.column_config.TextColumn("Segunda-Feira"),
                 "Terça": st.column_config.TextColumn("Terça-Feira"),
                 "Quarta": st.column_config.TextColumn("Quarta-Feira"),
