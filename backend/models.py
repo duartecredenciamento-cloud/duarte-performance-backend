@@ -36,12 +36,10 @@ class DepartamentoModel(Base):
         index=True
     )
 
-
     usuarios = relationship(
         "Usuario",
         back_populates="departamento"
     )
-
 
 
 # =====================================================
@@ -52,13 +50,11 @@ class Usuario(Base):
 
     __tablename__ = "usuarios"
 
-
     id = Column(
         Integer,
         primary_key=True,
         index=True
     )
-
 
     username = Column(
         String(50),
@@ -67,12 +63,10 @@ class Usuario(Base):
         index=True
     )
 
-
     password_hash = Column(
         String(255),
         nullable=False
     )
-
 
     nome = Column(
         String(150),
@@ -80,18 +74,15 @@ class Usuario(Base):
         index=True
     )
 
-
     email = Column(
         String(150),
         nullable=True
     )
 
-
     telefone = Column(
         String(20),
         nullable=True
     )
-
 
     perfil_completo = Column(
         Boolean,
@@ -99,13 +90,11 @@ class Usuario(Base):
         nullable=False
     )
 
-
     role = Column(
         String(50),
         default="Operador",
         nullable=False
     )
-
 
     departamento_id = Column(
         Integer,
@@ -116,12 +105,10 @@ class Usuario(Base):
         nullable=True
     )
 
-
     departamento = relationship(
         "DepartamentoModel",
         back_populates="usuarios"
     )
-
 
 
 # =====================================================
@@ -132,13 +119,11 @@ class ClienteModel(Base):
 
     __tablename__ = "clientes"
 
-
     id = Column(
         Integer,
         primary_key=True,
         index=True
     )
-
 
     nome = Column(
         String(150),
@@ -148,15 +133,13 @@ class ClienteModel(Base):
     )
 
 
-
 # =====================================================
-# CRONOGRAMA OPERACIONAL
+# CRONOGRAMA OPERACIONAL (formato matriz semanal)
 # =====================================================
 
 class CronogramaModel(Base):
 
     __tablename__ = "cronogramas"
-
 
     id = Column(
         Integer,
@@ -164,50 +147,47 @@ class CronogramaModel(Base):
         index=True
     )
 
-
     operador = Column(
         String(100),
         nullable=False,
         index=True
     )
 
-
-    dia_semana = Column(
-        String(20),
-        nullable=False
-    )
-
-
-    atividade = Column(
-        String(255),
-        nullable=False
-    )
-
-
-    cliente = Column(
-        String(150),
-        nullable=False,
-        index=True
-    )
-
-
     periodo = Column(
         String(50),
-        nullable=True
+        nullable=False,
+        default="MANHÃ"
     )
 
-
-    data_limite = Column(
-        String(20),
-        nullable=True
+    segunda = Column(
+        String(255),
+        nullable=True,
+        default="-"
     )
 
-
-    status_prazo = Column(
-        String(50),
-        default="Pendente"
+    terca = Column(
+        String(255),
+        nullable=True,
+        default="-"
     )
 
+    quarta = Column(
+        String(255),
+        nullable=True,
+        default="-"
+    )
+
+    quinta = Column(
+        String(255),
+        nullable=True,
+        default="-"
+    )
+
+    sexta = Column(
+        String(255),
+        nullable=True,
+        default="-"
+    )
 
 
 # =====================================================
@@ -218,13 +198,11 @@ class RegistroModel(Base):
 
     __tablename__ = "registros"
 
-
     id = Column(
         Integer,
         primary_key=True,
         index=True
     )
-
 
     data_registro = Column(
         DateTime,
@@ -233,13 +211,11 @@ class RegistroModel(Base):
         index=True
     )
 
-
     operador_nome = Column(
         String(100),
         nullable=False,
         index=True
     )
-
 
     cliente_nome = Column(
         String(150),
@@ -247,30 +223,25 @@ class RegistroModel(Base):
         index=True
     )
 
-
     status = Column(
         String(50),
         nullable=False
     )
-
 
     justificativa = Column(
         Text,
         nullable=True
     )
 
-
     caminho_evidencia = Column(
         String(255),
         nullable=True
     )
 
-
     aprovado_gestor = Column(
         String(20),
         default="Pendente"
     )
-
 
 
 # =====================================================
@@ -281,13 +252,11 @@ class AuditoriaModel(Base):
 
     __tablename__ = "auditoria_logs"
 
-
     id = Column(
         Integer,
         primary_key=True,
         index=True
     )
-
 
     timestamp = Column(
         DateTime,
@@ -296,31 +265,26 @@ class AuditoriaModel(Base):
         index=True
     )
 
-
     usuario_login = Column(
         String(50),
         nullable=True,
         index=True
     )
 
-
     usuario_nome = Column(
         String(150),
         nullable=True
     )
-
 
     ip_origem = Column(
         String(45),
         nullable=True
     )
 
-
     acao = Column(
         String(100),
         nullable=False
     )
-
 
     detalhes = Column(
         Text,

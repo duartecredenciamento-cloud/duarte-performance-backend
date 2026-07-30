@@ -18,6 +18,7 @@ from sqlalchemy.exc import IntegrityError
 from jose import JWTError, jwt
 
 from pydantic import BaseModel
+from typing import Optional
 
 import models
 import schemas
@@ -34,12 +35,9 @@ from database import (
 # CRIAÇÃO DAS TABELAS E DADOS INICIAIS
 # =====================================================
 
-models.Base.metadata.create_all(
-    bind=engine
-)
+models.Base.metadata.create_all(bind=engine)
 
 
-# Matriz padrão AGOSTO II (Gestão Comercial)
 MATRIZ_AGOSTO_II = [
     {"operador": "LARISSA", "periodo": "MANHÃ", "segunda": "EV-CITI", "terca": "CONVACARE", "quarta": "IMC", "quinta": "MEDLIGTH", "sexta": "PRÉ ALINHAMENTO"},
     {"operador": "LARISSA", "periodo": "TARDE", "segunda": "-", "terca": "-", "quarta": "-", "quinta": "-", "sexta": "RESCINDIDOS - UNICLIN/MAR/SILMARO e ETC"},
@@ -57,7 +55,6 @@ MATRIZ_AGOSTO_II = [
 
 
 def criar_admin_inicial():
-    """Cria o admin padrão se não existir."""
     db = SessionLocal()
     try:
         admin_existente = (
@@ -65,10 +62,8 @@ def criar_admin_inicial():
             .filter(models.Usuario.username == "admin@duarte.com")
             .first()
         )
-
         if not admin_existente:
             senha_criptografada = auth.obter_hash_senha("123456")
-
             novo_admin = models.Usuario(
                 username="admin@duarte.com",
                 email="admin@duarte.com",
@@ -77,23 +72,19 @@ def criar_admin_inicial():
                 role="Admin",
                 perfil_completo=True
             )
-
             db.add(novo_admin)
             db.commit()
-            print("✅ Usuário administrador criado com sucesso no banco de dados.")
-
+            print("✅ Admin criado.")
     except IntegrityError:
         db.rollback()
-        print("⚠️ Usuário admin já foi registrado por outro processo.")
     except Exception as e:
         db.rollback()
-        print(f"❌ Erro ao criar usuário administrador inicial: {e}")
+        print(f"❌ Erro admin: {e}")
     finally:
         db.close()
 
 
 def popular_cronograma_se_vazio():
-    """Se a tabela de cronograma estiver vazia, carrega a matriz AGOSTO II."""
     db = SessionLocal()
     try:
         total = db.query(models.CronogramaModel).count()
@@ -111,9 +102,9 @@ def popular_cronograma_se_vazio():
                     )
                 )
             db.commit()
-            print("✅ Cronograma AGOSTO II carregado no banco.")
+            print("✅ Cronograma AGOSTO II carregado.")
         else:
-            print(f"ℹ️ Cronograma já possui {total} registro(s).")
+            print(f"ℹ️ Cronograma já tem {total} registro(s).")
     except Exception as e:
         db.rollback()
         print(f"❌ Erro ao popular cronograma: {e}")
@@ -122,13 +113,13 @@ def popular_cronograma_se_vazio():
 
 
 # =====================================================
-# CONFIGURAÇÃO API
+# APP
 # =====================================================
 
 app = FastAPI(
     title="Duarte Performance API",
     description="Gestão Operacional Duarte Gestão",
-    version="2.6"
+    version="2.7"
 )
 
 
@@ -147,13 +138,7 @@ app.add_middleware(
 )
 
 
-# =====================================================
-# JWT & AUTENTICAÇÃO
-# =====================================================
-
-oauth2_scheme = OAuth2PasswordBearer(
-    tokenUrl="/token"
-)
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/token")
 
 
 def usuario_logado(
@@ -168,32 +153,26 @@ def usuario_logado(
         )
         username = payload.get("sub")
         if not username:
-            raise HTTPException(
-                status_code=401,
-                detail="Token inválido"
-            )
+            raise HTTPException(status_code=401, detail="Token inválido")
     except JWTError:
-        raise HTTPException(
-            status_code=401,
-            detail="Token expirado ou inválido"
-        )
+        raise HTTPException(status_code=401, detail="Token expirado ou inválido")
 
     usuario = (
         db.query(models.Usuario)
         .filter(models.Usuario.username == username)
         .first()
     )
-
     if not usuario:
-        raise HTTPException(
-            status_code=404,
-            detail="Usuário não encontrado"
-        )
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
     return usuario
 
 
+def _pode_gerir_escala(usuario: models.Usuario) -> bool:
+    return usuario.role.lower() in ["admin", "admin master", "gestor"]
+
+
 # =====================================================
-# HEALTH CHECK
+# HEALTH / SETUP
 # =====================================================
 
 @app.get("/")
@@ -201,25 +180,18 @@ def home():
     return {
         "status": "online",
         "sistema": "Duarte Performance API",
-        "versao": "2.6"
+        "versao": "2.7"
     }
 
 
-# =====================================================
-# ROTA DE RESGATE DO ADMIN (SETUP RÁPIDO)
-# =====================================================
-
 @app.get("/setup-admin")
 def setup_admin_manual(db: Session = Depends(get_db)):
-    """Acesse essa URL no navegador para criar/resetar o admin instantaneamente."""
     admin = (
         db.query(models.Usuario)
         .filter(models.Usuario.username == "admin@duarte.com")
         .first()
     )
-
     senha_hash = auth.obter_hash_senha("123456")
-
     if not admin:
         admin = models.Usuario(
             username="admin@duarte.com",
@@ -231,17 +203,10 @@ def setup_admin_manual(db: Session = Depends(get_db)):
         )
         db.add(admin)
         db.commit()
-        return {
-            "status": "sucesso",
-            "mensagem": "✅ Usuário admin@duarte.com criado do zero com a senha 123456!"
-        }
-    else:
-        admin.password_hash = senha_hash
-        db.commit()
-        return {
-            "status": "sucesso",
-            "mensagem": "✅ Senha do usuário admin@duarte.com redefinida para 123456!"
-        }
+        return {"status": "sucesso", "mensagem": "Admin criado. Senha: 123456"}
+    admin.password_hash = senha_hash
+    db.commit()
+    return {"status": "sucesso", "mensagem": "Senha do admin resetada para 123456"}
 
 
 # =====================================================
@@ -258,18 +223,8 @@ def login(
         .filter(models.Usuario.username == form_data.username)
         .first()
     )
-
-    if not usuario:
-        raise HTTPException(
-            status_code=401,
-            detail="Usuário ou senha inválidos"
-        )
-
-    if not auth.verificar_senha(form_data.password, usuario.password_hash):
-        raise HTTPException(
-            status_code=401,
-            detail="Usuário ou senha inválidos"
-        )
+    if not usuario or not auth.verificar_senha(form_data.password, usuario.password_hash):
+        raise HTTPException(status_code=401, detail="Usuário ou senha inválidos")
 
     token = auth.criar_token_acesso(
         {
@@ -279,7 +234,6 @@ def login(
             "id": usuario.id
         }
     )
-
     return {
         "access_token": token,
         "token_type": "bearer",
@@ -290,51 +244,32 @@ def login(
 
 
 # =====================================================
-# GESTÃO DE USUÁRIOS (CADASTRO)
+# USUÁRIOS
 # =====================================================
 
 @app.post("/usuarios/", status_code=201)
-def criar_usuario(
-    dados: schemas.UsuarioCreate,
-    db: Session = Depends(get_db)
-):
-    usuario_existente = (
+def criar_usuario(dados: schemas.UsuarioCreate, db: Session = Depends(get_db)):
+    existe = (
         db.query(models.Usuario)
         .filter(models.Usuario.username == dados.username)
         .first()
     )
+    if existe:
+        raise HTTPException(status_code=400, detail="Usuário já existe.")
 
-    if usuario_existente:
-        raise HTTPException(
-            status_code=400,
-            detail="Este nome de usuário/e-mail já existe."
-        )
-
-    senha_hash = auth.obter_hash_senha(dados.senha)
-
-    novo_usuario = models.Usuario(
+    novo = models.Usuario(
         username=dados.username,
-        email=dados.email if hasattr(dados, "email") and dados.email else dados.username,
+        email=getattr(dados, "email", None) or dados.username,
         nome=dados.nome,
-        password_hash=senha_hash,
-        role=dados.role if hasattr(dados, "role") and dados.role else "Operador",
+        password_hash=auth.obter_hash_senha(dados.senha),
+        role=getattr(dados, "role", None) or "Operador",
         perfil_completo=True,
     )
-
-    db.add(novo_usuario)
+    db.add(novo)
     db.commit()
-    db.refresh(novo_usuario)
+    db.refresh(novo)
+    return {"status": "sucesso", "mensagem": f"Usuário {novo.nome} criado!", "id": novo.id}
 
-    return {
-        "status": "sucesso",
-        "mensagem": f"Usuário {novo_usuario.nome} criado com sucesso!",
-        "id": novo_usuario.id,
-    }
-
-
-# =====================================================
-# GESTÃO DE PERMISSÕES / FUNÇÕES (ROLES)
-# =====================================================
 
 ROLES_VALIDAS = ["Operador", "Visualizador", "Gestor", "Admin"]
 
@@ -343,25 +278,15 @@ class RoleUpdate(BaseModel):
     role: str
 
 
-def exigir_admin_ou_gestor(
-    usuario: models.Usuario = Depends(usuario_logado),
-) -> models.Usuario:
+def exigir_admin_ou_gestor(usuario: models.Usuario = Depends(usuario_logado)):
     if usuario.role not in ("Admin", "Gestor"):
-        raise HTTPException(
-            status_code=403,
-            detail="Acesso restrito a usuários Admin ou Gestor.",
-        )
+        raise HTTPException(status_code=403, detail="Acesso restrito a Admin ou Gestor.")
     return usuario
 
 
-def exigir_admin(
-    usuario: models.Usuario = Depends(usuario_logado),
-) -> models.Usuario:
+def exigir_admin(usuario: models.Usuario = Depends(usuario_logado)):
     if usuario.role != "Admin":
-        raise HTTPException(
-            status_code=403,
-            detail="Acesso restrito ao perfil Admin.",
-        )
+        raise HTTPException(status_code=403, detail="Acesso restrito ao Admin.")
     return usuario
 
 
@@ -372,13 +297,7 @@ def listar_todos_usuarios(
 ):
     usuarios = db.query(models.Usuario).order_by(models.Usuario.nome).all()
     return [
-        {
-            "id": u.id,
-            "nome": u.nome,
-            "username": u.username,
-            "email": u.email,
-            "role": u.role,
-        }
+        {"id": u.id, "nome": u.nome, "username": u.username, "email": u.email, "role": u.role}
         for u in usuarios
     ]
 
@@ -391,43 +310,15 @@ def atualizar_role_usuario(
     _: models.Usuario = Depends(exigir_admin),
 ):
     if dados.role not in ROLES_VALIDAS:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Função inválida. Use uma das opções: "
-                + ", ".join(ROLES_VALIDAS)
-            ),
-        )
-
-    usuario_alvo = (
-        db.query(models.Usuario)
-        .filter(models.Usuario.id == usuario_id)
-        .first()
-    )
-
-    if not usuario_alvo:
-        raise HTTPException(
-            status_code=404, detail="Usuário não encontrado."
-        )
-
-    usuario_alvo.role = dados.role
+        raise HTTPException(status_code=400, detail="Função inválida.")
+    alvo = db.query(models.Usuario).filter(models.Usuario.id == usuario_id).first()
+    if not alvo:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado.")
+    alvo.role = dados.role
     db.commit()
-    db.refresh(usuario_alvo)
+    db.refresh(alvo)
+    return {"status": "sucesso", "mensagem": f"Função de {alvo.nome} → {alvo.role}", "id": alvo.id, "role": alvo.role}
 
-    return {
-        "status": "sucesso",
-        "mensagem": (
-            f"Função de {usuario_alvo.nome} atualizada para"
-            f" {usuario_alvo.role}."
-        ),
-        "id": usuario_alvo.id,
-        "role": usuario_alvo.role,
-    }
-
-
-# =====================================================
-# PERFIL DO USUÁRIO
-# =====================================================
 
 @app.get("/usuarios/me")
 def meu_usuario(usuario: models.Usuario = Depends(usuario_logado)):
@@ -442,7 +333,7 @@ def meu_usuario(usuario: models.Usuario = Depends(usuario_logado)):
 
 
 # =====================================================
-# REGISTROS OPERACIONAIS
+# REGISTROS
 # =====================================================
 
 @app.post("/registros/", response_model=schemas.RegistroOut)
@@ -468,12 +359,11 @@ def listar_registros(
     db: Session = Depends(get_db),
     usuario: models.Usuario = Depends(usuario_logado)
 ):
-    registros = (
+    return (
         db.query(models.RegistroModel)
         .order_by(models.RegistroModel.data_registro.desc())
         .all()
     )
-    return registros
 
 
 @app.put("/registros/{registro_id}")
@@ -483,18 +373,11 @@ def atualizar_registro(
     db: Session = Depends(get_db),
     usuario: models.Usuario = Depends(usuario_logado)
 ):
-    registro = (
-        db.query(models.RegistroModel)
-        .filter(models.RegistroModel.id == registro_id)
-        .first()
-    )
-
+    registro = db.query(models.RegistroModel).filter(models.RegistroModel.id == registro_id).first()
     if not registro:
         raise HTTPException(404, "Registro não encontrado")
-
     for campo, valor in dados.dict(exclude_unset=True).items():
         setattr(registro, campo, valor)
-
     db.commit()
     return {"status": "Atualizado"}
 
@@ -505,33 +388,34 @@ def deletar_registro(
     db: Session = Depends(get_db),
     usuario: models.Usuario = Depends(usuario_logado)
 ):
-    registro = (
-        db.query(models.RegistroModel)
-        .filter(models.RegistroModel.id == registro_id)
-        .first()
-    )
-
+    registro = db.query(models.RegistroModel).filter(models.RegistroModel.id == registro_id).first()
     if not registro:
         raise HTTPException(404, "Registro não encontrado")
-
     db.delete(registro)
     db.commit()
     return {"status": "Excluído"}
 
 
 # =====================================================
-# CRONOGRAMA DINÂMICO
+# CRONOGRAMA (GET / POST / PUT / DELETE)
 # =====================================================
+
+class CronogramaUpdate(BaseModel):
+    Operador: Optional[str] = None
+    Periodo: Optional[str] = None
+    Segunda: Optional[str] = None
+    Terça: Optional[str] = None
+    Quarta: Optional[str] = None
+    Quinta: Optional[str] = None
+    Sexta: Optional[str] = None
+
 
 @app.get("/cronograma/")
 def listar_cronograma(
     db: Session = Depends(get_db),
     usuario: models.Usuario = Depends(usuario_logado)
 ):
-    """Busca toda a escala cadastrada no banco (colunas sempre padronizadas)."""
     dados = db.query(models.CronogramaModel).all()
-
-    # Se vazio, tenta popular na hora
     if not dados:
         popular_cronograma_se_vazio()
         dados = db.query(models.CronogramaModel).all()
@@ -552,30 +436,73 @@ def listar_cronograma(
 
 
 @app.post("/cronograma/")
-def criar_ou_atualizar_item_escala(
+def criar_item_escala(
     payload: dict,
     db: Session = Depends(get_db),
     usuario: models.Usuario = Depends(usuario_logado),
 ):
-    if usuario.role.lower() not in ["admin", "gestor"]:
-        raise HTTPException(
-            status_code=403, detail="Apenas Admin/Gestor pode alterar a escala."
-        )
+    if not _pode_gerir_escala(usuario):
+        raise HTTPException(status_code=403, detail="Apenas Admin/Gestor pode alterar a escala.")
 
-    novo_item = models.CronogramaModel(
-        operador=payload.get("Operador", "").upper(),
-        periodo=payload.get("Periodo", "MANHÃ").upper(),
-        segunda=payload.get("Segunda", "-"),
-        terca=payload.get("Terça", "-"),
-        quarta=payload.get("Quarta", "-"),
-        quinta=payload.get("Quinta", "-"),
-        sexta=payload.get("Sexta", "-"),
+    novo = models.CronogramaModel(
+        operador=(payload.get("Operador") or "").upper(),
+        periodo=(payload.get("Periodo") or "MANHÃ").upper(),
+        segunda=payload.get("Segunda") or "-",
+        terca=payload.get("Terça") or "-",
+        quarta=payload.get("Quarta") or "-",
+        quinta=payload.get("Quinta") or "-",
+        sexta=payload.get("Sexta") or "-",
     )
-    db.add(novo_item)
+    db.add(novo)
     db.commit()
-    db.refresh(novo_item)
+    db.refresh(novo)
+    return {
+        "status": "sucesso",
+        "mensagem": "Linha adicionada na escala!",
+        "id": novo.id,
+    }
 
-    return {"status": "sucesso", "mensagem": "Escala atualizada com sucesso!"}
+
+@app.put("/cronograma/{item_id}")
+def atualizar_item_escala(
+    item_id: int,
+    dados: CronogramaUpdate,
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(usuario_logado),
+):
+    """Edita operador, período ou clientes de qualquer dia da linha."""
+    if not _pode_gerir_escala(usuario):
+        raise HTTPException(status_code=403, detail="Apenas Admin/Gestor pode editar a escala.")
+
+    item = db.query(models.CronogramaModel).filter(models.CronogramaModel.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Item não encontrado.")
+
+    mapa = {
+        "Operador": "operador",
+        "Periodo": "periodo",
+        "Segunda": "segunda",
+        "Terça": "terca",
+        "Quarta": "quarta",
+        "Quinta": "quinta",
+        "Sexta": "sexta",
+    }
+
+    payload = dados.dict(exclude_unset=True)
+    for campo_api, campo_db in mapa.items():
+        if campo_api in payload and payload[campo_api] is not None:
+            valor = payload[campo_api]
+            if campo_api in ("Operador", "Periodo") and isinstance(valor, str):
+                valor = valor.upper()
+            setattr(item, campo_db, valor)
+
+    db.commit()
+    db.refresh(item)
+    return {
+        "status": "sucesso",
+        "mensagem": "Escala atualizada!",
+        "id": item.id,
+    }
 
 
 @app.delete("/cronograma/{item_id}")
@@ -584,16 +511,10 @@ def deletar_item_escala(
     db: Session = Depends(get_db),
     usuario: models.Usuario = Depends(usuario_logado),
 ):
-    if usuario.role.lower() not in ["admin", "gestor"]:
-        raise HTTPException(
-            status_code=403, detail="Apenas Admin/Gestor pode excluir itens."
-        )
+    if not _pode_gerir_escala(usuario):
+        raise HTTPException(status_code=403, detail="Apenas Admin/Gestor pode excluir itens.")
 
-    item = (
-        db.query(models.CronogramaModel)
-        .filter(models.CronogramaModel.id == item_id)
-        .first()
-    )
+    item = db.query(models.CronogramaModel).filter(models.CronogramaModel.id == item_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Item não encontrado.")
 
