@@ -5,7 +5,7 @@ import streamlit as st
 
 # URL base da API Backend (ajusta automaticamente via variável de ambiente ou padrão)
 API_URL = os.getenv(
-    "BACKEND_URL", "https://duarte-performance-backend.onrender.com"
+    "BACKEND_URL", "https://duarte-performance-backend-production.up.railway.app"
 )
 
 
@@ -81,9 +81,10 @@ def render_painel_admin():
     # =========================================================
     # 2. ESTRUTURA DE ABAS NATIVAS
     # =========================================================
-    aba_cadastrar, aba_usuarios, aba_auditoria = st.tabs([
+    aba_cadastrar, aba_usuarios, aba_funcoes, aba_auditoria = st.tabs([
         "➕ Cadastrar Novo Usuário",
         "👥 Usuários e Acessos",
+        "🔧 Gerenciar Funções",
         "📜 Logs de Auditoria",
     ])
 
@@ -198,21 +199,173 @@ def render_painel_admin():
             " Duarte Performance."
         )
 
-        # Exibição estruturada da equipe da Duarte Gestão
-        equipe_dados = [
-            {
-                "Nome": "Administrador",
-                "Login / E-mail": "admin@duarte.com",
-                "Função": "Admin",
-                "Status": "🟢 Ativo",
-            },
-        ]
+        try:
+            resp_lista = requests.get(
+                f"{API_URL}/usuarios/todos", headers=headers, timeout=25
+            )
+        except Exception as e:
+            resp_lista = None
+            st.error(f"🌐 Erro de conexão com o servidor: {e}")
 
-        df_equipe = pd.DataFrame(equipe_dados)
-        st.dataframe(df_equipe, use_container_width=True, hide_index=True)
+        if resp_lista is not None and resp_lista.status_code == 200:
+            usuarios_api = resp_lista.json()
+
+            if usuarios_api:
+                df_equipe = pd.DataFrame(usuarios_api)
+                df_equipe = df_equipe[["nome", "username", "email", "role"]]
+                df_equipe.columns = [
+                    "Nome",
+                    "Login / Usuário",
+                    "E-mail",
+                    "Função",
+                ]
+                st.dataframe(
+                    df_equipe, use_container_width=True, hide_index=True
+                )
+            else:
+                st.info("ℹ️ Nenhum usuário cadastrado ainda.")
+        elif resp_lista is not None:
+            if resp_lista.status_code == 403:
+                st.error(
+                    "⛔ Seu perfil não tem permissão para listar usuários."
+                )
+            else:
+                st.error(
+                    f"❌ Não foi possível carregar os usuários"
+                    f" (status {resp_lista.status_code})."
+                )
 
     # ---------------------------------------------------------
-    # ABA 3: LOGS DE AUDITORIA
+    # ABA 3: GERENCIAR FUNÇÕES (ROLES)
+    # ---------------------------------------------------------
+    with aba_funcoes:
+        st.markdown("### 🔧 Gerenciar Função (Role) dos Usuários")
+        st.write(
+            "Selecione um usuário para visualizar seus dados e alterar seu"
+            " nível de permissão no sistema."
+        )
+
+        ROLES_DISPONIVEIS = ["Operador", "Visualizador", "Gestor", "Admin"]
+
+        with st.spinner("Carregando usuários..."):
+            try:
+                resp_usuarios = requests.get(
+                    f"{API_URL}/usuarios/todos", headers=headers, timeout=25
+                )
+            except Exception as e:
+                resp_usuarios = None
+                st.error(f"🌐 Erro de conexão com o servidor: {e}")
+
+        if resp_usuarios is not None and resp_usuarios.status_code == 200:
+            lista_usuarios = resp_usuarios.json()
+
+            if not lista_usuarios:
+                st.info("ℹ️ Nenhum usuário cadastrado ainda.")
+            else:
+                opcoes = {
+                    f"{u['nome']} ({u['username']}) — {u['role']}": u
+                    for u in lista_usuarios
+                }
+
+                rotulo_selecionado = st.selectbox(
+                    "Selecione o usuário:",
+                    list(opcoes.keys()),
+                    key="select_usuario_funcao",
+                )
+                usuario_sel = opcoes[rotulo_selecionado]
+
+                col_dados, col_acao = st.columns([1, 1])
+
+                with col_dados:
+                    st.markdown(
+                        f"""
+                        <div class="info-box">
+                            <b>Nome:</b> {usuario_sel['nome']}<br>
+                            <b>Usuário:</b> {usuario_sel['username']}<br>
+                            <b>E-mail:</b> {usuario_sel.get('email', '-')}<br>
+                            <b>Função Atual:</b> {usuario_sel['role']}
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+
+                with col_acao:
+                    role_atual = usuario_sel["role"]
+                    indice_atual = (
+                        ROLES_DISPONIVEIS.index(role_atual)
+                        if role_atual in ROLES_DISPONIVEIS
+                        else 0
+                    )
+                    nova_role = st.selectbox(
+                        "Nova Função:",
+                        ROLES_DISPONIVEIS,
+                        index=indice_atual,
+                        key="select_nova_role",
+                    )
+
+                    if st.button(
+                        "💾 Salvar Alteração de Função",
+                        use_container_width=True,
+                        type="primary",
+                        key="btn_salvar_role",
+                    ):
+                        if nova_role == role_atual:
+                            st.info(
+                                "ℹ️ Essa já é a função atual deste usuário."
+                            )
+                        else:
+                            with st.spinner("Atualizando função..."):
+                                try:
+                                    resp_role = requests.put(
+                                        f"{API_URL}/usuarios/"
+                                        f"{usuario_sel['id']}/role",
+                                        json={"role": nova_role},
+                                        headers=headers,
+                                        timeout=25,
+                                    )
+                                    if resp_role.status_code == 200:
+                                        st.success(
+                                            f"✅ Função de"
+                                            f" **{usuario_sel['nome']}**"
+                                            f" atualizada para"
+                                            f" **{nova_role}**!"
+                                        )
+                                        st.rerun()
+                                    elif resp_role.status_code == 403:
+                                        st.error(
+                                            "⛔ Apenas o Admin pode alterar"
+                                            " funções."
+                                        )
+                                    elif resp_role.status_code == 404:
+                                        st.error(
+                                            "❌ Usuário não encontrado."
+                                        )
+                                    else:
+                                        st.error(
+                                            "❌ Erro ao atualizar:"
+                                            f" {resp_role.text}"
+                                        )
+                                except Exception as e:
+                                    st.error(f"🌐 Erro de conexão: {e}")
+
+                st.caption(
+                    "👁️ **Visualizador**: acesso total de leitura à escala e"
+                    " relatórios, sem permissão para criar, editar ou"
+                    " excluir dados."
+                )
+        elif resp_usuarios is not None:
+            if resp_usuarios.status_code == 403:
+                st.error(
+                    "⛔ Seu perfil não tem permissão para listar usuários."
+                )
+            else:
+                st.error(
+                    "❌ Não foi possível carregar os usuários"
+                    f" (status {resp_usuarios.status_code})."
+                )
+
+    # ---------------------------------------------------------
+    # ABA 4: LOGS DE AUDITORIA
     # ---------------------------------------------------------
     with aba_auditoria:
         st.markdown("### 📜 Registros de Auditoria e Atividades")

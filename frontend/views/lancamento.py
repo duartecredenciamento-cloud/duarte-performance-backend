@@ -3,6 +3,8 @@ import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from views.permissoes import pode_editar, aviso_somente_leitura
+
 # Fonte real da escala: é a MESMA função que views/escala.py usa (a tabela
 # fixa da matriz de Credenciamento). O backend tem uma rota /cronograma/,
 # mas quem realmente popula a tela de Escala Semanal hoje é essa função
@@ -140,6 +142,12 @@ def render_lancamento(api_post, carregar_cronograma=None):
         or ""
     )
     perfil_usuario = _perfil_usuario_atual()
+
+    # ===================== CONTROLE DE PERMISSÃO =====================
+    if not pode_editar(perfil_usuario):
+        aviso_somente_leitura()
+        st.markdown('</div>', unsafe_allow_html=True)
+        return
 
     clientes_hoje = _clientes_do_dia(nome_operador, dia_hoje, perfil_usuario)
 

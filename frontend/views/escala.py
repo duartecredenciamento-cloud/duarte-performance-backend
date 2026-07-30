@@ -278,15 +278,22 @@ def render_escala(carregar_cronograma_custom=None):
     user_nome_sessao = st.session_state.get("user_nome", "").strip()
     user_role = (
         st.session_state.get("user_role", "operador").strip().lower()
-    )  # 'gestor' ou 'operador'
+    )  # 'gestor', 'admin', 'coordenador', 'visualizador' ou 'operador'
 
-    is_gestor = user_role in ["gestor", "admin", "coordenador"]
+    # Perfis com visão completa da escala de toda a equipe.
+    # "visualizador" enxerga tudo, mas em modo somente leitura (sem
+    # botões de ação nesta tela — a restrição de edição é aplicada
+    # nas telas de lançamento/edição, ex.: views/editor.py e
+    # views/lancamento.py, usando a mesma checagem de role).
+    FUNCOES_VISAO_COMPLETA = ["gestor", "admin", "coordenador", "visualizador"]
+    tem_visao_completa = user_role in FUNCOES_VISAO_COMPLETA
+    is_visualizador = user_role == "visualizador"
 
     # Carrega base bruta de escala
     df_escala = get_cronograma_credenciamento()
 
     # 2. FILTRAGEM INDIVIDUAL x VISÃO GERAL
-    if not is_gestor and user_nome_sessao:
+    if not tem_visao_completa and user_nome_sessao:
         # Tenta casar o nome do usuário logado com a coluna Operador
         df_escala_user = df_escala[
             df_escala["Operador"]
@@ -304,11 +311,21 @@ def render_escala(carregar_cronograma_custom=None):
         modo_isolado = False
 
     # 3. HEADER PRINCIPAL DA TELA
-    badge_header = (
-        f'<span class="badge-lock">🔒 MINHA AGENDA INDIVIDUAL ({user_nome_sessao.upper()})</span>'
-        if modo_isolado
-        else '<span class="badge-status-matriz">🌐 MATRIZ GERAL DA EQUIPE</span>'
-    )
+    if modo_isolado:
+        badge_header = (
+            '<span class="badge-lock">🔒 MINHA AGENDA INDIVIDUAL'
+            f' ({user_nome_sessao.upper()})</span>'
+        )
+    elif is_visualizador:
+        badge_header = (
+            '<span class="badge-status-matriz">👁️ MATRIZ GERAL — MODO'
+            " SOMENTE LEITURA</span>"
+        )
+    else:
+        badge_header = (
+            '<span class="badge-status-matriz">🌐 MATRIZ GERAL DA'
+            " EQUIPE</span>"
+        )
 
     st.markdown(
         f"""

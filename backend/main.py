@@ -17,6 +17,8 @@ from sqlalchemy.exc import IntegrityError
 
 from jose import JWTError, jwt
 
+from pydantic import BaseModel
+
 import models
 import schemas
 import auth
@@ -295,6 +297,103 @@ def criar_usuario(
         "status": "sucesso",
         "mensagem": f"Usuário {novo_usuario.nome} criado com sucesso!",
         "id": novo_usuario.id,
+    }
+
+
+# =====================================================
+# GESTÃO DE PERMISSÕES / FUNÇÕES (ROLES)
+# =====================================================
+
+ROLES_VALIDAS = ["Operador", "Visualizador", "Gestor", "Admin"]
+
+
+class RoleUpdate(BaseModel):
+    role: str
+
+
+def exigir_admin_ou_gestor(
+    usuario: models.Usuario = Depends(usuario_logado),
+) -> models.Usuario:
+    """Libera o acesso apenas para Admin ou Gestor."""
+    if usuario.role not in ("Admin", "Gestor"):
+        raise HTTPException(
+            status_code=403,
+            detail="Acesso restrito a usuários Admin ou Gestor.",
+        )
+    return usuario
+
+
+def exigir_admin(
+    usuario: models.Usuario = Depends(usuario_logado),
+) -> models.Usuario:
+    """Libera o acesso apenas para Admin."""
+    if usuario.role != "Admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Acesso restrito ao perfil Admin.",
+        )
+    return usuario
+
+
+@app.get("/usuarios/todos")
+def listar_todos_usuarios(
+    db: Session = Depends(get_db),
+    _: models.Usuario = Depends(exigir_admin_ou_gestor),
+):
+    """Retorna id, nome, username, email e role de todos os usuários."""
+    usuarios = db.query(models.Usuario).order_by(models.Usuario.nome).all()
+    return [
+        {
+            "id": u.id,
+            "nome": u.nome,
+            "username": u.username,
+            "email": u.email,
+            "role": u.role,
+        }
+        for u in usuarios
+    ]
+
+
+@app.put("/usuarios/{usuario_id}/role")
+def atualizar_role_usuario(
+    usuario_id: int,
+    dados: RoleUpdate,
+    db: Session = Depends(get_db),
+    _: models.Usuario = Depends(exigir_admin),
+):
+    """Atualiza a função (role) de um usuário. Somente Admin pode chamar."""
+    if dados.role not in ROLES_VALIDAS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Função inválida. Use uma das opções: "
+                + ", ".join(ROLES_VALIDAS)
+            ),
+        )
+
+    usuario_alvo = (
+        db.query(models.Usuario)
+        .filter(models.Usuario.id == usuario_id)
+        .first()
+    )
+
+    if not usuario_alvo:
+        raise HTTPException(
+            status_code=404, detail="Usuário não encontrado."
+        )
+
+    usuario_alvo.role = dados.role
+    db.commit()
+    db.refresh(usuario_alvo)
+
+    return {
+        "status": "sucesso",
+        "mensagem": (
+            f"Função de {usuario_alvo.nome} atualizada para"
+            f" {usuario_alvo.role}."
+        ),
+        "id": usuario_alvo.id,
+        "role": usuario_alvo.role,
     }
 
 

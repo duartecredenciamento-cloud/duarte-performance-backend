@@ -1,6 +1,8 @@
 import pandas as pd
 import streamlit as st
 
+from views.permissoes import pode_editar, aviso_somente_leitura
+
 STATUS_COM_JUSTIFICATIVA = [
     "Realizado Parcial",
     "Não Realizado",
@@ -87,6 +89,31 @@ def render_editor(api_get, api_put, api_delete):
 
     if status_filter != "Todos":
         df_filtered = df_filtered[df_filtered["status"] == status_filter]
+
+    # ===================== CONTROLE DE PERMISSÃO =====================
+    role_atual = st.session_state.get("user_role", "operador")
+
+    if not pode_editar(role_atual):
+        aviso_somente_leitura()
+
+        st.subheader("📋 Registros (Somente Leitura)")
+        colunas_mostrar = [
+            "id",
+            "operador_nome",
+            "cliente_nome",
+            "status",
+            "justificativa",
+            "data_registro",
+        ]
+        colunas_existentes = [
+            c for c in colunas_mostrar if c in df_filtered.columns
+        ]
+        st.dataframe(
+            df_filtered[colunas_existentes],
+            use_container_width=True,
+            hide_index=True,
+        )
+        return
 
     # ===================== EDITOR =====================
     st.subheader("📋 Edição em Massa")
