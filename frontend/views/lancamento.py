@@ -87,6 +87,20 @@ def _clientes_do_dia(nome_operador: str, dia_hoje: str, perfil_usuario: str) -> 
     return sorted(clientes)
 
 
+def _todos_clientes_do_dia(dia_hoje: str) -> list:
+    """Retorna TODOS os clientes/serviços do dia, de todos os operadores —
+    usado só no combo de 'Suporte', já que dar suporte significa poder
+    atender um cliente que não é necessariamente da sua própria escala."""
+    df_escala = get_cronograma_credenciamento()
+
+    if dia_hoje not in df_escala.columns:
+        return []
+
+    valores = df_escala[dia_hoje].dropna().astype(str).str.strip()
+    clientes = [v for v in valores.unique().tolist() if v and v != "-"]
+    return sorted(clientes)
+
+
 def render_lancamento(api_post, carregar_cronograma=None):
     # ===================== CSS PREMIUM =====================
     st.markdown("""
@@ -157,6 +171,7 @@ def render_lancamento(api_post, carregar_cronograma=None):
         return
 
     clientes_hoje = _clientes_do_dia(nome_operador, dia_hoje, perfil_usuario)
+    todos_clientes_hoje = _todos_clientes_do_dia(dia_hoje)
 
     st.caption(f"📅 Hoje é **{dia_hoje}-feira** — mostrando os clientes/serviços da sua escala de hoje.")
 
@@ -184,7 +199,7 @@ def render_lancamento(api_post, carregar_cronograma=None):
 
         cliente_final = cliente_sel
         if cliente_sel == "Suporte":
-            opcoes_suporte = ["Selecione..."] + [f"Suporte - {c}" for c in clientes_hoje]
+            opcoes_suporte = ["Selecione..."] + [f"Suporte - {c}" for c in todos_clientes_hoje]
             cliente_final = st.selectbox(
                 "🛠️ Suporte para qual cliente?",
                 opcoes_suporte,
