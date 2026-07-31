@@ -71,8 +71,15 @@ def _clientes_do_dia(nome_operador: str, dia_hoje: str, perfil_usuario: str) -> 
         if not nome_operador:
             return []
 
-        filtro = df_escala["Operador"].astype(str).str.contains(
-            nome_operador, case=False, na=False
+        # A escala guarda só o primeiro nome (ex: "KARINE"), mas o usuário
+        # logado pode ter nome completo ("Karine Martinez", vindo do
+        # cadastro com sobrenome). Por isso comparamos pelo primeiro nome,
+        # não por "a escala contém o nome completo" (isso nunca bate).
+        primeiro_nome = nome_operador.split()[0] if nome_operador.split() else nome_operador
+
+        filtro = (
+            df_escala["Operador"].astype(str).str.strip().str.casefold()
+            == primeiro_nome.strip().casefold()
         )
         valores = df_escala.loc[filtro, dia_hoje].dropna().astype(str).str.strip()
 

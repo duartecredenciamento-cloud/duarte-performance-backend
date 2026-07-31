@@ -14,8 +14,8 @@ from views.escala import render_escala
 from views.lancamento import render_lancamento
 from views.login import render_login
 from views.relatorios import render_relatorios
-
 # ===================== CONFIGURAÇÃO =====================
+# ⚠️ st.set_page_config precisa ser SEMPRE a primeira instrução Streamlit do arquivo.
 st.set_page_config(
     page_title="Duarte Performance | Gestão Operacional",
     page_icon="🟠",
@@ -27,7 +27,7 @@ FUSO_BR = ZoneInfo("America/Sao_Paulo")
 API_URL = os.getenv(
     "BACKEND_URL",
     "https://duarte-performance-backend-production.up.railway.app",
-)
+)  # URL do backend
 PAPEIS_GESTAO = ["Admin Master", "Gestor", "Admin", "Coordenador"]
 
 # CSS
@@ -59,7 +59,8 @@ if st.session_state["carregando"]:
     """,
         unsafe_allow_html=True,
     )
-    time.sleep(1.5)
+
+    time.sleep(1.5)  # tempo de carregamento
     st.session_state["carregando"] = False
     st.rerun()
 
@@ -79,11 +80,13 @@ for key, val in {
 
 # ===================== HELPERS DE API =====================
 def get_headers() -> dict:
+    """Monta o cabeçalho de autenticação com o token JWT salvo na sessão."""
     token = st.session_state.get("token")
     return {"Authorization": f"Bearer {token}"} if token else {}
 
 
 def _tratar_sessao_expirada(resp: requests.Response) -> None:
+    """Se o backend disser que o token expirou (401), derruba a sessão local."""
     if resp is not None and resp.status_code == 401:
         st.session_state.clear()
         st.warning("🔒 Sua sessão expirou. Faça login novamente.")
@@ -92,6 +95,7 @@ def _tratar_sessao_expirada(resp: requests.Response) -> None:
 
 
 def api_get(endpoint: str):
+    """GET autenticado no backend."""
     try:
         resp = requests.get(
             f"{API_URL}{endpoint}", headers=get_headers(), timeout=30
@@ -110,6 +114,7 @@ def api_get(endpoint: str):
 
 
 def api_post_form(endpoint: str, data: dict = None, files: dict = None):
+    """POST autenticado enviando dados como formulário."""
     try:
         resp = requests.post(
             f"{API_URL}{endpoint}",
@@ -132,6 +137,7 @@ def api_post_form(endpoint: str, data: dict = None, files: dict = None):
 
 
 def api_post_json(endpoint: str, payload: dict):
+    """POST autenticado enviando um corpo JSON."""
     try:
         headers = get_headers()
         headers["Content-Type"] = "application/json"
@@ -152,6 +158,7 @@ def api_post_json(endpoint: str, payload: dict):
 
 
 def api_put_json(endpoint: str, payload: dict):
+    """PUT autenticado enviando um corpo JSON."""
     try:
         headers = get_headers()
         headers["Content-Type"] = "application/json"
@@ -172,6 +179,7 @@ def api_put_json(endpoint: str, payload: dict):
 
 
 def api_delete(endpoint: str):
+    """DELETE autenticado."""
     try:
         resp = requests.delete(
             f"{API_URL}{endpoint}", headers=get_headers(), timeout=30
@@ -190,11 +198,7 @@ def api_delete(endpoint: str):
 
 
 @st.cache_data(ttl=30, show_spinner=False)
-def carregar_cronograma_cache(_token: str):
-    """Busca cronograma na API. Se vier vazio ou falhar, devolve None
-    para a escala usar o fallback local."""
-    if not _token:
-        return None
+def carregar_cronograma_cache(_token):
     try:
         resp = requests.get(
             f"{API_URL}/cronograma/",
@@ -202,17 +206,14 @@ def carregar_cronograma_cache(_token: str):
             timeout=30,
         )
         if resp.status_code == 200:
-            dados = resp.json()
-            if dados:
-                return pd.DataFrame(dados)
+            return pd.DataFrame(resp.json())
     except Exception:
         pass
-    return None
+    return pd.DataFrame()
 
 
 def carregar_cronograma():
-    """Retorna DataFrame da API ou None (para acionar fallback na escala)."""
-    return carregar_cronograma_cache(st.session_state.get("token") or "")
+    return carregar_cronograma_cache(st.session_state.get("token"))
 
 
 # ===================== LOGIN =====================
@@ -251,16 +252,31 @@ st.sidebar.markdown(
     unsafe_allow_html=True,
 )
 
-menus = [
-    "📊 Dashboard Gerencial",
-    "🗓️ Escala Semanal",
-    "📑 Relatórios Operacionais",
-    "📝 Lançar Execução Diária",
-]
+role_normalizado = (role or "").strip().lower()
 
-if role in PAPEIS_GESTAO:
-    menus.append("✏️ Editor de Apontamentos")
-    menus.append("🛡️ Painel Admin")
+if role_normalizado == "operador":
+    # Operador só enxerga a própria escala e o lançamento diário.
+    menus = [
+        "🗓️ Escala Semanal",
+        "📝 Lançar Execução Diária",
+    ]
+else:
+    menus = [
+        "📊 Dashboard Gerencial",
+        "🗓️ Escala Semanal",
+        "📑 Relatórios Operacionais",
+        "📝 Lançar Execução Diária",
+    ]
+
+    # Editor de Apontamentos e Painel Admin: perfis de gestão (Admin,
+    # Gestor e o legado Admin Master/Coordenador) têm acesso total.
+    if role in PAPEIS_GESTAO:
+        menus.append("✏️ Editor de Apontamentos")
+        menus.append("🛡️ Painel Admin")
+    # Visualizador enxerga o Editor (em modo somente leitura, já tratado
+    # dentro de views/editor.py), mas não o Painel Admin.
+    elif role_normalizado == "visualizador":
+        menus.append("✏️ Editor de Apontamentos")
 
 menu = st.sidebar.radio("Navegação", menus, label_visibility="collapsed")
 
