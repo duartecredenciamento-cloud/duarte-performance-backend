@@ -101,6 +101,8 @@ def _linhas_com_id(df: pd.DataFrame) -> list:
             continue
     return out
 
+
+def render_escala(carregar_cronograma_custom=None):
     st.markdown(
         """
     <style>
@@ -296,7 +298,6 @@ def _linhas_com_id(df: pd.DataFrame) -> list:
             box-shadow: 0 4px 14px rgba(255, 146, 0, 0.2);
         }
 
-        /* Controles / radio / select mais limpos na escala */
         div[data-testid="stHorizontalBlock"] label {
             font-weight: 700 !important;
             color: #001E57 !important;
@@ -317,7 +318,6 @@ def _linhas_com_id(df: pd.DataFrame) -> list:
     tem_visao_completa = user_role in FUNCOES_VISAO_COMPLETA
     is_admin_gestor = user_role in ["admin", "admin master", "gestor"]
     is_visualizador = user_role == "visualizador"
-
 
     # ===== CARREGA ESCALA =====
     df_escala = None
@@ -456,7 +456,6 @@ def _linhas_com_id(df: pd.DataFrame) -> list:
             "🗑️ Excluir",
         ])
 
-        # ----- ADICIONAR -----
         with tab_add:
             st.caption("Cria uma nova linha na matriz (operador + período + clientes).")
             c1, c2 = st.columns(2)
@@ -499,7 +498,6 @@ def _linhas_com_id(df: pd.DataFrame) -> list:
                     except Exception as e:
                         st.error(f"Falha: {e}")
 
-        # ----- EDITAR -----
         with tab_edit:
             st.caption("Altera operador, período ou clientes de uma linha existente.")
             linhas = _linhas_com_id(df_escala)
@@ -558,7 +556,6 @@ def _linhas_com_id(df: pd.DataFrame) -> list:
                         except Exception as e:
                             st.error(f"Falha: {e}")
 
-        # ----- EXCLUIR -----
         with tab_del:
             st.caption("Remove uma linha da matriz.")
             linhas_del = _linhas_com_id(df_escala)
