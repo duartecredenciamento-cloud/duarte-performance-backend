@@ -13,36 +13,106 @@ def render_login():
     st.markdown(
         """
         <style>
-        .login-title{
-            text-align:center;
-            font-size:38px;
-            font-weight:900;
-            color:#001E57;
-            margin-bottom:5px;
+        @keyframes loginGradient {
+            0%   { background-position: 0% 50%; }
+            50%  { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
         }
-        .login-title span{
-            color:#FF9200;
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(16px); }
+            to   { opacity: 1; transform: translateY(0); }
         }
-        .login-sub{
-            text-align:center;
-            color:#64748B;
-            font-size:18px;
-            margin-bottom:35px;
+
+        /* Fundo animado — cores Duarte */
+        .stApp {
+            background: linear-gradient(
+                -45deg,
+                #030A1A,
+                #001E57,
+                #0B296B,
+                #001233,
+                #1a0a00,
+                #001E57
+            ) !important;
+            background-size: 400% 400% !important;
+            animation: loginGradient 14s ease infinite !important;
         }
+
+        /* Esconde header/sidebar no login */
+        [data-testid="stSidebar"],
+        [data-testid="stHeader"],
+        [data-testid="stToolbar"],
+        footer {
+            display: none !important;
+        }
+
+        .login-title {
+            text-align: center;
+            font-size: 40px;
+            font-weight: 900;
+            color: #FFFFFF;
+            margin-bottom: 6px;
+            letter-spacing: -0.5px;
+            animation: fadeInUp 0.55s ease-out;
+            text-shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
+        }
+        .login-title span {
+            color: #FF9200;
+        }
+        .login-sub {
+            text-align: center;
+            color: #94A3B8;
+            font-size: 17px;
+            margin-bottom: 32px;
+            animation: fadeInUp 0.7s ease-out;
+        }
+
+        /* Card do formulário (vidro) */
+        [data-testid="stVerticalBlockBorderWrapper"],
+        div[data-testid="column"] > div {
+            animation: fadeInUp 0.75s ease-out;
+        }
+
+        /* Labels claros no fundo escuro */
+        label, .stMarkdown p {
+            color: #E2E8F0 !important;
+        }
+
+        /* Inputs */
+        input {
+            border-radius: 12px !important;
+            height: 46px !important;
+            border: 1px solid rgba(255, 255, 255, 0.15) !important;
+            background: rgba(255, 255, 255, 0.95) !important;
+        }
+        input:focus {
+            border-color: #FF9200 !important;
+            box-shadow: 0 0 0 3px rgba(255, 146, 0, 0.25) !important;
+        }
+
+        /* Botões */
         div.stButton > button {
-            background: linear-gradient(135deg, #FF9200, #E07A00);
-            color:white;
-            font-weight:800;
-            height:50px;
-            border-radius:12px;
-            border:none;
+            background: linear-gradient(135deg, #FF9200, #E07A00) !important;
+            color: white !important;
+            font-weight: 800 !important;
+            height: 50px !important;
+            border-radius: 12px !important;
+            border: none !important;
+            box-shadow: 0 6px 20px rgba(255, 146, 0, 0.35) !important;
+            transition: all 0.25s ease !important;
         }
-        div.stButton > button:hover{
-            transform:translateY(-2px);
+        div.stButton > button:hover {
+            transform: translateY(-2px) !important;
+            box-shadow: 0 10px 28px rgba(255, 146, 0, 0.5) !important;
+            background: linear-gradient(135deg, #FFA733, #FF9200) !important;
         }
-        input{
-            border-radius:12px !important;
-            height:45px !important;
+
+        /* Texto de rodapé */
+        .login-footer {
+            text-align: center;
+            color: #64748B;
+            font-size: 13px;
+            margin-top: 8px;
         }
         </style>
         """,
