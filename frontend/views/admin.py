@@ -119,7 +119,8 @@ def render_painel_admin():
                     placeholder="Digite uma senha segura",
                 )
                 role = st.selectbox(
-                    "Nível de Permissão (Role)", ["Operador", "Admin"]
+                    "Nível de Permissão (Role)",
+                    ["Operador", "Visualizador", "Gestor", "Admin"],
                 )
 
                 submit = st.form_submit_button(
