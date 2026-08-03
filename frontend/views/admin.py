@@ -10,33 +10,166 @@ API_URL = os.getenv(
 
 
 def inject_admin_css():
-    """Injeta estilos customizados para a Central Administrativa."""
+    """Estilos premium — Central Administrativa Duarte Performance."""
     st.markdown(
         """
         <style>
-            .admin-card {
-                background-color: #FFFFFF;
-                border-radius: 12px;
-                padding: 20px;
-                border-left: 5px solid #001E57;
-                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
-                margin-bottom: 20px;
+            @keyframes fadeInUp {
+                from { opacity: 0; transform: translateY(18px); }
+                to   { opacity: 1; transform: translateY(0); }
             }
+            @keyframes floatGradient {
+                0%   { background-position: 0% 50%; }
+                50%  { background-position: 100% 50%; }
+                100% { background-position: 0% 50%; }
+            }
+            @keyframes pulseGlow {
+                0%   { box-shadow: 0 0 0 0 rgba(255, 146, 0, 0.5); }
+                70%  { box-shadow: 0 0 0 12px rgba(255, 146, 0, 0); }
+                100% { box-shadow: 0 0 0 0 rgba(255, 146, 0, 0); }
+            }
+
+            .admin-hero {
+                background: linear-gradient(-45deg, #001E57, #030A1A, #0B296B, #001233);
+                background-size: 300% 300%;
+                animation: floatGradient 12s ease infinite, fadeInUp 0.55s ease-out;
+                border-radius: 20px;
+                padding: 28px 32px;
+                color: #FFFFFF;
+                border-left: 6px solid #FF9200;
+                margin-bottom: 26px;
+                box-shadow: 0 16px 40px rgba(0, 30, 87, 0.22);
+                position: relative;
+                overflow: hidden;
+            }
+            .admin-hero::before {
+                content: '';
+                position: absolute;
+                top: -40%;
+                right: -8%;
+                width: 240px;
+                height: 240px;
+                border-radius: 50%;
+                background: radial-gradient(circle, rgba(255,146,0,0.2) 0%, transparent 70%);
+                pointer-events: none;
+            }
+            .admin-hero h2 {
+                margin: 0;
+                font-weight: 900;
+                font-size: 1.85rem;
+                letter-spacing: -0.5px;
+                position: relative;
+                z-index: 1;
+            }
+            .admin-hero p {
+                margin: 8px 0 0 0;
+                color: #94A3B8;
+                font-size: 0.95rem;
+                position: relative;
+                z-index: 1;
+            }
+            .admin-badge {
+                display: inline-block;
+                margin-top: 14px;
+                background: linear-gradient(135deg, #FF9200, #FFB84D);
+                color: #FFF;
+                padding: 6px 14px;
+                border-radius: 99px;
+                font-weight: 800;
+                font-size: 0.72rem;
+                letter-spacing: 0.4px;
+                animation: pulseGlow 2.2s infinite;
+                position: relative;
+                z-index: 1;
+            }
+
+            .admin-card {
+                background: linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 100%);
+                border-radius: 16px;
+                padding: 22px;
+                border-left: 5px solid #001E57;
+                box-shadow: 0 8px 24px rgba(0, 30, 87, 0.06);
+                margin-bottom: 20px;
+                transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                animation: fadeInUp 0.6s ease-out;
+            }
+            .admin-card:hover {
+                transform: translateY(-4px);
+                border-left-color: #FF9200;
+                box-shadow: 0 14px 32px rgba(255, 146, 0, 0.12);
+            }
+
             .admin-header {
                 color: #001E57;
-                font-size: 24px;
-                font-weight: 800;
-                margin-bottom: 10px;
+                font-size: 1.35rem;
+                font-weight: 900;
+                margin-bottom: 12px;
+                letter-spacing: -0.3px;
             }
+
             .info-box {
-                background-color: #F8FAFC;
-                border-radius: 10px;
-                padding: 15px;
+                background: linear-gradient(135deg, #F8FAFC 0%, #F1F5F9 100%);
+                border-radius: 14px;
+                padding: 16px 18px;
                 border: 1px solid #E2E8F0;
                 color: #334155;
+                animation: fadeInUp 0.5s ease-out;
+            }
+
+            .admin-metric {
+                background: #FFFFFF;
+                border: 1px solid #E2E8F0;
+                border-radius: 16px;
+                padding: 18px 14px;
+                text-align: center;
+                box-shadow: 0 6px 18px rgba(0, 30, 87, 0.05);
+                transition: all 0.3s ease;
+                animation: fadeInUp 0.65s ease-out;
+            }
+            .admin-metric:hover {
+                transform: translateY(-4px);
+                border-color: rgba(255, 146, 0, 0.45);
+                box-shadow: 0 12px 28px rgba(255, 146, 0, 0.12);
+            }
+            .admin-metric h3 {
+                margin: 0;
+                color: #001E57;
+                font-size: 1.7rem;
+                font-weight: 900;
+            }
+            .admin-metric h3.accent { color: #FF9200; }
+            .admin-metric p {
+                margin: 6px 0 0 0;
+                color: #64748B;
+                font-size: 0.72rem;
+                font-weight: 800;
+                text-transform: uppercase;
+                letter-spacing: 0.4px;
+            }
+
+            .danger-zone {
+                background: linear-gradient(135deg, #FFF5F5 0%, #FEF2F2 100%);
+                border: 1px solid #FECACA;
+                border-left: 4px solid #EF4444;
+                border-radius: 14px;
+                padding: 16px 18px;
+                margin-top: 8px;
+            }
+
+            div.stButton > button[kind="primary"] {
+                background: linear-gradient(135deg, #001E57 0%, #0B296B 100%) !important;
+                border: none !important;
+                border-radius: 12px !important;
+                font-weight: 800 !important;
+                transition: all 0.25s ease !important;
+            }
+            div.stButton > button[kind="primary"]:hover {
+                background: linear-gradient(135deg, #FF9200 0%, #E07A00 100%) !important;
+                transform: translateY(-2px);
+                box-shadow: 0 8px 22px rgba(255, 146, 0, 0.3) !important;
             }
         </style>
-    """,
+        """,
         unsafe_allow_html=True,
     )
 

@@ -135,58 +135,167 @@ def fetch_report_data():
 
 
 def inject_custom_css():
-    """Injeta estilos visuais alinhados à identidade Duarte Performance."""
+    """Estilos premium — Relatórios Duarte Performance."""
     st.markdown(
         """
     <style>
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(18px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes floatGradient {
+            0%   { background-position: 0% 50%; }
+            50%  { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+        @keyframes pulseGlow {
+            0%   { box-shadow: 0 0 0 0 rgba(255, 146, 0, 0.45); }
+            70%  { box-shadow: 0 0 0 12px rgba(255, 146, 0, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(255, 146, 0, 0); }
+        }
+        @keyframes shimmer {
+            0%   { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+
         .report-header {
-            background: linear-gradient(-45deg, #001E57, #0A2540, #001233);
-            border-radius: 16px;
-            padding: 24px 32px;
+            background: linear-gradient(-45deg, #001E57, #030A1A, #0A2540, #001233);
+            background-size: 300% 300%;
+            animation: floatGradient 12s ease infinite, fadeInUp 0.55s ease-out;
+            border-radius: 20px;
+            padding: 28px 32px;
             color: #FFFFFF;
             border-left: 6px solid #FF9200;
-            margin-bottom: 24px;
-            box-shadow: 0 10px 25px rgba(0, 30, 87, 0.15);
+            margin-bottom: 26px;
+            box-shadow: 0 16px 40px rgba(0, 30, 87, 0.22);
+            position: relative;
+            overflow: hidden;
+        }
+        .report-header::after {
+            content: '';
+            position: absolute;
+            top: -40%;
+            right: -10%;
+            width: 220px;
+            height: 220px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(255,146,0,0.18) 0%, transparent 70%);
+            pointer-events: none;
+        }
+        .report-header h2 {
+            margin: 0;
+            font-weight: 900;
+            font-size: 1.85rem;
+            letter-spacing: -0.5px;
+            color: #FFF;
+            position: relative;
+            z-index: 1;
+        }
+        .report-header p {
+            margin: 8px 0 0 0;
+            color: #94A3B8;
+            font-size: 0.95rem;
+            position: relative;
+            z-index: 1;
+        }
+        .report-badge {
+            display: inline-block;
+            margin-top: 14px;
+            background: #FF9200;
+            color: #FFF;
+            padding: 6px 14px;
+            border-radius: 99px;
+            font-weight: 800;
+            font-size: 0.72rem;
+            letter-spacing: 0.4px;
+            animation: pulseGlow 2.2s infinite;
+            position: relative;
+            z-index: 1;
         }
 
         .metric-card-summary {
-            background: #FFFFFF;
-            border-radius: 12px;
-            padding: 16px;
+            background: rgba(255, 255, 255, 0.97);
+            border-radius: 16px;
+            padding: 20px 16px;
             border: 1px solid #E2E8F0;
             text-align: center;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+            box-shadow: 0 6px 20px rgba(0, 30, 87, 0.05);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            animation: fadeInUp 0.65s ease-out;
         }
-
+        .metric-card-summary:hover {
+            transform: translateY(-5px);
+            border-color: rgba(255, 146, 0, 0.45);
+            box-shadow: 0 14px 30px rgba(255, 146, 0, 0.12);
+        }
         .metric-card-summary h5 {
             color: #64748B;
             margin: 0;
-            font-size: 0.8rem;
+            font-size: 0.75rem;
             text-transform: uppercase;
-            font-weight: 700;
+            font-weight: 800;
+            letter-spacing: 0.4px;
         }
-
         .metric-card-summary h3 {
             color: #001E57;
-            margin: 6px 0 0 0;
-            font-size: 1.6rem;
-            font-weight: 800;
+            margin: 8px 0 0 0;
+            font-size: 1.75rem;
+            font-weight: 900;
+        }
+        .metric-card-summary h3.accent {
+            color: #FF9200;
         }
 
         .chart-card {
-            background: white;
-            padding: 20px;
-            border-radius: 16px;
-            box-shadow: 0 8px 25px rgba(0,0,0,0.05);
+            background: #FFFFFF;
+            padding: 22px;
+            border-radius: 18px;
+            box-shadow: 0 10px 28px rgba(0, 30, 87, 0.06);
             border: 1px solid #E2E8F0;
+            animation: fadeInUp 0.7s ease-out;
+            transition: border-color 0.25s ease, box-shadow 0.25s ease;
+        }
+        .chart-card:hover {
+            border-color: rgba(255, 146, 0, 0.35);
+            box-shadow: 0 14px 32px rgba(0, 30, 87, 0.1);
         }
 
         .backup-card {
-            background: #FFF9F0;
+            background: linear-gradient(135deg, #FFF9F0 0%, #FFF5E6 100%);
             border-left: 4px solid #FF9200;
-            border-radius: 12px;
+            border-radius: 14px;
             padding: 18px 20px;
             margin-bottom: 16px;
+            animation: fadeInUp 0.6s ease-out;
+            box-shadow: 0 4px 16px rgba(255, 146, 0, 0.08);
+        }
+
+        .filter-bar {
+            background: #F8FAFC;
+            border: 1px solid #E2E8F0;
+            border-radius: 14px;
+            padding: 14px 16px;
+            margin-bottom: 18px;
+            animation: fadeInUp 0.5s ease-out;
+        }
+
+        .section-title {
+            color: #001E57;
+            font-weight: 800;
+            font-size: 1.1rem;
+            margin: 8px 0 14px 0;
+            letter-spacing: -0.2px;
+        }
+
+        /* Botões da área de relatório */
+        div[data-testid="stHorizontalBlock"] .stButton > button {
+            border-radius: 12px !important;
+            font-weight: 700 !important;
+            transition: all 0.25s ease !important;
+        }
+        div[data-testid="stHorizontalBlock"] .stButton > button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(255, 146, 0, 0.25) !important;
         }
     </style>
     """,
@@ -200,12 +309,11 @@ def render_relatorios():
     st.markdown(
         """
     <div class="report-header">
-        <h2 style="margin:0; font-weight: 900; font-size: 1.8rem; color: #FFF;">
-            📄 Relatórios Operacionais & Auditoria Consolidados
-        </h2>
-        <p style="margin: 6px 0 0 0; color: #CBD5E1; font-size: 0.9rem;">
-            Extração de bases, consolidação temporal (Semanal / Mensal / Personalizado) e auditoria de registros.
+        <h2>📄 Relatórios Operacionais & Auditoria</h2>
+        <p>
+            Consolidação de desempenho · bases por período · rastreio de lançamentos
         </p>
+        <span class="report-badge">⚡ PERFORMANCE · TEMPO REAL</span>
     </div>
     """,
         unsafe_allow_html=True,

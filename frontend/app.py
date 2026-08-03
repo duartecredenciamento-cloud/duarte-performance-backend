@@ -187,7 +187,7 @@ if st.session_state["carregando"]:
     """,
         unsafe_allow_html=True,
     )
-    time.sleep(1.8)
+    time.sleep(1.9)
     st.session_state["carregando"] = False
     st.rerun()
 # ===================== SESSION STATE =====================
@@ -362,7 +362,16 @@ iniciais = (
     else "U"
 )
 role = st.session_state.get("role", "Operador")
-role_norm = str(role).strip()
+role_norm = str(role).strip().lower()
+
+PAPEIS_GESTAO = ["admin master", "gestor", "admin", "coordenador"]
+PAPEIS_COM_DASH_RELATORIO = [
+    "admin master",
+    "gestor",
+    "admin",
+    "coordenador",
+    "visualizador",
+]
 
 st.sidebar.markdown(
     f"""
@@ -375,21 +384,28 @@ st.sidebar.markdown(
     unsafe_allow_html=True,
 )
 
-# Menu base (todos autenticados)
-menus = [
-    "📊 Dashboard Gerencial",
-    "🗓️ Escala Semanal",
-    "📑 Relatórios Operacionais",
-]
+# ----- MENU POR PERFIL -----
+if role_norm == "operador":
+    # Operador: só escala e lançar
+    menus = [
+        "🗓️ Escala Semanal",
+        "📝 Lançar Execução Diária",
+    ]
+else:
+    menus = []
+    if role_norm in PAPEIS_COM_DASH_RELATORIO:
+        menus.append("📊 Dashboard Gerencial")
 
-# Lançar tarefa: Operador + Visualizador + gestão
-if role_norm in PAPEIS_LANCAMENTO or role_norm.lower() in [p.lower() for p in PAPEIS_LANCAMENTO]:
+    menus.append("🗓️ Escala Semanal")
+
+    if role_norm in PAPEIS_COM_DASH_RELATORIO:
+        menus.append("📑 Relatórios Operacionais")
+
     menus.append("📝 Lançar Execução Diária")
 
-# Gestão
-if role_norm in PAPEIS_GESTAO or role_norm.lower() in [p.lower() for p in PAPEIS_GESTAO]:
-    menus.append("✏️ Editor de Apontamentos")
-    menus.append("🛡️ Painel Admin")
+    if role_norm in PAPEIS_GESTAO:
+        menus.append("✏️ Editor de Apontamentos")
+        menus.append("🛡️ Painel Admin")
 
 menu = st.sidebar.radio("Navegação", menus, label_visibility="collapsed")
 

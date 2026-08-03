@@ -101,68 +101,205 @@ def _linhas_com_id(df: pd.DataFrame) -> list:
             continue
     return out
 
-
-def render_escala(carregar_cronograma_custom=None):
     st.markdown(
         """
     <style>
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(16px); }
-            to { opacity: 1; transform: translateY(0); }
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to   { opacity: 1; transform: translateY(0); }
         }
         @keyframes floatGradient {
-            0% { background-position: 0% 50%; }
-            50% { background-position: 100% 50%; }
+            0%   { background-position: 0% 50%; }
+            50%  { background-position: 100% 50%; }
             100% { background-position: 0% 50%; }
         }
         @keyframes pulseGlow {
-            0% { box-shadow: 0 0 0 0 rgba(255, 146, 0, 0.5); }
-            70% { box-shadow: 0 0 0 10px rgba(255, 146, 0, 0); }
+            0%   { box-shadow: 0 0 0 0 rgba(255, 146, 0, 0.55); }
+            70%  { box-shadow: 0 0 0 14px rgba(255, 146, 0, 0); }
             100% { box-shadow: 0 0 0 0 rgba(255, 146, 0, 0); }
         }
+        @keyframes softFloat {
+            0%, 100% { transform: translateY(0); }
+            50%      { transform: translateY(-4px); }
+        }
+
         .escala-header {
-            background: linear-gradient(-45deg, #001E57, #030A1A, #0A2540, #001233);
-            background-size: 300% 300%;
-            animation: floatGradient 10s ease infinite, fadeIn 0.8s ease-out;
-            border-radius: 18px;
-            padding: 24px 30px;
+            background: linear-gradient(-45deg, #001E57, #030A1A, #0B296B, #001233);
+            background-size: 320% 320%;
+            animation: floatGradient 11s ease infinite, fadeInUp 0.55s ease-out;
+            border-radius: 22px;
+            padding: 28px 32px;
             color: #FFFFFF;
             border-left: 6px solid #FF9200;
-            margin-bottom: 25px;
-            box-shadow: 0 12px 28px rgba(0, 30, 87, 0.2);
+            margin-bottom: 26px;
+            box-shadow:
+                0 18px 45px rgba(0, 30, 87, 0.28),
+                0 0 0 1px rgba(255, 146, 0, 0.12);
+            position: relative;
+            overflow: hidden;
         }
+        .escala-header::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -8%;
+            width: 280px;
+            height: 280px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(255,146,0,0.22) 0%, transparent 68%);
+            pointer-events: none;
+        }
+        .escala-header::after {
+            content: '';
+            position: absolute;
+            bottom: -40%;
+            left: 15%;
+            width: 180px;
+            height: 180px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(11,41,107,0.5) 0%, transparent 70%);
+            pointer-events: none;
+        }
+        .escala-header h2 {
+            margin: 0;
+            font-weight: 900;
+            font-size: 1.9rem;
+            letter-spacing: -0.6px;
+            color: #FFF;
+            position: relative;
+            z-index: 1;
+        }
+        .escala-header p {
+            margin: 8px 0 0 0;
+            color: #A5B4C8;
+            font-size: 0.95rem;
+            position: relative;
+            z-index: 1;
+        }
+
         .badge-status-matriz {
-            background: #FF9200; color: #FFF; padding: 6px 14px;
-            border-radius: 99px; font-weight: 800; font-size: 0.78rem;
-            animation: pulseGlow 2s infinite;
+            background: linear-gradient(135deg, #FF9200 0%, #FFB84D 100%);
+            color: #FFF;
+            padding: 7px 16px;
+            border-radius: 99px;
+            font-weight: 800;
+            font-size: 0.75rem;
+            letter-spacing: 0.5px;
+            animation: pulseGlow 2.2s infinite;
+            box-shadow: 0 4px 16px rgba(255, 146, 0, 0.35);
+            position: relative;
+            z-index: 1;
         }
         .badge-lock {
-            background: #10B981; color: #FFF; padding: 6px 14px;
-            border-radius: 99px; font-weight: 800; font-size: 0.78rem;
+            background: linear-gradient(135deg, #10B981 0%, #34D399 100%);
+            color: #FFF;
+            padding: 7px 16px;
+            border-radius: 99px;
+            font-weight: 800;
+            font-size: 0.75rem;
+            box-shadow: 0 4px 14px rgba(16, 185, 129, 0.3);
+            position: relative;
+            z-index: 1;
         }
+
         .metric-card {
-            background: rgba(255,255,255,0.95); border: 1px solid #E2E8F0;
-            border-radius: 14px; padding: 18px; text-align: center;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.03);
+            background: linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 100%);
+            border: 1px solid #E2E8F0;
+            border-radius: 18px;
+            padding: 22px 16px;
+            text-align: center;
+            box-shadow: 0 8px 24px rgba(0, 30, 87, 0.06);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            animation: fadeInUp 0.65s ease-out;
         }
-        .metric-card h3 { color:#001E57; font-size:1.9rem; margin:0; font-weight:800; }
-        .metric-card p { color:#64748B; font-size:0.8rem; margin:4px 0 0 0; text-transform:uppercase; font-weight:700; }
+        .metric-card:hover {
+            transform: translateY(-6px) scale(1.02);
+            border-color: rgba(255, 146, 0, 0.5);
+            box-shadow: 0 16px 36px rgba(255, 146, 0, 0.15);
+        }
+        .metric-card h3 {
+            color: #001E57;
+            font-size: 2rem;
+            margin: 0;
+            font-weight: 900;
+            letter-spacing: -0.5px;
+        }
+        .metric-card h3.accent { color: #FF9200; }
+        .metric-card h3.ok { color: #10B981; }
+        .metric-card p {
+            color: #64748B;
+            font-size: 0.72rem;
+            margin: 6px 0 0 0;
+            text-transform: uppercase;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+        }
+
         .op-card {
-            background:#FFF; border:1px solid #E2E8F0; border-radius:16px;
-            padding:20px; margin-bottom:16px; position:relative; overflow:hidden;
+            background: #FFFFFF;
+            border: 1px solid #E8EEF5;
+            border-radius: 18px;
+            padding: 22px;
+            margin-bottom: 16px;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 6px 20px rgba(0, 30, 87, 0.04);
+            animation: fadeInUp 0.75s ease-out;
         }
         .op-card::before {
-            content:''; position:absolute; top:0; left:0; width:4px; height:100%; background:#001E57;
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 5px;
+            height: 100%;
+            background: linear-gradient(180deg, #001E57 0%, #FF9200 100%);
+            transition: width 0.25s ease;
         }
+        .op-card:hover {
+            transform: translateY(-6px);
+            border-color: rgba(255, 146, 0, 0.4);
+            box-shadow: 0 18px 40px rgba(255, 146, 0, 0.14);
+        }
+        .op-card:hover::before {
+            width: 6px;
+            background: linear-gradient(180deg, #FF9200 0%, #E07A00 100%);
+        }
+
         .badge-manhatarde {
-            background:rgba(0,30,87,0.08); color:#001E57;
-            padding:4px 10px; border-radius:6px; font-size:0.72rem; font-weight:800;
+            background: linear-gradient(135deg, rgba(0, 30, 87, 0.1), rgba(11, 41, 107, 0.08));
+            color: #001E57;
+            padding: 5px 12px;
+            border-radius: 8px;
+            font-size: 0.7rem;
+            font-weight: 800;
+            letter-spacing: 0.6px;
+            border: 1px solid rgba(0, 30, 87, 0.12);
         }
         .badge-cliente {
-            background:linear-gradient(135deg, rgba(255,146,0,0.1), rgba(255,146,0,0.05));
-            color:#B45309; border:1px solid rgba(255,146,0,0.3);
-            padding:6px 12px; border-radius:10px; font-size:0.9rem; font-weight:700;
-            display:inline-block; margin-top:6px;
+            background: linear-gradient(135deg, rgba(255, 146, 0, 0.16) 0%, rgba(255, 184, 77, 0.1) 100%);
+            color: #C2410C;
+            border: 1px solid rgba(255, 146, 0, 0.35);
+            padding: 8px 14px;
+            border-radius: 12px;
+            font-size: 0.9rem;
+            font-weight: 800;
+            display: inline-block;
+            margin-top: 8px;
+            transition: all 0.2s ease;
+            box-shadow: 0 2px 8px rgba(255, 146, 0, 0.08);
+        }
+        .badge-cliente:hover {
+            background: linear-gradient(135deg, rgba(255, 146, 0, 0.28), rgba(255, 184, 77, 0.18));
+            transform: scale(1.03);
+            box-shadow: 0 4px 14px rgba(255, 146, 0, 0.2);
+        }
+
+        /* Controles / radio / select mais limpos na escala */
+        div[data-testid="stHorizontalBlock"] label {
+            font-weight: 700 !important;
+            color: #001E57 !important;
         }
     </style>
     """,
@@ -180,6 +317,7 @@ def render_escala(carregar_cronograma_custom=None):
     tem_visao_completa = user_role in FUNCOES_VISAO_COMPLETA
     is_admin_gestor = user_role in ["admin", "admin master", "gestor"]
     is_visualizador = user_role == "visualizador"
+
 
     # ===== CARREGA ESCALA =====
     df_escala = None
