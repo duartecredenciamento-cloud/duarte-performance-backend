@@ -4,24 +4,24 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from views.permissoes import pode_editar, aviso_somente_leitura
-
-# Fonte real da escala: é a MESMA função que views/escala.py usa (a tabela
-# fixa da matriz de Credenciamento). O backend tem uma rota /cronograma/,
-# mas quem realmente popula a tela de Escala Semanal hoje é essa função
-# local — então é dela que também puxamos os clientes daqui.
 from views.escala import get_cronograma_credenciamento
 
 DIAS_SEMANA_PT = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
 FUSO_BR = ZoneInfo("America/Sao_Paulo")
 
-# Perfis que devem enxergar TODOS os clientes da escala do dia,
-# independentemente de estarem cadastrados como "Operador" na matriz.
-PERFIS_VISAO_GERAL = {"admin master", "admin", "gestor", "coordenador"}
+# Visão de TODOS os clientes do dia (inclui Visualizador)
+PERFIS_VISAO_GERAL = {
+    "admin master",
+    "admin",
+    "gestor",
+    "coordenador",
+    "visualizador",
+}
 
-# Flag de desenvolvimento: liga/desliga o caption de diagnóstico
-# (usuário / perfil / quantidade de clientes encontrados). Basta trocar
-# para False (ou apagar o bloco marcado abaixo) para remover em produção.
-DEBUG_DIAGNOSTICO = True
+# Quem pode LANÇAR (não fica só leitura)
+PERFIS_PODEM_LANCAR = PERFIS_VISAO_GERAL | {"operador"}
+
+DEBUG_DIAGNOSTICO = False  # True só em desenvolvimento
 
 
 def _dia_semana_atual_brasil() -> str:
@@ -29,10 +29,6 @@ def _dia_semana_atual_brasil() -> str:
 
 
 def _perfil_usuario_atual() -> str:
-    """Busca o perfil/role do usuário logado tentando várias chaves
-    possíveis na sessão, sem quebrar caso alguma não exista.
-    Retorna o valor já em minúsculas e sem espaços nas pontas, para
-    facilitar a comparação com PERFIS_VISAO_GERAL."""
     perfil = (
         st.session_state.get("user_role")
         or st.session_state.get("perfil")
@@ -45,38 +41,23 @@ def _perfil_usuario_atual() -> str:
 
 
 def _clientes_do_dia(nome_operador: str, dia_hoje: str, perfil_usuario: str) -> list:
-    """Usa a mesma tabela (formato largo: Operador, Periodo, Segunda...Sexta)
-    que a tela de Escala Semanal usa de verdade, e decide automaticamente
-    se retorna:
-
-    - TODOS os clientes/serviços programados para o dia (perfis com visão
-      geral: Admin Master, Admin, Gestor, Coordenador); ou
-    - Somente os clientes vinculados ao operador logado (demais perfis).
-    """
     df_escala = get_cronograma_credenciamento()
 
     if dia_hoje not in df_escala.columns:
-        # Sábado/Domingo não existem na matriz — não tem escala nesses dias.
         return []
 
     perfil_normalizado = (perfil_usuario or "").strip().lower()
     visao_geral = perfil_normalizado in PERFIS_VISAO_GERAL
 
     if visao_geral:
-        # Perfil de gestão: pega todos os valores da coluna do dia,
-        # sem filtrar por operador.
         valores = df_escala[dia_hoje].dropna().astype(str).str.strip()
     else:
         nome_operador = (nome_operador or "").strip()
         if not nome_operador:
             return []
 
-        # A escala guarda só o primeiro nome (ex: "KARINE"), mas o usuário
-        # logado pode ter nome completo ("Karine Martinez", vindo do
-        # cadastro com sobrenome). Por isso comparamos pelo primeiro nome,
-        # não por "a escala contém o nome completo" (isso nunca bate).
+        # Escala usa 1º nome (KARINE); login pode ter sobrenome
         primeiro_nome = nome_operador.split()[0] if nome_operador.split() else nome_operador
-
         filtro = (
             df_escala["Operador"].astype(str).str.strip().str.casefold()
             == primeiro_nome.strip().casefold()
@@ -88,22 +69,17 @@ def _clientes_do_dia(nome_operador: str, dia_hoje: str, perfil_usuario: str) -> 
 
 
 def _todos_clientes_do_dia(dia_hoje: str) -> list:
-    """Retorna TODOS os clientes/serviços do dia, de todos os operadores —
-    usado só no combo de 'Suporte', já que dar suporte significa poder
-    atender um cliente que não é necessariamente da sua própria escala."""
     df_escala = get_cronograma_credenciamento()
-
     if dia_hoje not in df_escala.columns:
         return []
-
     valores = df_escala[dia_hoje].dropna().astype(str).str.strip()
     clientes = [v for v in valores.unique().tolist() if v and v != "-"]
     return sorted(clientes)
 
 
 def render_lancamento(api_post, carregar_cronograma=None):
-    # ===================== CSS PREMIUM =====================
-    st.markdown("""
+    st.markdown(
+        """
     <style>
         .lancamento-card {
             background: white;
@@ -111,9 +87,6 @@ def render_lancamento(api_post, carregar_cronograma=None):
             border-radius: 20px;
             box-shadow: 0 15px 35px rgba(0, 30, 87, 0.08);
             border-top: 5px solid #FF9200;
-        }
-        .status-select {
-            border-radius: 12px;
         }
         .stButton > button {
             background: linear-gradient(135deg, #FF9200, #E07A00);
@@ -130,12 +103,14 @@ def render_lancamento(api_post, carregar_cronograma=None):
             margin-bottom: 6px;
         }
     </style>
-    """, unsafe_allow_html=True)
+    """,
+        unsafe_allow_html=True,
+    )
 
     st.markdown('<div class="lancamento-card">', unsafe_allow_html=True)
 
-    # ===================== CABEÇALHO =====================
-    st.markdown("""
+    st.markdown(
+        """
     <div style="
         background: linear-gradient(135deg, #001E57 0%, #0A2540 100%);
         padding: 28px 30px;
@@ -152,9 +127,10 @@ def render_lancamento(api_post, carregar_cronograma=None):
             Registre as atividades operacionais realizadas no dia
         </p>
     </div>
-    """, unsafe_allow_html=True)
+    """,
+        unsafe_allow_html=True,
+    )
 
-    # --- Monta a lista de Clientes/Serviços de hoje, a partir da escala real ---
     dia_hoje = _dia_semana_atual_brasil()
     nome_operador = (
         st.session_state.get("nome")
@@ -164,32 +140,50 @@ def render_lancamento(api_post, carregar_cronograma=None):
     )
     perfil_usuario = _perfil_usuario_atual()
 
-    # ===================== CONTROLE DE PERMISSÃO =====================
-    if not pode_editar(perfil_usuario):
+    # ----- PERMISSÃO: Visualizador TAMBÉM pode lançar -----
+    pode_lancar = (
+        perfil_usuario in PERFIS_PODEM_LANCAR
+        or pode_editar(perfil_usuario)
+    )
+    if not pode_lancar:
         aviso_somente_leitura()
-        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
         return
 
     clientes_hoje = _clientes_do_dia(nome_operador, dia_hoje, perfil_usuario)
     todos_clientes_hoje = _todos_clientes_do_dia(dia_hoje)
 
-    st.caption(f"📅 Hoje é **{dia_hoje}-feira** — mostrando os clientes/serviços da sua escala de hoje.")
+    if perfil_usuario in PERFIS_VISAO_GERAL:
+        st.caption(
+            f"📅 Hoje é **{dia_hoje}** — perfil **{perfil_usuario.title()}**: "
+            "clientes/tarefas do dia na escala."
+        )
+    else:
+        st.caption(
+            f"📅 Hoje é **{dia_hoje}** — clientes/serviços da sua escala de hoje."
+        )
 
-    # ===================== BLOCO DE DIAGNÓSTICO =====================
     if DEBUG_DIAGNOSTICO:
         st.caption(
             f"🛠️ [DEV] Usuário: {nome_operador or '(vazio)'} | "
-            f"Perfil detectado: {perfil_usuario or '(vazio)'} | "
+            f"Perfil: {perfil_usuario or '(vazio)'} | "
             f"Visão geral: {perfil_usuario in PERFIS_VISAO_GERAL} | "
-            f"Clientes encontrados: {len(clientes_hoje)}"
+            f"Clientes: {len(clientes_hoje)}"
         )
 
     col1, col2 = st.columns(2)
 
     with col1:
-        opcoes_cliente = ["Selecione..."] + clientes_hoje + ["Suporte", "Outro (fora da escala de hoje)"]
+        opcoes_cliente = (
+            ["Selecione..."]
+            + clientes_hoje
+            + ["Suporte", "Outro (fora da escala de hoje)"]
+        )
         if not clientes_hoje:
-            st.info("ℹ️ Não encontramos nenhum cliente/serviço na sua escala de hoje. Use 'Suporte' ou 'Outro'.")
+            st.info(
+                "ℹ️ Nenhum cliente/serviço na escala de hoje. "
+                "Use **Suporte** ou **Outro**."
+            )
 
         cliente_sel = st.selectbox(
             "🏢 Cliente / Serviço *",
@@ -199,7 +193,9 @@ def render_lancamento(api_post, carregar_cronograma=None):
 
         cliente_final = cliente_sel
         if cliente_sel == "Suporte":
-            opcoes_suporte = ["Selecione..."] + [f"Suporte - {c}" for c in todos_clientes_hoje]
+            opcoes_suporte = ["Selecione..."] + [
+                f"Suporte - {c}" for c in todos_clientes_hoje
+            ]
             cliente_final = st.selectbox(
                 "🛠️ Suporte para qual cliente?",
                 opcoes_suporte,
@@ -230,10 +226,10 @@ def render_lancamento(api_post, carregar_cronograma=None):
     if exige_justificativa:
         st.markdown('<div class="justificativa-box">', unsafe_allow_html=True)
         justificativa = st.text_area(
-        "⚠️ Motivo / Justificativa *",
-        placeholder="Explique o motivo deste status (obrigatório)...",
-        height=110,
-        key="lanc_justificativa",
+            "⚠️ Motivo / Justificativa *",
+            placeholder="Explique o motivo deste status (obrigatório)...",
+            height=110,
+            key="lanc_justificativa",
         )
         st.markdown("</div>", unsafe_allow_html=True)
 
@@ -244,7 +240,7 @@ def render_lancamento(api_post, carregar_cronograma=None):
         key="lanc_salvar",
     )
 
-    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
     if salvar:
         cliente_invalido = (
@@ -261,7 +257,7 @@ def render_lancamento(api_post, carregar_cronograma=None):
             return
 
         payload = {
-            "cliente_nome": cliente_final.strip(),
+            "cliente_nome": str(cliente_final).strip(),
             "status": status,
             "justificativa": justificativa.strip(),
             "operador_nome": nome_operador,

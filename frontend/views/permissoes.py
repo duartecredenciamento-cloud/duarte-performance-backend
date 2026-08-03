@@ -1,27 +1,48 @@
 """
 Helper de permissões reutilizável entre as views do Streamlit.
 
-Uso sugerido em qualquer tela com botões de criar/editar/excluir
-(ex.: views/editor.py, views/lancamento.py):
+Uso sugerido:
 
-    from views.permissoes import pode_editar, aviso_somente_leitura
+    from views.permissoes import pode_editar, pode_lancar, aviso_somente_leitura
 
     role = st.session_state.get("user_role", "operador")
 
+    # Editor / excluir / ações destrutivas
     if not pode_editar(role):
         aviso_somente_leitura()
-    else:
-        # mostra os botões/formulários normalmente
-        ...
+        return
+
+    # Lançamento diário (Visualizador PODE)
+    if not pode_lancar(role):
+        aviso_somente_leitura()
+        return
 """
 
 import streamlit as st
 
-# Perfis que podem criar, editar ou excluir informações.
-ROLES_COM_EDICAO = {"admin", "gestor", "operador", "coordenador"}
+# Criar / editar / excluir (Editor, gestão, etc.)
+ROLES_COM_EDICAO = {
+    "admin",
+    "admin master",
+    "gestor",
+    "operador",
+    "coordenador",
+}
 
-# Perfil somente-leitura (Admin Leitura).
-ROLES_SOMENTE_LEITURA = {"visualizador"}
+# Lançar execução diária (inclui Visualizador)
+ROLES_PODEM_LANCAR = {
+    "admin",
+    "admin master",
+    "gestor",
+    "operador",
+    "coordenador",
+    "visualizador",
+}
+
+# Perfil identificado como visualizador
+ROLES_SOMENTE_LEITURA = {
+    "visualizador",
+}
 
 
 def pode_editar(role: str) -> bool:
@@ -29,16 +50,20 @@ def pode_editar(role: str) -> bool:
     return (role or "").strip().lower() in ROLES_COM_EDICAO
 
 
+def pode_lancar(role: str) -> bool:
+    """True se o perfil pode registrar lançamento diário (inclui Visualizador)."""
+    return (role or "").strip().lower() in ROLES_PODEM_LANCAR
+
+
 def eh_visualizador(role: str) -> bool:
-    """True se o perfil é Visualizador (Admin Leitura)."""
+    """True se o perfil é Visualizador."""
     return (role or "").strip().lower() in ROLES_SOMENTE_LEITURA
 
 
 def aviso_somente_leitura():
-    """Exibe o aviso padrão de modo leitura, usado onde haveria
-    botões de ação/salvar/excluir."""
+    """Aviso padrão de modo leitura."""
     st.info(
-        "👁️ **Modo Somente Leitura** — seu perfil (Visualizador) permite"
-        " consultar todas as informações, mas não criar, editar ou excluir"
-        " dados."
+        "👁️ **Modo Somente Leitura** — seu perfil permite consultar "
+        "as informações, mas não criar, editar ou excluir dados nesta tela. "
+        "Se precisar registrar o dia, use **Lançar Execução Diária**."
     )

@@ -6,7 +6,6 @@ import pandas as pd
 import requests
 import streamlit as st
 
-# Importação das Views
 from views.admin import render_painel_admin
 from views.dashboard import render_dashboard
 from views.editor import render_editor
@@ -14,8 +13,8 @@ from views.escala import render_escala
 from views.lancamento import render_lancamento
 from views.login import render_login
 from views.relatorios import render_relatorios
+
 # ===================== CONFIGURAÇÃO =====================
-# ⚠️ st.set_page_config precisa ser SEMPRE a primeira instrução Streamlit do arquivo.
 st.set_page_config(
     page_title="Duarte Performance | Gestão Operacional",
     page_icon="🟠",
@@ -27,8 +26,20 @@ FUSO_BR = ZoneInfo("America/Sao_Paulo")
 API_URL = os.getenv(
     "BACKEND_URL",
     "https://duarte-performance-backend-production.up.railway.app",
-)  # URL do backend
+)
+
+# Perfis com acesso total de gestão
 PAPEIS_GESTAO = ["Admin Master", "Gestor", "Admin", "Coordenador"]
+
+# Quem pode LANÇAR tarefa (inclui Visualizador)
+PAPEIS_LANCAMENTO = [
+    "Operador",
+    "Visualizador",
+    "Admin Master",
+    "Gestor",
+    "Admin",
+    "Coordenador",
+]
 
 # CSS
 css_path = os.path.join(os.path.dirname(__file__), "styles.css")
@@ -45,25 +56,140 @@ if "carregando" not in st.session_state:
 if st.session_state["carregando"]:
     st.markdown(
         """
-    <div style="
-        display:flex;
-        flex-direction:column;
-        align-items:center;
-        justify-content:center;
-        height:80vh;
-        text-align:center;
-    ">
-        <h1 style="color:#001E57; font-size:2.5rem;">Duarte Performance</h1>
-        <p style="color:#64748B;">Carregando sistema...</p>
+    <style>
+        /* Esconde chrome do Streamlit só no loading */
+        [data-testid="stSidebar"],
+        [data-testid="stHeader"],
+        [data-testid="stToolbar"],
+        footer { display: none !important; }
+        .stApp {
+            background: linear-gradient(145deg, #030A1A 0%, #001E57 45%, #0B296B 100%) !important;
+        }
+        @keyframes spinRing {
+            0%   { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        @keyframes pulseDot {
+            0%, 100% { opacity: 0.35; transform: scale(0.85); }
+            50%      { opacity: 1;    transform: scale(1.1); }
+        }
+        @keyframes fadeUp {
+            from { opacity: 0; transform: translateY(18px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes barShine {
+            0%   { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+        .dp-loader-wrap {
+            min-height: 88vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            animation: fadeUp 0.6s ease-out;
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+        }
+        .dp-logo-mark {
+            width: 72px;
+            height: 72px;
+            border-radius: 18px;
+            background: linear-gradient(135deg, #FF9200 0%, #E07A00 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            font-size: 1.75rem;
+            font-weight: 900;
+            letter-spacing: -1px;
+            box-shadow: 0 12px 40px rgba(255, 146, 0, 0.35);
+            margin-bottom: 28px;
+        }
+        .dp-title {
+            color: #FFFFFF;
+            font-size: 2rem;
+            font-weight: 800;
+            margin: 0 0 6px 0;
+            letter-spacing: -0.5px;
+        }
+        .dp-title span { color: #FF9200; }
+        .dp-sub {
+            color: #94A3B8;
+            font-size: 0.95rem;
+            margin: 0 0 36px 0;
+            font-weight: 500;
+        }
+        .dp-ring {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            border: 3px solid rgba(255, 255, 255, 0.12);
+            border-top-color: #FF9200;
+            animation: spinRing 0.85s linear infinite;
+            margin-bottom: 22px;
+        }
+        .dp-bar {
+            width: 200px;
+            height: 4px;
+            border-radius: 99px;
+            background: rgba(255, 255, 255, 0.1);
+            overflow: hidden;
+            margin-bottom: 18px;
+        }
+        .dp-bar-inner {
+            height: 100%;
+            width: 45%;
+            border-radius: 99px;
+            background: linear-gradient(90deg, #FF9200, #FFB84D, #FF9200);
+            background-size: 200% 100%;
+            animation: barShine 1.4s ease-in-out infinite;
+        }
+        .dp-status {
+            color: #CBD5E1;
+            font-size: 0.8rem;
+            font-weight: 600;
+            letter-spacing: 0.4px;
+        }
+        .dp-dots span {
+            display: inline-block;
+            width: 5px;
+            height: 5px;
+            margin: 0 3px;
+            border-radius: 50%;
+            background: #FF9200;
+            animation: pulseDot 1.2s ease-in-out infinite;
+        }
+        .dp-dots span:nth-child(2) { animation-delay: 0.2s; }
+        .dp-dots span:nth-child(3) { animation-delay: 0.4s; }
+        .dp-footer {
+            margin-top: 48px;
+            color: #64748B;
+            font-size: 0.72rem;
+            letter-spacing: 0.3px;
+        }
+    </style>
+
+    <div class="dp-loader-wrap">
+        <div class="dp-logo-mark">DP</div>
+        <h1 class="dp-title">Duarte <span>Performance</span></h1>
+        <p class="dp-sub">Gestão Operacional Inteligente</p>
+        <div class="dp-ring"></div>
+        <div class="dp-bar"><div class="dp-bar-inner"></div></div>
+        <p class="dp-status">
+            Preparando o ambiente
+            <span class="dp-dots">
+                <span></span><span></span><span></span>
+            </span>
+        </p>
+        <p class="dp-footer">Duarte Gestão · Acesso seguro</p>
     </div>
     """,
         unsafe_allow_html=True,
     )
-
-    time.sleep(1.5)  # tempo de carregamento
+    time.sleep(1.8)
     st.session_state["carregando"] = False
     st.rerun()
-
 # ===================== SESSION STATE =====================
 for key, val in {
     "token": None,
@@ -80,13 +206,11 @@ for key, val in {
 
 # ===================== HELPERS DE API =====================
 def get_headers() -> dict:
-    """Monta o cabeçalho de autenticação com o token JWT salvo na sessão."""
     token = st.session_state.get("token")
     return {"Authorization": f"Bearer {token}"} if token else {}
 
 
 def _tratar_sessao_expirada(resp: requests.Response) -> None:
-    """Se o backend disser que o token expirou (401), derruba a sessão local."""
     if resp is not None and resp.status_code == 401:
         st.session_state.clear()
         st.warning("🔒 Sua sessão expirou. Faça login novamente.")
@@ -95,7 +219,6 @@ def _tratar_sessao_expirada(resp: requests.Response) -> None:
 
 
 def api_get(endpoint: str):
-    """GET autenticado no backend."""
     try:
         resp = requests.get(
             f"{API_URL}{endpoint}", headers=get_headers(), timeout=30
@@ -114,7 +237,6 @@ def api_get(endpoint: str):
 
 
 def api_post_form(endpoint: str, data: dict = None, files: dict = None):
-    """POST autenticado enviando dados como formulário."""
     try:
         resp = requests.post(
             f"{API_URL}{endpoint}",
@@ -137,7 +259,6 @@ def api_post_form(endpoint: str, data: dict = None, files: dict = None):
 
 
 def api_post_json(endpoint: str, payload: dict):
-    """POST autenticado enviando um corpo JSON."""
     try:
         headers = get_headers()
         headers["Content-Type"] = "application/json"
@@ -158,7 +279,6 @@ def api_post_json(endpoint: str, payload: dict):
 
 
 def api_put_json(endpoint: str, payload: dict):
-    """PUT autenticado enviando um corpo JSON."""
     try:
         headers = get_headers()
         headers["Content-Type"] = "application/json"
@@ -179,7 +299,6 @@ def api_put_json(endpoint: str, payload: dict):
 
 
 def api_delete(endpoint: str):
-    """DELETE autenticado."""
     try:
         resp = requests.delete(
             f"{API_URL}{endpoint}", headers=get_headers(), timeout=30
@@ -198,7 +317,9 @@ def api_delete(endpoint: str):
 
 
 @st.cache_data(ttl=30, show_spinner=False)
-def carregar_cronograma_cache(_token):
+def carregar_cronograma_cache(_token: str):
+    if not _token:
+        return None
     try:
         resp = requests.get(
             f"{API_URL}/cronograma/",
@@ -206,14 +327,16 @@ def carregar_cronograma_cache(_token):
             timeout=30,
         )
         if resp.status_code == 200:
-            return pd.DataFrame(resp.json())
+            dados = resp.json()
+            if dados:
+                return pd.DataFrame(dados)
     except Exception:
         pass
-    return pd.DataFrame()
+    return None
 
 
 def carregar_cronograma():
-    return carregar_cronograma_cache(st.session_state.get("token"))
+    return carregar_cronograma_cache(st.session_state.get("token") or "")
 
 
 # ===================== LOGIN =====================
@@ -221,7 +344,6 @@ if not st.session_state.get("token"):
     render_login()
     st.stop()
 
-# Sincroniza variáveis "espelho"
 if st.session_state.get("nome") and not st.session_state.get("user_nome"):
     st.session_state["user_nome"] = st.session_state["nome"]
 if st.session_state.get("role") and not st.session_state.get("user_role"):
@@ -240,6 +362,7 @@ iniciais = (
     else "U"
 )
 role = st.session_state.get("role", "Operador")
+role_norm = str(role).strip()
 
 st.sidebar.markdown(
     f"""
@@ -252,31 +375,21 @@ st.sidebar.markdown(
     unsafe_allow_html=True,
 )
 
-role_normalizado = (role or "").strip().lower()
+# Menu base (todos autenticados)
+menus = [
+    "📊 Dashboard Gerencial",
+    "🗓️ Escala Semanal",
+    "📑 Relatórios Operacionais",
+]
 
-if role_normalizado == "operador":
-    # Operador só enxerga a própria escala e o lançamento diário.
-    menus = [
-        "🗓️ Escala Semanal",
-        "📝 Lançar Execução Diária",
-    ]
-else:
-    menus = [
-        "📊 Dashboard Gerencial",
-        "🗓️ Escala Semanal",
-        "📑 Relatórios Operacionais",
-        "📝 Lançar Execução Diária",
-    ]
+# Lançar tarefa: Operador + Visualizador + gestão
+if role_norm in PAPEIS_LANCAMENTO or role_norm.lower() in [p.lower() for p in PAPEIS_LANCAMENTO]:
+    menus.append("📝 Lançar Execução Diária")
 
-    # Editor de Apontamentos e Painel Admin: perfis de gestão (Admin,
-    # Gestor e o legado Admin Master/Coordenador) têm acesso total.
-    if role in PAPEIS_GESTAO:
-        menus.append("✏️ Editor de Apontamentos")
-        menus.append("🛡️ Painel Admin")
-    # Visualizador enxerga o Editor (em modo somente leitura, já tratado
-    # dentro de views/editor.py), mas não o Painel Admin.
-    elif role_normalizado == "visualizador":
-        menus.append("✏️ Editor de Apontamentos")
+# Gestão
+if role_norm in PAPEIS_GESTAO or role_norm.lower() in [p.lower() for p in PAPEIS_GESTAO]:
+    menus.append("✏️ Editor de Apontamentos")
+    menus.append("🛡️ Painel Admin")
 
 menu = st.sidebar.radio("Navegação", menus, label_visibility="collapsed")
 
