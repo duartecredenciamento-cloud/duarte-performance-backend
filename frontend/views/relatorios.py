@@ -6,17 +6,13 @@ import requests
 import streamlit as st
 import plotly.graph_objects as go
 
-# Mesma fonte de dados da Escala Semanal — usada aqui só na aba de Backup,
-# pra permitir exportar cronograma junto com os registros, sem duplicar
-# nenhuma tabela nova.
 from views.escala import get_cronograma_credenciamento
+from tabela_pro import inject_tabela_css, mostrar_tabela
 
-# URL base do backend
 API_URL = os.getenv(
     "BACKEND_URL", "https://duarte-performance-backend-production.up.railway.app"
 )
 
-# ===================== PALETA DE CORES DUARTE PERFORMANCE =====================
 COR_AZUL_MARINHO = "#001E57"
 COR_LARANJA = "#FF9200"
 COR_VERDE = "#10B981"
@@ -31,9 +27,21 @@ CORES_STATUS = {
     "Não Se Aplica": COR_CINZA,
 }
 
+MAPA_COLUNAS_REL = {
+    "id": "ID",
+    "data_registro": "Data",
+    "created_at": "Data",
+    "data": "Data",
+    "operador_nome": "Operador",
+    "cliente_nome": "Cliente",
+    "cliente": "Cliente",
+    "status": "Status",
+    "justificativa": "Justificativa",
+    "observacoes": "Observações",
+}
+
 
 def _layout_padrao(fig, altura=320):
-    """Layout consistente com a identidade visual em qualquer figura Plotly."""
     fig.update_layout(
         height=altura,
         margin=dict(l=10, r=10, t=40, b=10),
@@ -47,8 +55,6 @@ def _layout_padrao(fig, altura=320):
 
 
 def _grafico_status(df: pd.DataFrame, titulo: str, altura: int = 300):
-    """Gráfico de rosca com a distribuição de status, nas cores da marca.
-    Reaproveitado nas três abas (semanal, mensal, personalizado)."""
     if df.empty or "status" not in df.columns:
         st.info("Sem dados suficientes para exibir o gráfico.")
         return
@@ -76,7 +82,6 @@ def _grafico_status(df: pd.DataFrame, titulo: str, altura: int = 300):
 
 
 def _grafico_evolucao(df: pd.DataFrame, titulo: str, altura: int = 260):
-    """Linha temporal simples de quantidade de registros por dia."""
     if df.empty or "data_dt" not in df.columns:
         return
 
@@ -108,11 +113,8 @@ def _grafico_evolucao(df: pd.DataFrame, titulo: str, altura: int = 260):
 
 
 def fetch_report_data():
-    """Busca o histórico completo de execuções no backend com suporte a autenticação JWT."""
     token = st.session_state.get("token", "")
     headers = {"Authorization": f"Bearer {token}"} if token else {}
-
-    # Lista de possíveis rotas para resiliência de API
     endpoints = ["/execucoes/", "/registros/", "/apontamentos/"]
 
     for endpoint in endpoints:
@@ -134,8 +136,45 @@ def fetch_report_data():
     return None
 
 
+def _cols_tabela(df: pd.DataFrame) -> list:
+    ordem = [
+        "data_registro", "created_at", "data",
+        "operador_nome",
+        "cliente_nome", "cliente",
+        "status",
+        "justificativa", "observacoes",
+        "id",
+    ]
+    return [c for c in ordem if c in df.columns]
+
+
+def _ocultar_obs_quando_total(df_in: pd.DataFrame) -> pd.DataFrame:
+    if df_in.empty or "status" not in df_in.columns:
+        return df_in
+    df_out = df_in.copy()
+    for col in ["observacoes", "justificativa"]:
+        if col in df_out.columns:
+            df_out.loc[df_out["status"] == "Realizado Total", col] = ""
+    return df_out
+
+
+def _mostrar_tabela_rel(df_view: pd.DataFrame, titulo: str):
+    if df_view is None or df_view.empty:
+        st.info("Nenhum registro neste filtro.")
+        return
+    cols = _cols_tabela(df_view)
+    base = df_view[cols].pipe(_ocultar_obs_quando_total) if cols else df_view
+    mapa = {c: MAPA_COLUNAS_REL[c] for c in base.columns if c in MAPA_COLUNAS_REL}
+    mostrar_tabela(
+        base,
+        mapa_colunas=mapa,
+        titulo=titulo,
+        max_linhas=500,
+        injetar_css=False,
+    )
+
+
 def inject_custom_css():
-    """Estilos premium — Relatórios Duarte Performance."""
     st.markdown(
         """
     <style>
@@ -152,10 +191,6 @@ def inject_custom_css():
             0%   { box-shadow: 0 0 0 0 rgba(255, 146, 0, 0.45); }
             70%  { box-shadow: 0 0 0 12px rgba(255, 146, 0, 0); }
             100% { box-shadow: 0 0 0 0 rgba(255, 146, 0, 0); }
-        }
-        @keyframes shimmer {
-            0%   { background-position: 200% 0; }
-            100% { background-position: -200% 0; }
         }
 
         .report-header {
@@ -186,7 +221,6 @@ def inject_custom_css():
             margin: 0;
             font-weight: 900;
             font-size: 1.85rem;
-            letter-spacing: -0.5px;
             color: #FFF;
             position: relative;
             z-index: 1;
@@ -207,7 +241,6 @@ def inject_custom_css():
             border-radius: 99px;
             font-weight: 800;
             font-size: 0.72rem;
-            letter-spacing: 0.4px;
             animation: pulseGlow 2.2s infinite;
             position: relative;
             z-index: 1;
@@ -234,16 +267,12 @@ def inject_custom_css():
             font-size: 0.75rem;
             text-transform: uppercase;
             font-weight: 800;
-            letter-spacing: 0.4px;
         }
         .metric-card-summary h3 {
             color: #001E57;
             margin: 8px 0 0 0;
             font-size: 1.75rem;
             font-weight: 900;
-        }
-        .metric-card-summary h3.accent {
-            color: #FF9200;
         }
 
         .chart-card {
@@ -253,11 +282,6 @@ def inject_custom_css():
             box-shadow: 0 10px 28px rgba(0, 30, 87, 0.06);
             border: 1px solid #E2E8F0;
             animation: fadeInUp 0.7s ease-out;
-            transition: border-color 0.25s ease, box-shadow 0.25s ease;
-        }
-        .chart-card:hover {
-            border-color: rgba(255, 146, 0, 0.35);
-            box-shadow: 0 14px 32px rgba(0, 30, 87, 0.1);
         }
 
         .backup-card {
@@ -267,35 +291,6 @@ def inject_custom_css():
             padding: 18px 20px;
             margin-bottom: 16px;
             animation: fadeInUp 0.6s ease-out;
-            box-shadow: 0 4px 16px rgba(255, 146, 0, 0.08);
-        }
-
-        .filter-bar {
-            background: #F8FAFC;
-            border: 1px solid #E2E8F0;
-            border-radius: 14px;
-            padding: 14px 16px;
-            margin-bottom: 18px;
-            animation: fadeInUp 0.5s ease-out;
-        }
-
-        .section-title {
-            color: #001E57;
-            font-weight: 800;
-            font-size: 1.1rem;
-            margin: 8px 0 14px 0;
-            letter-spacing: -0.2px;
-        }
-
-        /* Botões da área de relatório */
-        div[data-testid="stHorizontalBlock"] .stButton > button {
-            border-radius: 12px !important;
-            font-weight: 700 !important;
-            transition: all 0.25s ease !important;
-        }
-        div[data-testid="stHorizontalBlock"] .stButton > button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 20px rgba(255, 146, 0, 0.25) !important;
         }
     </style>
     """,
@@ -305,6 +300,7 @@ def inject_custom_css():
 
 def render_relatorios():
     inject_custom_css()
+    inject_tabela_css()
 
     st.markdown(
         """
@@ -327,25 +323,14 @@ def render_relatorios():
             "❌ Falha na conexão: Não foi possível obter os dados do relatório"
             " no backend."
         )
-        st.info(
-            "💡 **Dica de Diagnóstico:** Verifique se sua sessão não expirou ou"
-            " tente novamente após o servidor do Render responder."
-        )
         return
 
     if not dados:
-        st.warning(
-            "ℹ️ Nenhum registro operacional encontrado no banco de dados."
-        )
+        st.warning("ℹ️ Nenhum registro operacional encontrado no banco de dados.")
         return
 
     df = pd.DataFrame(dados)
 
-    # Tratamento flexível de datas.
-    # Importante: se nenhuma coluna de data for encontrada, NÃO preenchemos
-    # com "agora" pra todas as linhas (isso quebrava silenciosamente os
-    # filtros de Semana/Mês, fazendo tudo parecer "de hoje"). Em vez disso,
-    # deixamos a coluna vazia (NaT) e avisamos o usuário.
     date_col = None
     for candidate in ["created_at", "data_registro", "data", "created_date"]:
         if candidate in df.columns:
@@ -358,40 +343,9 @@ def render_relatorios():
         df["data_dt"] = pd.NaT
         st.warning(
             "⚠️ Não foi encontrada uma coluna de data reconhecida nos"
-            " registros. Os filtros de período (Semanal/Mensal) podem não"
-            " funcionar corretamente."
+            " registros. Os filtros de período podem não funcionar corretamente."
         )
 
-    # Normalização de colunas exibidas
-    cols_display = [
-        c
-        for c in [
-            "id",
-            "cliente",
-            "status",
-            "observacoes",
-            "justificativa",
-            date_col,
-        ]
-        if c in df.columns
-    ]
-
-    def _ocultar_observacao_quando_total(df_in: pd.DataFrame) -> pd.DataFrame:
-        """A observação/justificativa só faz sentido pra status que não são
-        'Realizado Total' (é justamente o motivo da pendência). Mesmo que o
-        campo venha vazio do backend nesses casos, aqui garantimos que nunca
-        apareça nada na tela pra linhas 'Realizado Total' — só na exibição,
-        o CSV de exportação mantém os dados originais intactos para auditoria."""
-        if df_in.empty or "status" not in df_in.columns:
-            return df_in
-        df_out = df_in.copy()
-        for col in ["observacoes", "justificativa"]:
-            if col in df_out.columns:
-                df_out.loc[df_out["status"] == "Realizado Total", col] = ""
-        return df_out
-
-
-    # --- ABAS DE NAVEGAÇÃO DOS RELATÓRIOS ---
     aba_semanal, aba_mensal, aba_personalizado, aba_exportar, aba_backup = st.tabs([
         "📅 Visão Semanal",
         "🗓️ Visão Mensal",
@@ -400,9 +354,7 @@ def render_relatorios():
         "🗄️ Backup Completo",
     ])
 
-    # ----------------------------------------------------
-    # 1. ABA SEMANAL
-    # ----------------------------------------------------
+    # ----- SEMANAL -----
     with aba_semanal:
         st.subheader("📊 Relatório Operacional da Semana Atual (Últimos 7 dias)")
         data_limite_semana = pd.Timestamp.now() - pd.Timedelta(days=7)
@@ -411,67 +363,52 @@ def render_relatorios():
         c1, c2, c3, c4 = st.columns(4)
         with c1:
             st.markdown(
-                '<div class="metric-card-summary"><h5>Total'
-                f" Semana</h5><h3>{len(df_semanal)}</h3></div>",
+                f'<div class="metric-card-summary"><h5>Total Semana</h5><h3>{len(df_semanal)}</h3></div>',
                 unsafe_allow_html=True,
             )
         with c2:
             realizados = (
                 len(df_semanal[df_semanal["status"] == "Realizado Total"])
-                if "status" in df_semanal.columns
-                else 0
+                if "status" in df_semanal.columns else 0
             )
             st.markdown(
-                '<div class="metric-card-summary"><h5>Realizados</h5><h3'
-                f' style="color:#10B981;">{realizados}</h3></div>',
+                f'<div class="metric-card-summary"><h5>Realizados</h5><h3 style="color:#10B981;">{realizados}</h3></div>',
                 unsafe_allow_html=True,
             )
         with c3:
             parciais = (
                 len(df_semanal[df_semanal["status"] == "Realizado Parcial"])
-                if "status" in df_semanal.columns
-                else 0
+                if "status" in df_semanal.columns else 0
             )
             st.markdown(
-                '<div class="metric-card-summary"><h5>Parciais</h5><h3'
-                f' style="color:#F59E0B;">{parciais}</h3></div>',
+                f'<div class="metric-card-summary"><h5>Parciais</h5><h3 style="color:#F59E0B;">{parciais}</h3></div>',
                 unsafe_allow_html=True,
             )
         with c4:
             nao_realizados = (
                 len(df_semanal[df_semanal["status"] == "Não Realizado"])
-                if "status" in df_semanal.columns
-                else 0
+                if "status" in df_semanal.columns else 0
             )
             st.markdown(
-                '<div class="metric-card-summary"><h5>Não Realizados</h5><h3'
-                f' style="color:#EF4444;">{nao_realizados}</h3></div>',
+                f'<div class="metric-card-summary"><h5>Não Realizados</h5><h3 style="color:#EF4444;">{nao_realizados}</h3></div>',
                 unsafe_allow_html=True,
             )
 
         st.markdown("<br>", unsafe_allow_html=True)
-
-        # Gráficos: distribuição de status + evolução diária da semana
         g1, g2 = st.columns([1, 1.4])
         with g1:
             st.markdown('<div class="chart-card">', unsafe_allow_html=True)
             _grafico_status(df_semanal, "Distribuição de Status — Semana")
-            st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
         with g2:
             st.markdown('<div class="chart-card">', unsafe_allow_html=True)
             _grafico_evolucao(df_semanal, "Execuções por Dia — Semana")
-            st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
-        st.dataframe(
-            df_semanal[cols_display].pipe(_ocultar_observacao_quando_total) if not df_semanal.empty else df_semanal,
-            use_container_width=True,
-            hide_index=True,
-        )
+        _mostrar_tabela_rel(df_semanal, "📋 Base — Visão Semanal")
 
-    # ----------------------------------------------------
-    # 2. ABA MENSAL
-    # ----------------------------------------------------
+    # ----- MENSAL -----
     with aba_mensal:
         st.subheader("🗓️ Relatório Operacional do Mês Vigente")
         now = pd.Timestamp.now()
@@ -483,66 +420,49 @@ def render_relatorios():
         m1, m2, m3, m4 = st.columns(4)
         with m1:
             st.markdown(
-                '<div class="metric-card-summary"><h5>Total'
-                f" Mês</h5><h3>{len(df_mensal)}</h3></div>",
+                f'<div class="metric-card-summary"><h5>Total Mês</h5><h3>{len(df_mensal)}</h3></div>',
                 unsafe_allow_html=True,
             )
         with m2:
             realizados_m = (
                 len(df_mensal[df_mensal["status"] == "Realizado Total"])
-                if "status" in df_mensal.columns
-                else 0
+                if "status" in df_mensal.columns else 0
             )
             st.markdown(
-                '<div class="metric-card-summary"><h5>Realizados</h5><h3'
-                f' style="color:#10B981;">{realizados_m}</h3></div>',
+                f'<div class="metric-card-summary"><h5>Realizados</h5><h3 style="color:#10B981;">{realizados_m}</h3></div>',
                 unsafe_allow_html=True,
             )
         with m3:
             parciais_m = (
                 len(df_mensal[df_mensal["status"] == "Realizado Parcial"])
-                if "status" in df_mensal.columns
-                else 0
+                if "status" in df_mensal.columns else 0
             )
             st.markdown(
-                '<div class="metric-card-summary"><h5>Parciais</h5><h3'
-                f' style="color:#F59E0B;">{parciais_m}</h3></div>',
+                f'<div class="metric-card-summary"><h5>Parciais</h5><h3 style="color:#F59E0B;">{parciais_m}</h3></div>',
                 unsafe_allow_html=True,
             )
         with m4:
-            taxa_m = (
-                ((realizados_m / len(df_mensal)) * 100)
-                if len(df_mensal) > 0
-                else 0.0
-            )
+            taxa_m = ((realizados_m / len(df_mensal)) * 100) if len(df_mensal) > 0 else 0.0
             st.markdown(
-                '<div class="metric-card-summary"><h5>Taxa Eficiência</h5><h3'
-                f' style="color:#FF9200;">{taxa_m:.1f}%</h3></div>',
+                f'<div class="metric-card-summary"><h5>Taxa Eficiência</h5><h3 style="color:#FF9200;">{taxa_m:.1f}%</h3></div>',
                 unsafe_allow_html=True,
             )
 
         st.markdown("<br>", unsafe_allow_html=True)
-
         g3, g4 = st.columns([1, 1.4])
         with g3:
             st.markdown('<div class="chart-card">', unsafe_allow_html=True)
             _grafico_status(df_mensal, "Distribuição de Status — Mês")
-            st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
         with g4:
             st.markdown('<div class="chart-card">', unsafe_allow_html=True)
             _grafico_evolucao(df_mensal, "Execuções por Dia — Mês")
-            st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
-        st.dataframe(
-            df_mensal[cols_display].pipe(_ocultar_observacao_quando_total) if not df_mensal.empty else df_mensal,
-            use_container_width=True,
-            hide_index=True,
-        )
+        _mostrar_tabela_rel(df_mensal, "📋 Base — Visão Mensal")
 
-    # ----------------------------------------------------
-    # 3. ABA FILTRO PERSONALIZADO
-    # ----------------------------------------------------
+    # ----- PERSONALIZADO -----
     with aba_personalizado:
         st.subheader("🔍 Pesquisa Avançada e Filtros Customizados")
 
@@ -555,8 +475,7 @@ def render_relatorios():
         with f_col2:
             status_opcoes = (
                 ["Todos"] + sorted(list(df["status"].dropna().unique()))
-                if "status" in df.columns
-                else ["Todos"]
+                if "status" in df.columns else ["Todos"]
             )
             status_filtro = st.selectbox("Filtrar por Status:", status_opcoes)
         with f_col3:
@@ -566,9 +485,12 @@ def render_relatorios():
             )
 
         df_custom = df.copy()
-        if cliente_filtro and "cliente" in df_custom.columns:
+        col_cliente = "cliente_nome" if "cliente_nome" in df_custom.columns else (
+            "cliente" if "cliente" in df_custom.columns else None
+        )
+        if cliente_filtro and col_cliente:
             df_custom = df_custom[
-                df_custom["cliente"]
+                df_custom[col_cliente]
                 .astype(str)
                 .str.contains(cliente_filtro, case=False, na=False)
             ]
@@ -578,34 +500,26 @@ def render_relatorios():
             df_custom = df_custom[df_custom["data_dt"].dt.date >= dt_inicio]
 
         st.markdown("<br>", unsafe_allow_html=True)
-
         g5, g6 = st.columns([1, 1.4])
         with g5:
             st.markdown('<div class="chart-card">', unsafe_allow_html=True)
             _grafico_status(df_custom, "Distribuição de Status — Filtro")
-            st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
         with g6:
             st.markdown('<div class="chart-card">', unsafe_allow_html=True)
             _grafico_evolucao(df_custom, "Execuções por Dia — Filtro")
-            st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
-        st.dataframe(
-            df_custom[cols_display].pipe(_ocultar_observacao_quando_total) if not df_custom.empty else df_custom,
-            use_container_width=True,
-            hide_index=True,
-        )
+        _mostrar_tabela_rel(df_custom, "📋 Base — Filtro Personalizado")
 
-    # ----------------------------------------------------
-    # 4. ABA EXPORTAR DADOS
-    # ----------------------------------------------------
+    # ----- EXPORTAR -----
     with aba_exportar:
         st.subheader("📥 Exportação para Auditoria e Excel")
         st.write(
             "Baixe a base completa de apontamentos operacionais no formato CSV"
             " para análise offline."
         )
-
         csv_data = df.to_csv(index=False).encode("utf-8")
         st.download_button(
             label="📄 Baixar Relatório Completo em CSV",
@@ -618,12 +532,9 @@ def render_relatorios():
             use_container_width=True,
         )
 
-    # ----------------------------------------------------
-    # 5. ABA BACKUP COMPLETO (NOVA)
-    # ----------------------------------------------------
+    # ----- BACKUP -----
     with aba_backup:
         st.subheader("🗄️ Backup Completo do Sistema")
-
         st.markdown(
             """
             <div class="backup-card">
@@ -632,19 +543,12 @@ def render_relatorios():
                     <li>Todos os registros de execução diária (histórico completo)</li>
                     <li>A matriz de escala/cronograma atual</li>
                 </ul>
-                <p style="margin: 10px 0 0 0; color: #64748B; font-size: 0.85rem;">
-                    Recomendado: gere um backup periodicamente (ex: semanal) e
-                    guarde o arquivo em um local seguro (Google Drive, OneDrive, etc.),
-                    como camada extra de segurança além do banco de dados principal.
-                </p>
             </div>
             """,
             unsafe_allow_html=True,
         )
 
         timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
-
-        # Monta o ZIP em memória com os dois CSVs (registros + cronograma)
         buffer_zip = io.BytesIO()
         try:
             df_cronograma = get_cronograma_credenciamento()
@@ -667,25 +571,21 @@ def render_relatorios():
         b1, b2, b3 = st.columns(3)
         with b1:
             st.markdown(
-                f'<div class="metric-card-summary"><h5>Registros no Backup</h5>'
-                f'<h3>{len(df)}</h3></div>',
+                f'<div class="metric-card-summary"><h5>Registros no Backup</h5><h3>{len(df)}</h3></div>',
                 unsafe_allow_html=True,
             )
         with b2:
             st.markdown(
-                f'<div class="metric-card-summary"><h5>Linhas de Cronograma</h5>'
-                f'<h3>{len(df_cronograma)}</h3></div>',
+                f'<div class="metric-card-summary"><h5>Linhas de Cronograma</h5><h3>{len(df_cronograma)}</h3></div>',
                 unsafe_allow_html=True,
             )
         with b3:
             st.markdown(
-                f'<div class="metric-card-summary"><h5>Gerado em</h5>'
-                f'<h3 style="font-size:1.1rem;">{pd.Timestamp.now().strftime("%d/%m %H:%M")}</h3></div>',
+                f'<div class="metric-card-summary"><h5>Gerado em</h5><h3 style="font-size:1.1rem;">{pd.Timestamp.now().strftime("%d/%m %H:%M")}</h3></div>',
                 unsafe_allow_html=True,
             )
 
         st.markdown("<br>", unsafe_allow_html=True)
-
         st.download_button(
             label="🗄️ Baixar Backup Completo (ZIP)",
             data=buffer_zip,

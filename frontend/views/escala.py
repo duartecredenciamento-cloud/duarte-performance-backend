@@ -3,6 +3,8 @@ import pandas as pd
 import streamlit as st
 import requests
 
+from tabela_pro import inject_tabela_css, mostrar_tabela
+
 API_URL = os.getenv(
     "BACKEND_URL",
     "https://duarte-performance-backend-production.up.railway.app",
@@ -120,10 +122,6 @@ def render_escala(carregar_cronograma_custom=None):
             70%  { box-shadow: 0 0 0 14px rgba(255, 146, 0, 0); }
             100% { box-shadow: 0 0 0 0 rgba(255, 146, 0, 0); }
         }
-        @keyframes softFloat {
-            0%, 100% { transform: translateY(0); }
-            50%      { transform: translateY(-4px); }
-        }
 
         .escala-header {
             background: linear-gradient(-45deg, #001E57, #030A1A, #0B296B, #001233);
@@ -226,8 +224,6 @@ def render_escala(carregar_cronograma_custom=None):
             font-weight: 900;
             letter-spacing: -0.5px;
         }
-        .metric-card h3.accent { color: #FF9200; }
-        .metric-card h3.ok { color: #10B981; }
         .metric-card p {
             color: #64748B;
             font-size: 0.72rem;
@@ -257,16 +253,11 @@ def render_escala(carregar_cronograma_custom=None):
             width: 5px;
             height: 100%;
             background: linear-gradient(180deg, #001E57 0%, #FF9200 100%);
-            transition: width 0.25s ease;
         }
         .op-card:hover {
             transform: translateY(-6px);
             border-color: rgba(255, 146, 0, 0.4);
             box-shadow: 0 18px 40px rgba(255, 146, 0, 0.14);
-        }
-        .op-card:hover::before {
-            width: 6px;
-            background: linear-gradient(180deg, #FF9200 0%, #E07A00 100%);
         }
 
         .badge-manhatarde {
@@ -289,13 +280,6 @@ def render_escala(carregar_cronograma_custom=None):
             font-weight: 800;
             display: inline-block;
             margin-top: 8px;
-            transition: all 0.2s ease;
-            box-shadow: 0 2px 8px rgba(255, 146, 0, 0.08);
-        }
-        .badge-cliente:hover {
-            background: linear-gradient(135deg, rgba(255, 146, 0, 0.28), rgba(255, 184, 77, 0.18));
-            transform: scale(1.03);
-            box-shadow: 0 4px 14px rgba(255, 146, 0, 0.2);
         }
 
         div[data-testid="stHorizontalBlock"] label {
@@ -306,6 +290,8 @@ def render_escala(carregar_cronograma_custom=None):
     """,
         unsafe_allow_html=True,
     )
+
+    inject_tabela_css()
 
     user_nome_sessao = str(
         st.session_state.get("user_nome") or st.session_state.get("nome") or ""
@@ -319,7 +305,6 @@ def render_escala(carregar_cronograma_custom=None):
     is_admin_gestor = user_role in ["admin", "admin master", "gestor"]
     is_visualizador = user_role == "visualizador"
 
-    # ===== CARREGA ESCALA =====
     df_escala = None
     if carregar_cronograma_custom:
         try:
@@ -332,7 +317,6 @@ def render_escala(carregar_cronograma_custom=None):
 
     df_escala = _normalizar_colunas_escala(df_escala)
 
-    # ===== FILTRO PERFIL =====
     if not tem_visao_completa and user_nome_sessao:
         df_user = df_escala[
             df_escala["Operador"].astype(str).str.contains(user_nome_sessao, case=False, na=False)
@@ -345,7 +329,6 @@ def render_escala(carregar_cronograma_custom=None):
     else:
         modo_isolado = False
 
-    # ===== HEADER =====
     if modo_isolado:
         badge_header = f'<span class="badge-lock">🔒 MINHA AGENDA ({user_nome_sessao.upper()})</span>'
     elif is_visualizador:
@@ -372,7 +355,6 @@ def render_escala(carregar_cronograma_custom=None):
         unsafe_allow_html=True,
     )
 
-    # ===== MÉTRICAS =====
     total_analistas = df_escala["Operador"].nunique() if not df_escala.empty else 0
     c1, c2, c3, c4 = st.columns(4)
     with c1:
@@ -386,7 +368,6 @@ def render_escala(carregar_cronograma_custom=None):
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # ===== CONTROLES =====
     col_mode, col_dia, col_busca = st.columns([1.2, 1.2, 1.6])
     with col_mode:
         modo_view = st.radio("Modo de Visão:", ["🎴 Cards por Dia", "📊 Tabela Completa"], horizontal=True)
@@ -409,7 +390,6 @@ def render_escala(carregar_cronograma_custom=None):
         )
         df_filtrado = df_filtrado[mask]
 
-    # ===== CARDS / TABELA =====
     if "Cards" in modo_view:
         st.subheader(f"📌 Agenda — {dia_selecionado.upper()}-FEIRA")
         ops = df_filtrado["Operador"].unique() if not df_filtrado.empty else []
@@ -440,11 +420,20 @@ def render_escala(carregar_cronograma_custom=None):
                         st.caption(f"Sem alocação em {dia_selecionado.lower()}.")
                     st.markdown("</div>", unsafe_allow_html=True)
     else:
-        st.subheader("📋 Matriz Completa")
-        st.dataframe(df_filtrado, use_container_width=True, hide_index=True)
+        # ===== TABELA PREMIUM =====
+        cols_vis = [
+            c for c in ["Operador", "Periodo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta"]
+            if c in df_filtrado.columns
+        ]
+        mostrar_tabela(
+            df_filtrado[cols_vis] if cols_vis else df_filtrado,
+            titulo="📋 Matriz Completa da Escala",
+            max_linhas=200,
+            injetar_css=False,
+        )
 
     # =====================================================
-    # GESTÃO ADMIN — ADICIONAR / EDITAR / EXCLUIR
+    # GESTÃO ADMIN
     # =====================================================
     if is_admin_gestor and not modo_isolado:
         st.markdown("---")

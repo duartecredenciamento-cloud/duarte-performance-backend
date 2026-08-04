@@ -3,19 +3,19 @@ import pandas as pd
 import requests
 import streamlit as st
 
-# URL base da API Backend (ajusta automaticamente via variável de ambiente ou padrão)
+from tabela_pro import inject_tabela_css, mostrar_tabela
+
 API_URL = os.getenv(
-    "BACKEND_URL", "https://duarte-performance-backend.onrender.com"
+    "BACKEND_URL", "https://duarte-performance-backend-production.up.railway.app"
 )
 
 
 def inject_admin_css():
-    """Estilos premium — Central Administrativa Duarte Performance."""
     st.markdown(
         """
         <style>
             @keyframes fadeInUp {
-                from { opacity: 0; transform: translateY(18px); }
+                from { opacity: 0; transform: translateY(14px); }
                 to   { opacity: 1; transform: translateY(0); }
             }
             @keyframes floatGradient {
@@ -23,174 +23,79 @@ def inject_admin_css():
                 50%  { background-position: 100% 50%; }
                 100% { background-position: 0% 50%; }
             }
-            @keyframes pulseGlow {
-                0%   { box-shadow: 0 0 0 0 rgba(255, 146, 0, 0.5); }
-                70%  { box-shadow: 0 0 0 12px rgba(255, 146, 0, 0); }
-                100% { box-shadow: 0 0 0 0 rgba(255, 146, 0, 0); }
-            }
 
             .admin-hero {
                 background: linear-gradient(-45deg, #001E57, #030A1A, #0B296B, #001233);
                 background-size: 300% 300%;
-                animation: floatGradient 12s ease infinite, fadeInUp 0.55s ease-out;
+                animation: floatGradient 12s ease infinite, fadeInUp 0.5s ease-out;
                 border-radius: 20px;
                 padding: 28px 32px;
-                color: #FFFFFF;
+                color: #FFF;
                 border-left: 6px solid #FF9200;
-                margin-bottom: 26px;
+                margin-bottom: 22px;
                 box-shadow: 0 16px 40px rgba(0, 30, 87, 0.22);
-                position: relative;
-                overflow: hidden;
-            }
-            .admin-hero::before {
-                content: '';
-                position: absolute;
-                top: -40%;
-                right: -8%;
-                width: 240px;
-                height: 240px;
-                border-radius: 50%;
-                background: radial-gradient(circle, rgba(255,146,0,0.2) 0%, transparent 70%);
-                pointer-events: none;
             }
             .admin-hero h2 {
                 margin: 0;
                 font-weight: 900;
                 font-size: 1.85rem;
-                letter-spacing: -0.5px;
-                position: relative;
-                z-index: 1;
             }
             .admin-hero p {
                 margin: 8px 0 0 0;
                 color: #94A3B8;
                 font-size: 0.95rem;
-                position: relative;
-                z-index: 1;
-            }
-            .admin-badge {
-                display: inline-block;
-                margin-top: 14px;
-                background: linear-gradient(135deg, #FF9200, #FFB84D);
-                color: #FFF;
-                padding: 6px 14px;
-                border-radius: 99px;
-                font-weight: 800;
-                font-size: 0.72rem;
-                letter-spacing: 0.4px;
-                animation: pulseGlow 2.2s infinite;
-                position: relative;
-                z-index: 1;
             }
 
             .admin-card {
-                background: linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 100%);
-                border-radius: 16px;
-                padding: 22px;
+                background-color: #FFFFFF;
+                border-radius: 14px;
+                padding: 20px;
                 border-left: 5px solid #001E57;
-                box-shadow: 0 8px 24px rgba(0, 30, 87, 0.06);
+                box-shadow: 0 6px 18px rgba(0, 30, 87, 0.06);
                 margin-bottom: 20px;
-                transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-                animation: fadeInUp 0.6s ease-out;
+                animation: fadeInUp 0.55s ease-out;
             }
-            .admin-card:hover {
-                transform: translateY(-4px);
-                border-left-color: #FF9200;
-                box-shadow: 0 14px 32px rgba(255, 146, 0, 0.12);
-            }
-
             .admin-header {
                 color: #001E57;
-                font-size: 1.35rem;
-                font-weight: 900;
-                margin-bottom: 12px;
-                letter-spacing: -0.3px;
+                font-size: 24px;
+                font-weight: 800;
+                margin-bottom: 10px;
             }
-
             .info-box {
-                background: linear-gradient(135deg, #F8FAFC 0%, #F1F5F9 100%);
-                border-radius: 14px;
-                padding: 16px 18px;
+                background-color: #F8FAFC;
+                border-radius: 12px;
+                padding: 15px;
                 border: 1px solid #E2E8F0;
                 color: #334155;
-                animation: fadeInUp 0.5s ease-out;
-            }
-
-            .admin-metric {
-                background: #FFFFFF;
-                border: 1px solid #E2E8F0;
-                border-radius: 16px;
-                padding: 18px 14px;
-                text-align: center;
-                box-shadow: 0 6px 18px rgba(0, 30, 87, 0.05);
-                transition: all 0.3s ease;
-                animation: fadeInUp 0.65s ease-out;
-            }
-            .admin-metric:hover {
-                transform: translateY(-4px);
-                border-color: rgba(255, 146, 0, 0.45);
-                box-shadow: 0 12px 28px rgba(255, 146, 0, 0.12);
-            }
-            .admin-metric h3 {
-                margin: 0;
-                color: #001E57;
-                font-size: 1.7rem;
-                font-weight: 900;
-            }
-            .admin-metric h3.accent { color: #FF9200; }
-            .admin-metric p {
-                margin: 6px 0 0 0;
-                color: #64748B;
-                font-size: 0.72rem;
-                font-weight: 800;
-                text-transform: uppercase;
-                letter-spacing: 0.4px;
-            }
-
-            .danger-zone {
-                background: linear-gradient(135deg, #FFF5F5 0%, #FEF2F2 100%);
-                border: 1px solid #FECACA;
-                border-left: 4px solid #EF4444;
-                border-radius: 14px;
-                padding: 16px 18px;
-                margin-top: 8px;
-            }
-
-            div.stButton > button[kind="primary"] {
-                background: linear-gradient(135deg, #001E57 0%, #0B296B 100%) !important;
-                border: none !important;
-                border-radius: 12px !important;
-                font-weight: 800 !important;
-                transition: all 0.25s ease !important;
-            }
-            div.stButton > button[kind="primary"]:hover {
-                background: linear-gradient(135deg, #FF9200 0%, #E07A00 100%) !important;
-                transform: translateY(-2px);
-                box-shadow: 0 8px 22px rgba(255, 146, 0, 0.3) !important;
             }
         </style>
-        """,
+    """,
         unsafe_allow_html=True,
     )
 
 
 def render_painel_admin():
-    """Renderiza a Central Executiva Administrativa da Duarte Gestão."""
     inject_admin_css()
+    inject_tabela_css()
 
-    st.title("🛡️ Painel Administrativo Executivo")
-    st.caption(
-        "Gestão de Acessos, Cadastros e Auditoria Operacional — Duarte Gestão"
+    st.markdown(
+        """
+    <div class="admin-hero">
+        <h2>🛡️ Painel Administrativo Executivo</h2>
+        <p>Gestão de Acessos, Cadastros e Auditoria Operacional — Duarte Gestão</p>
+    </div>
+    """,
+        unsafe_allow_html=True,
     )
 
     # =========================================================
-    # 1. VALIDAÇÃO DE SEGURANÇA E PERMISSÃO
+    # 1. VALIDAÇÃO DE SEGURANÇA
     # =========================================================
     user_role = st.session_state.get("user_role") or st.session_state.get(
         "role", "Operador"
     )
 
-    if user_role != "Admin":
+    if str(user_role).strip() not in ("Admin", "Admin Master", "admin", "admin master"):
         st.error(
             "⛔ **Acesso Restrito:** Apenas usuários com perfil **Admin** possuem"
             " acesso a esta área."
@@ -212,7 +117,7 @@ def render_painel_admin():
     headers = {"Authorization": f"Bearer {token}"}
 
     # =========================================================
-    # 2. ESTRUTURA DE ABAS NATIVAS
+    # 2. ABAS
     # =========================================================
     aba_cadastrar, aba_usuarios, aba_funcoes, aba_senhas, aba_auditoria = st.tabs([
         "➕ Cadastrar Novo Usuário",
@@ -223,7 +128,7 @@ def render_painel_admin():
     ])
 
     # ---------------------------------------------------------
-    # ABA 1: CADASTRO DE USUÁRIO
+    # ABA 1: CADASTRO
     # ---------------------------------------------------------
     with aba_cadastrar:
         st.markdown("### 👤 Cadastrar Novo Membro na Equipe")
@@ -316,8 +221,9 @@ def render_painel_admin():
                     <ul>
                         <li><b>Login:</b> Utilize o e-mail corporativo como usuário.</li>
                         <li><b>Senha Inicial:</b> Escolha uma senha provisória e repasse ao funcionário.</li>
-                        <li><b>Perfil Operador:</b> Acesso padrão para preencher execuções e cronogramas.</li>
-                        <li><b>Perfil Admin:</b> Acesso total a relatórios, edições e à esta tela.</li>
+                        <li><b>Operador:</b> Lança execução e vê a própria escala.</li>
+                        <li><b>Visualizador:</b> Consulta + pode lançar; não edita/exclui.</li>
+                        <li><b>Gestor / Admin:</b> Acesso ampliado e este painel.</li>
                     </ul>
                 </div>
                 """,
@@ -330,8 +236,7 @@ def render_painel_admin():
     with aba_usuarios:
         st.markdown("### 👥 Gestão da Equipe & Status de Acesso")
         st.info(
-            "Abaixo estão os usuários atualmente autorizados no ecossistema"
-            " Duarte Performance."
+            "Usuários autorizados no ecossistema Duarte Performance."
         )
 
         try:
@@ -347,15 +252,19 @@ def render_painel_admin():
 
             if usuarios_api:
                 df_equipe = pd.DataFrame(usuarios_api)
-                df_equipe = df_equipe[["nome", "username", "email", "role"]]
-                df_equipe.columns = [
-                    "Nome",
-                    "Login / Usuário",
-                    "E-mail",
-                    "Função",
-                ]
-                st.dataframe(
-                    df_equipe, use_container_width=True, hide_index=True
+                cols = [c for c in ["nome", "username", "email", "role"] if c in df_equipe.columns]
+                df_equipe = df_equipe[cols]
+                mostrar_tabela(
+                    df_equipe,
+                    mapa_colunas={
+                        "nome": "Nome",
+                        "username": "Login / Usuário",
+                        "email": "E-mail",
+                        "role": "Função",
+                    },
+                    titulo="👥 Equipe cadastrada",
+                    max_linhas=200,
+                    injetar_css=False,
                 )
             else:
                 st.info("ℹ️ Nenhum usuário cadastrado ainda.")
@@ -371,13 +280,13 @@ def render_painel_admin():
                 )
 
     # ---------------------------------------------------------
-    # ABA 3: GERENCIAR FUNÇÕES (ROLES)
+    # ABA 3: GERENCIAR FUNÇÕES
     # ---------------------------------------------------------
     with aba_funcoes:
         st.markdown("### 🔧 Gerenciar Função (Role) dos Usuários")
         st.write(
-            "Selecione um usuário para visualizar seus dados e alterar seu"
-            " nível de permissão no sistema."
+            "Selecione um usuário para visualizar seus dados e alterar o"
+            " nível de permissão."
         )
 
         ROLES_DISPONIVEIS = ["Operador", "Visualizador", "Gestor", "Admin"]
@@ -484,9 +393,8 @@ def render_painel_admin():
                                     st.error(f"🌐 Erro de conexão: {e}")
 
                 st.caption(
-                    "👁️ **Visualizador**: acesso total de leitura à escala e"
-                    " relatórios, sem permissão para criar, editar ou"
-                    " excluir dados."
+                    "👁️ **Visualizador**: leitura ampla e pode lançar execução;"
+                    " não edita/exclui em massa."
                 )
         elif resp_usuarios is not None:
             if resp_usuarios.status_code == 403:
@@ -601,9 +509,10 @@ def render_painel_admin():
                         "rejeitado": "🚫",
                     }
                     df_hist = pd.DataFrame(outras)
-                    df_hist["status"] = df_hist["status"].apply(
-                        lambda s: f"{ICONE_STATUS.get(s, '')} {s}"
-                    )
+                    if "status" in df_hist.columns:
+                        df_hist["status"] = df_hist["status"].apply(
+                            lambda s: f"{ICONE_STATUS.get(s, '')} {s}"
+                        )
                     colunas = [
                         "username",
                         "status",
@@ -615,10 +524,19 @@ def render_painel_admin():
                     colunas_existentes = [
                         c for c in colunas if c in df_hist.columns
                     ]
-                    st.dataframe(
+                    mostrar_tabela(
                         df_hist[colunas_existentes],
-                        use_container_width=True,
-                        hide_index=True,
+                        mapa_colunas={
+                            "username": "Usuário",
+                            "status": "Status",
+                            "solicitado_em": "Solicitado em",
+                            "autorizado_em": "Autorizado em",
+                            "expira_em": "Expira em",
+                            "autorizado_por": "Autorizado por",
+                        },
+                        titulo="📋 Histórico de solicitações",
+                        max_linhas=100,
+                        injetar_css=False,
                     )
         elif resp_solic is not None:
             if resp_solic.status_code == 403:
@@ -637,8 +555,7 @@ def render_painel_admin():
     with aba_auditoria:
         st.markdown("### 📜 Registros de Auditoria e Atividades")
         st.write(
-            "Histórico de ações, cadastros e acessos para rastreabilidade de"
-            " segurança."
+            "Histórico de ações, cadastros e acessos para rastreabilidade."
         )
 
         logs_exemplo = [
@@ -651,7 +568,16 @@ def render_painel_admin():
         ]
 
         df_logs = pd.DataFrame(logs_exemplo)
-        st.dataframe(df_logs, use_container_width=True, hide_index=True)
+        mostrar_tabela(
+            df_logs,
+            titulo="📜 Logs de auditoria",
+            max_linhas=100,
+            injetar_css=False,
+        )
+        st.caption(
+            "Quando o backend tiver endpoint de logs reais, esta aba passa a"
+            " consumir a API automaticamente."
+        )
 
 
 if __name__ == "__main__":

@@ -3,6 +3,8 @@ import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 
+from tabela_pro import inject_tabela_css, mostrar_lancamentos
+
 # ===================== PALETA DUARTE =====================
 COR_AZUL = "#001E57"
 COR_LARANJA = "#FF9200"
@@ -52,7 +54,6 @@ def _layout_padrao(fig, altura=340, show_legend=True):
 
 
 def render_dashboard(api_get):
-    # ===================== CSS =====================
     st.markdown(
         """
     <style>
@@ -164,19 +165,13 @@ def render_dashboard(api_get):
             box-shadow: 0 10px 28px rgba(0, 30, 87, 0.06);
             border: 1px solid #E2E8F0;
             animation: fadeInUp 0.7s ease-out;
-            transition: border-color 0.25s ease, box-shadow 0.25s ease;
             margin-bottom: 8px;
-        }
-        .chart-card:hover {
-            border-color: rgba(255, 146, 0, 0.3);
-            box-shadow: 0 14px 32px rgba(0, 30, 87, 0.1);
         }
         .chart-title {
             color: #001E57;
             font-weight: 800;
             font-size: 1rem;
             margin: 0 0 4px 4px;
-            letter-spacing: -0.2px;
         }
 
         .filter-bar {
@@ -185,44 +180,13 @@ def render_dashboard(api_get):
             border-radius: 14px;
             padding: 12px 14px;
             margin-bottom: 18px;
-            animation: fadeInUp 0.5s ease-out;
-        }
-
-        .section-title {
-            color: #001E57;
-            font-weight: 900;
-            font-size: 1.25rem;
-            margin: 8px 0 14px 0;
-            letter-spacing: -0.3px;
-        }
-
-        /* Tabela premium */
-        [data-testid="stDataFrame"],
-        [data-testid="stDataFrame"] > div {
-            border-radius: 16px !important;
-            overflow: hidden !important;
-            border: 1px solid #E2E8F0 !important;
-            box-shadow: 0 8px 24px rgba(0, 30, 87, 0.06) !important;
-        }
-        [data-testid="stDataFrame"] thead tr th {
-            background: #001E57 !important;
-            color: #FFFFFF !important;
-            font-weight: 800 !important;
-            font-size: 0.78rem !important;
-            text-transform: uppercase !important;
-            letter-spacing: 0.4px !important;
-            border: none !important;
-        }
-        [data-testid="stDataFrame"] tbody tr:nth-child(even) {
-            background: #F8FAFC !important;
-        }
-        [data-testid="stDataFrame"] tbody tr:hover {
-            background: rgba(255, 146, 0, 0.08) !important;
         }
     </style>
     """,
         unsafe_allow_html=True,
     )
+
+    inject_tabela_css()
 
     nome = st.session_state.get("nome", "Usuário")
     role = st.session_state.get("role", "Operador")
@@ -238,7 +202,6 @@ def render_dashboard(api_get):
         unsafe_allow_html=True,
     )
 
-    # ===== DADOS =====
     with st.spinner("Carregando indicadores..."):
         resposta = api_get("/registros/")
 
@@ -255,7 +218,6 @@ def render_dashboard(api_get):
     if "data_registro" in df.columns:
         df["data_registro"] = pd.to_datetime(df["data_registro"], errors="coerce")
 
-    # ===== FILTROS =====
     st.markdown('<div class="filter-bar">', unsafe_allow_html=True)
     f1, f2 = st.columns([1.2, 2])
     with f1:
@@ -285,7 +247,6 @@ def render_dashboard(api_get):
     if filtro_op != "Todos" and "operador_nome" in df.columns:
         df = df[df["operador_nome"].astype(str) == filtro_op]
 
-    # ===== MÉTRICAS =====
     total = len(df)
     tem_status = "status" in df.columns
     realizados = len(df[df["status"] == "Realizado Total"]) if tem_status else 0
@@ -315,7 +276,6 @@ def render_dashboard(api_get):
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # ===== GRÁFICOS LINHA 1 =====
     col1, col2 = st.columns(2)
 
     with col1:
@@ -406,7 +366,6 @@ def render_dashboard(api_get):
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # ===== EVOLUÇÃO =====
     st.markdown('<div class="chart-card">', unsafe_allow_html=True)
     st.markdown(
         '<p class="chart-title">📈 Evolução das Execuções</p>',
@@ -446,7 +405,6 @@ def render_dashboard(api_get):
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # ===== STATUS EMPILHADO POR OPERADOR =====
     if tem_status and "operador_nome" in df.columns and not df.empty:
         st.markdown('<div class="chart-card">', unsafe_allow_html=True)
         st.markdown(
@@ -483,44 +441,5 @@ def render_dashboard(api_get):
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # ===== TABELA ÚLTIMOS LANÇAMENTOS (PREMIUM) =====
-    st.markdown(
-        '<p class="section-title">📋 Últimos Lançamentos</p>',
-        unsafe_allow_html=True,
-    )
-
-    colunas = [
-        "data_registro",
-        "operador_nome",
-        "cliente_nome",
-        "status",
-        "justificativa",
-    ]
-    colunas_exist = [c for c in colunas if c in df.columns]
-
-    if colunas_exist and not df.empty:
-        tabela = df[colunas_exist].copy()
-
-        if "data_registro" in tabela.columns:
-            tabela = tabela.sort_values("data_registro", ascending=False)
-            tabela["data_registro"] = pd.to_datetime(
-                tabela["data_registro"], errors="coerce"
-            ).dt.strftime("%d/%m/%Y %H:%M")
-
-        tabela = tabela.rename(
-            columns={
-                "data_registro": "Data",
-                "operador_nome": "Operador",
-                "cliente_nome": "Cliente",
-                "status": "Status",
-                "justificativa": "Justificativa",
-            }
-        )
-
-        st.dataframe(
-            tabela.head(20),
-            use_container_width=True,
-            hide_index=True,
-        )
-    else:
-        st.info("Nenhum lançamento no período selecionado.")
+    # ===== TABELA PREMIUM (tabela_pro) =====
+    mostrar_lancamentos(df, max_linhas=20, titulo="📋 Últimos Lançamentos")
