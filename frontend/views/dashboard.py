@@ -1,19 +1,15 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 
 # ===================== PALETA DUARTE =====================
 COR_AZUL = "#001E57"
-COR_AZUL_MID = "#0B296B"
 COR_LARANJA = "#FF9200"
-COR_LARANJA_SOFT = "#FFB84D"
 COR_VERDE = "#10B981"
 COR_AMARELO = "#F59E0B"
 COR_VERMELHO = "#EF4444"
 COR_CINZA = "#94A3B8"
-COR_FUNDO = "#F8FAFC"
 
 CORES_STATUS = {
     "Realizado Total": COR_VERDE,
@@ -191,6 +187,38 @@ def render_dashboard(api_get):
             margin-bottom: 18px;
             animation: fadeInUp 0.5s ease-out;
         }
+
+        .section-title {
+            color: #001E57;
+            font-weight: 900;
+            font-size: 1.25rem;
+            margin: 8px 0 14px 0;
+            letter-spacing: -0.3px;
+        }
+
+        /* Tabela premium */
+        [data-testid="stDataFrame"],
+        [data-testid="stDataFrame"] > div {
+            border-radius: 16px !important;
+            overflow: hidden !important;
+            border: 1px solid #E2E8F0 !important;
+            box-shadow: 0 8px 24px rgba(0, 30, 87, 0.06) !important;
+        }
+        [data-testid="stDataFrame"] thead tr th {
+            background: #001E57 !important;
+            color: #FFFFFF !important;
+            font-weight: 800 !important;
+            font-size: 0.78rem !important;
+            text-transform: uppercase !important;
+            letter-spacing: 0.4px !important;
+            border: none !important;
+        }
+        [data-testid="stDataFrame"] tbody tr:nth-child(even) {
+            background: #F8FAFC !important;
+        }
+        [data-testid="stDataFrame"] tbody tr:hover {
+            background: rgba(255, 146, 0, 0.08) !important;
+        }
     </style>
     """,
         unsafe_allow_html=True,
@@ -292,7 +320,10 @@ def render_dashboard(api_get):
 
     with col1:
         st.markdown('<div class="chart-card">', unsafe_allow_html=True)
-        st.markdown('<p class="chart-title">🍩 Distribuição por Status</p>', unsafe_allow_html=True)
+        st.markdown(
+            '<p class="chart-title">🍩 Distribuição por Status</p>',
+            unsafe_allow_html=True,
+        )
         if not df.empty and tem_status:
             contagem = df["status"].value_counts().reset_index()
             contagem.columns = ["status", "quantidade"]
@@ -303,7 +334,10 @@ def render_dashboard(api_get):
                         values=contagem["quantidade"],
                         hole=0.62,
                         marker=dict(
-                            colors=[CORES_STATUS.get(s, COR_CINZA) for s in contagem["status"]],
+                            colors=[
+                                CORES_STATUS.get(s, COR_CINZA)
+                                for s in contagem["status"]
+                            ],
                             line=dict(color="#FFFFFF", width=2),
                         ),
                         textinfo="percent",
@@ -312,7 +346,6 @@ def render_dashboard(api_get):
                     )
                 ]
             )
-            # Número no centro
             fig.add_annotation(
                 text=f"<b>{total}</b><br><span style='font-size:11px;color:#64748B'>total</span>",
                 showarrow=False,
@@ -321,14 +354,19 @@ def render_dashboard(api_get):
                 y=0.5,
             )
             fig = _layout_padrao(fig, 340)
-            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+            st.plotly_chart(
+                fig, use_container_width=True, config={"displayModeBar": False}
+            )
         else:
             st.info("Sem dados para o gráfico de status.")
         st.markdown("</div>", unsafe_allow_html=True)
 
     with col2:
         st.markdown('<div class="chart-card">', unsafe_allow_html=True)
-        st.markdown('<p class="chart-title">👥 Execuções por Operador</p>', unsafe_allow_html=True)
+        st.markdown(
+            '<p class="chart-title">👥 Execuções por Operador</p>',
+            unsafe_allow_html=True,
+        )
         if "operador_nome" in df.columns and not df.empty:
             contagem_op = (
                 df["operador_nome"]
@@ -359,7 +397,9 @@ def render_dashboard(api_get):
             fig.update_xaxes(showgrid=True, gridcolor="#F1F5F9", zeroline=False)
             fig.update_yaxes(showgrid=False)
             fig = _layout_padrao(fig, 340, show_legend=False)
-            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+            st.plotly_chart(
+                fig, use_container_width=True, config={"displayModeBar": False}
+            )
         else:
             st.info("Sem dados por operador.")
         st.markdown("</div>", unsafe_allow_html=True)
@@ -368,7 +408,10 @@ def render_dashboard(api_get):
 
     # ===== EVOLUÇÃO =====
     st.markdown('<div class="chart-card">', unsafe_allow_html=True)
-    st.markdown('<p class="chart-title">📈 Evolução das Execuções</p>', unsafe_allow_html=True)
+    st.markdown(
+        '<p class="chart-title">📈 Evolução das Execuções</p>',
+        unsafe_allow_html=True,
+    )
     if "data_registro" in df.columns and not df.empty:
         df_t = df.copy()
         df_t["dia"] = df_t["data_registro"].dt.date
@@ -394,7 +437,9 @@ def render_dashboard(api_get):
         fig.update_xaxes(showgrid=False, zeroline=False)
         fig.update_yaxes(showgrid=True, gridcolor="#F1F5F9", zeroline=False)
         fig = _layout_padrao(fig, 300, show_legend=False)
-        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+        st.plotly_chart(
+            fig, use_container_width=True, config={"displayModeBar": False}
+        )
     else:
         st.info("Sem dados temporais.")
     st.markdown("</div>", unsafe_allow_html=True)
@@ -431,13 +476,19 @@ def render_dashboard(api_get):
         fig.update_xaxes(showgrid=False)
         fig.update_yaxes(showgrid=True, gridcolor="#F1F5F9")
         fig = _layout_padrao(fig, 360)
-        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+        st.plotly_chart(
+            fig, use_container_width=True, config={"displayModeBar": False}
+        )
         st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # ===== TABELA =====
-    st.markdown("### 📋 Últimos Lançamentos")
+    # ===== TABELA ÚLTIMOS LANÇAMENTOS (PREMIUM) =====
+    st.markdown(
+        '<p class="section-title">📋 Últimos Lançamentos</p>',
+        unsafe_allow_html=True,
+    )
+
     colunas = [
         "data_registro",
         "operador_nome",
@@ -449,8 +500,23 @@ def render_dashboard(api_get):
 
     if colunas_exist and not df.empty:
         tabela = df[colunas_exist].copy()
+
         if "data_registro" in tabela.columns:
             tabela = tabela.sort_values("data_registro", ascending=False)
+            tabela["data_registro"] = pd.to_datetime(
+                tabela["data_registro"], errors="coerce"
+            ).dt.strftime("%d/%m/%Y %H:%M")
+
+        tabela = tabela.rename(
+            columns={
+                "data_registro": "Data",
+                "operador_nome": "Operador",
+                "cliente_nome": "Cliente",
+                "status": "Status",
+                "justificativa": "Justificativa",
+            }
+        )
+
         st.dataframe(
             tabela.head(20),
             use_container_width=True,
