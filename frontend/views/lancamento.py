@@ -1,13 +1,20 @@
-import streamlit as st
+import os
 import time
-from datetime import datetime
+from datetime import datetime, date
 from zoneinfo import ZoneInfo
+
+import streamlit as st
 
 from views.permissoes import pode_editar, aviso_somente_leitura
 from views.escala import get_cronograma_credenciamento
 
 DIAS_SEMANA_PT = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
 FUSO_BR = ZoneInfo("America/Sao_Paulo")
+
+API_URL = os.getenv(
+    "BACKEND_URL",
+    "https://duarte-performance-backend-production.up.railway.app",
+)
 
 PERFIS_VISAO_GERAL = {
     "admin master",
@@ -17,6 +24,13 @@ PERFIS_VISAO_GERAL = {
     "visualizador",
 }
 
+PERFIS_ADMIN_LANCAR = {
+    "admin master",
+    "admin",
+    "gestor",
+    "coordenador",
+}
+
 PERFIS_PODEM_LANCAR = PERFIS_VISAO_GERAL | {"operador"}
 
 DEBUG_DIAGNOSTICO = False
@@ -24,6 +38,10 @@ DEBUG_DIAGNOSTICO = False
 
 def _dia_semana_atual_brasil() -> str:
     return DIAS_SEMANA_PT[datetime.now(FUSO_BR).weekday()]
+
+
+def _dia_semana_de_data(d: date) -> str:
+    return DIAS_SEMANA_PT[d.weekday()]
 
 
 def _perfil_usuario_atual() -> str:
@@ -38,43 +56,96 @@ def _perfil_usuario_atual() -> str:
     return str(perfil).strip().lower()
 
 
-def _clientes_do_dia(nome_operador: str, dia_hoje: str, perfil_usuario: str) -> list:
-    df_escala = get_cronograma_credenciamento()
+def _carregar_escala(carregar_cronograma=None):
+    """Sempre tenta a API com token. Fallback só se a API falhar."""
+    token = st.session_state.get("token")
 
-    if dia_hoje not in df_escala.columns:
+    # 1) Função passada pelo app.py (cache)
+    if carregar_cronograma is not None:
+        try:
+            df = carregar_cronograma()
+            if df is not None and not (hasattr(df, "empty") and df.empty):
+                from views.escala import _normalizar_colunas_escala
+                return _normalizar_colunas_escala(df)
+        except Exception:
+            pass
+
+    # 2) API direta com token
+    df = get_cronograma_credenciamento(API_URL, token)
+    return df
+
+
+def _match_operador(serie_operador, nome_busca: str):
+    """Match flexível: nome completo, primeiro nome, contém."""
+    if not nome_busca or serie_operador is None:
+        return serie_operador.astype(str).str.len() < 0  # máscara vazia
+
+    nome = str(nome_busca).strip()
+    s = serie_operador.astype(str).str.strip()
+    s_cf = s.str.casefold()
+    nome_cf = nome.casefold()
+    primeiro = nome.split()[0].casefold() if nome.split() else nome_cf
+
+    return (
+        (s_cf == nome_cf)
+        | (s_cf == primeiro)
+        | s_cf.str.contains(primeiro, na=False)
+        | s_cf.str.contains(nome_cf, na=False)
+    )
+
+
+def _clientes_do_dia(
+    df_escala,
+    nome_operador: str,
+    dia_ref: str,
+    perfil_usuario: str,
+    forcar_todos: bool = False,
+) -> list:
+    if df_escala is None or df_escala.empty:
+        return []
+    if dia_ref not in df_escala.columns:
         return []
 
     perfil_normalizado = (perfil_usuario or "").strip().lower()
-    visao_geral = perfil_normalizado in PERFIS_VISAO_GERAL
+    visao_geral = forcar_todos or perfil_normalizado in PERFIS_VISAO_GERAL
 
-    if visao_geral:
-        valores = df_escala[dia_hoje].dropna().astype(str).str.strip()
+    if visao_geral and not nome_operador:
+        valores = df_escala[dia_ref].dropna().astype(str).str.strip()
+    elif nome_operador:
+        filtro = _match_operador(df_escala["Operador"], nome_operador)
+        valores = df_escala.loc[filtro, dia_ref].dropna().astype(str).str.strip()
     else:
-        nome_operador = (nome_operador or "").strip()
-        if not nome_operador:
-            return []
-        primeiro_nome = nome_operador.split()[0] if nome_operador.split() else nome_operador
-        filtro = (
-            df_escala["Operador"].astype(str).str.strip().str.casefold()
-            == primeiro_nome.strip().casefold()
-        )
-        valores = df_escala.loc[filtro, dia_hoje].dropna().astype(str).str.strip()
-
-    clientes = [v for v in valores.unique().tolist() if v and v != "-"]
-    return sorted(clientes)
-
-
-def _todos_clientes_do_dia(dia_hoje: str) -> list:
-    df_escala = get_cronograma_credenciamento()
-    if dia_hoje not in df_escala.columns:
         return []
-    valores = df_escala[dia_hoje].dropna().astype(str).str.strip()
+
     clientes = [v for v in valores.unique().tolist() if v and v != "-"]
     return sorted(clientes)
+
+
+def _todos_clientes_do_dia(df_escala, dia_ref: str) -> list:
+    if df_escala is None or df_escala.empty or dia_ref not in df_escala.columns:
+        return []
+    valores = df_escala[dia_ref].dropna().astype(str).str.strip()
+    clientes = [v for v in valores.unique().tolist() if v and v != "-"]
+    return sorted(clientes)
+
+
+def _lista_operadores(df_escala) -> list:
+    if df_escala is None or df_escala.empty or "Operador" not in df_escala.columns:
+        return []
+    ops = (
+        df_escala["Operador"]
+        .dropna()
+        .astype(str)
+        .str.strip()
+        .replace("", None)
+        .dropna()
+        .unique()
+        .tolist()
+    )
+    return sorted(ops)
 
 
 def render_lancamento(api_post, carregar_cronograma=None):
-    # ===================== CSS PREMIUM =====================
     st.markdown(
         """
     <style>
@@ -92,7 +163,6 @@ def render_lancamento(api_post, carregar_cronograma=None):
             70%  { box-shadow: 0 0 0 12px rgba(255, 146, 0, 0); }
             100% { box-shadow: 0 0 0 0 rgba(255, 146, 0, 0); }
         }
-
         .lanc-hero {
             background: linear-gradient(-45deg, #001E57, #030A1A, #0B296B, #001233);
             background-size: 300% 300%;
@@ -106,47 +176,15 @@ def render_lancamento(api_post, carregar_cronograma=None):
             position: relative;
             overflow: hidden;
         }
-        .lanc-hero::before {
-            content: '';
-            position: absolute;
-            top: -40%;
-            right: -8%;
-            width: 240px;
-            height: 240px;
-            border-radius: 50%;
-            background: radial-gradient(circle, rgba(255,146,0,0.22) 0%, transparent 70%);
-            pointer-events: none;
-        }
-        .lanc-hero h2 {
-            margin: 0;
-            font-weight: 900;
-            font-size: 1.85rem;
-            letter-spacing: -0.5px;
-            position: relative;
-            z-index: 1;
-        }
-        .lanc-hero p {
-            margin: 8px 0 0 0;
-            color: #94A3B8;
-            font-size: 0.95rem;
-            position: relative;
-            z-index: 1;
-        }
+        .lanc-hero h2 { margin: 0; font-weight: 900; font-size: 1.85rem; position: relative; z-index: 1; }
+        .lanc-hero p { margin: 8px 0 0 0; color: #94A3B8; font-size: 0.95rem; position: relative; z-index: 1; }
         .lanc-badge {
-            display: inline-block;
-            margin-top: 14px;
+            display: inline-block; margin-top: 14px;
             background: linear-gradient(135deg, #FF9200, #FFB84D);
-            color: #fff;
-            padding: 6px 14px;
-            border-radius: 99px;
-            font-weight: 800;
-            font-size: 0.72rem;
-            letter-spacing: 0.4px;
-            animation: pulseGlow 2.2s infinite;
-            position: relative;
-            z-index: 1;
+            color: #fff; padding: 6px 14px; border-radius: 99px;
+            font-weight: 800; font-size: 0.72rem;
+            animation: pulseGlow 2.2s infinite; position: relative; z-index: 1;
         }
-
         .lanc-shell {
             background: linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 100%);
             padding: 26px 24px 20px 24px;
@@ -157,116 +195,135 @@ def render_lancamento(api_post, carregar_cronograma=None):
             animation: fadeInUp 0.6s ease-out;
             margin-bottom: 12px;
         }
-
-        .lanc-chip-row {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-            margin-bottom: 18px;
-        }
+        .lanc-chip-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
         .lanc-chip {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            background: rgba(0, 30, 87, 0.06);
-            color: #001E57;
+            display: inline-flex; align-items: center; gap: 6px;
+            background: rgba(0, 30, 87, 0.06); color: #001E57;
             border: 1px solid rgba(0, 30, 87, 0.1);
-            padding: 6px 12px;
-            border-radius: 99px;
-            font-size: 0.78rem;
-            font-weight: 700;
+            padding: 6px 12px; border-radius: 99px;
+            font-size: 0.78rem; font-weight: 700;
         }
         .lanc-chip.orange {
-            background: rgba(255, 146, 0, 0.12);
-            color: #C2410C;
+            background: rgba(255, 146, 0, 0.12); color: #C2410C;
             border-color: rgba(255, 146, 0, 0.28);
         }
         .lanc-chip.green {
-            background: rgba(16, 185, 129, 0.12);
-            color: #047857;
+            background: rgba(16, 185, 129, 0.12); color: #047857;
             border-color: rgba(16, 185, 129, 0.25);
         }
-
         .justificativa-box {
             border-left: 4px solid #FF9200;
             background: linear-gradient(135deg, #FFF9F0 0%, #FFF5E6 100%);
             padding: 16px 16px 6px 16px;
-            border-radius: 12px;
-            margin: 8px 0 14px 0;
+            border-radius: 12px; margin: 8px 0 14px 0;
             border: 1px solid rgba(255, 146, 0, 0.2);
-            animation: fadeInUp 0.4s ease-out;
         }
-
         .lanc-section-title {
-            color: #001E57;
-            font-weight: 800;
-            font-size: 1rem;
-            margin: 4px 0 12px 0;
-            letter-spacing: -0.2px;
+            color: #001E57; font-weight: 800; font-size: 1rem; margin: 4px 0 12px 0;
         }
-
+        .admin-box {
+            background: #F0F7FF;
+            border: 1px solid #BFDBFE;
+            border-left: 4px solid #001E57;
+            border-radius: 12px;
+            padding: 14px 16px;
+            margin-bottom: 16px;
+        }
         div.stButton > button[kind="primary"] {
             background: linear-gradient(135deg, #FF9200 0%, #E07A00 100%) !important;
-            color: white !important;
-            font-weight: 800 !important;
-            height: 52px !important;
-            border-radius: 14px !important;
-            border: none !important;
+            color: white !important; font-weight: 800 !important;
+            height: 52px !important; border-radius: 14px !important; border: none !important;
             box-shadow: 0 6px 18px rgba(255, 146, 0, 0.3) !important;
-            transition: all 0.25s ease !important;
-        }
-        div.stButton > button[kind="primary"]:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 26px rgba(255, 146, 0, 0.4) !important;
-            background: linear-gradient(135deg, #FFA733 0%, #FF9200 100%) !important;
-        }
-
-        div[data-testid="stSelectbox"] label,
-        div[data-testid="stTextInput"] label,
-        div[data-testid="stTextArea"] label {
-            font-weight: 700 !important;
-            color: #001E57 !important;
         }
     </style>
     """,
         unsafe_allow_html=True,
     )
 
-    # ===================== HEADER =====================
     st.markdown(
         """
     <div class="lanc-hero">
         <h2>📝 Lançar Execução Diária</h2>
-        <p>Registre as atividades operacionais do dia com base na escala</p>
-        <span class="lanc-badge">⚡ APONTAMENTO · DIA CORRENTE</span>
+        <p>Registre as atividades operacionais com base na escala atualizada</p>
+        <span class="lanc-badge">⚡ APONTAMENTO · ESCALA AO VIVO</span>
     </div>
     """,
         unsafe_allow_html=True,
     )
 
-    dia_hoje = _dia_semana_atual_brasil()
-    nome_operador = (
+    perfil_usuario = _perfil_usuario_atual()
+    nome_logado = (
         st.session_state.get("nome")
         or st.session_state.get("user_nome")
         or st.session_state.get("username")
         or ""
     )
-    perfil_usuario = _perfil_usuario_atual()
 
     pode_lancar = perfil_usuario in PERFIS_PODEM_LANCAR or pode_editar(perfil_usuario)
     if not pode_lancar:
         aviso_somente_leitura()
         return
 
-    clientes_hoje = _clientes_do_dia(nome_operador, dia_hoje, perfil_usuario)
-    todos_clientes_hoje = _todos_clientes_do_dia(dia_hoje)
+    eh_admin_lancar = perfil_usuario in PERFIS_ADMIN_LANCAR
 
-    # Chips de contexto
-    visao_txt = "Visão geral do dia" if perfil_usuario in PERFIS_VISAO_GERAL else "Minha escala"
+    # Escala SEMPRE da API (com token)
+    df_escala = _carregar_escala(carregar_cronograma)
+
+    # ----- Admin: operador + data -----
+    data_lancamento = date.today()
+    nome_operador = nome_logado
+
+    if eh_admin_lancar:
+        st.markdown(
+            """
+        <div class="admin-box">
+            <b>🛡️ Modo gestão</b> — você pode lançar em nome de qualquer operador
+            e ajustar a data (correção / atraso).
+        </div>
+        """,
+            unsafe_allow_html=True,
+        )
+        a1, a2 = st.columns(2)
+        with a1:
+            ops = _lista_operadores(df_escala)
+            opcoes_op = ["Eu mesmo (logado)"] + ops
+            escolha_op = st.selectbox(
+                "👤 Lançar como operador",
+                opcoes_op,
+                key="lanc_admin_operador",
+            )
+            if escolha_op != "Eu mesmo (logado)":
+                nome_operador = escolha_op
+        with a2:
+            data_lancamento = st.date_input(
+                "📅 Data do lançamento",
+                value=date.today(),
+                key="lanc_admin_data",
+            )
+
+    dia_ref = _dia_semana_de_data(data_lancamento)
+
+    # Clientes do dia (da matriz atual da API)
+    if eh_admin_lancar and nome_operador:
+        clientes_hoje = _clientes_do_dia(
+            df_escala, nome_operador, dia_ref, perfil_usuario, forcar_todos=False
+        )
+    else:
+        clientes_hoje = _clientes_do_dia(
+            df_escala, nome_operador, dia_ref, perfil_usuario
+        )
+
+    todos_clientes_hoje = _todos_clientes_do_dia(df_escala, dia_ref)
+
+    visao_txt = (
+        "Visão geral"
+        if perfil_usuario in PERFIS_VISAO_GERAL and not eh_admin_lancar
+        else "Escala do operador"
+    )
     st.markdown(
         f"""
     <div class="lanc-chip-row">
-        <span class="lanc-chip">📅 {dia_hoje}</span>
+        <span class="lanc-chip">📅 {dia_ref} · {data_lancamento.strftime("%d/%m/%Y")}</span>
         <span class="lanc-chip orange">👤 {nome_operador or "Usuário"}</span>
         <span class="lanc-chip green">🏷️ {perfil_usuario.title()}</span>
         <span class="lanc-chip">📋 {len(clientes_hoje)} cliente(s) · {visao_txt}</span>
@@ -277,13 +334,12 @@ def render_lancamento(api_post, carregar_cronograma=None):
 
     if DEBUG_DIAGNOSTICO:
         st.caption(
-            f"🛠️ [DEV] Usuário: {nome_operador or '(vazio)'} | "
-            f"Perfil: {perfil_usuario or '(vazio)'} | "
-            f"Visão geral: {perfil_usuario in PERFIS_VISAO_GERAL} | "
-            f"Clientes: {len(clientes_hoje)}"
+            f"[DEV] op={nome_operador} | perfil={perfil_usuario} | "
+            f"dia={dia_ref} | clientes={clientes_hoje} | "
+            f"linhas_escala={0 if df_escala is None else len(df_escala)}"
         )
 
-    # ===================== FORMULÁRIO =====================
+    # ----- Formulário -----
     st.markdown('<div class="lanc-shell">', unsafe_allow_html=True)
     st.markdown('<p class="lanc-section-title">Novo apontamento</p>', unsafe_allow_html=True)
 
@@ -293,12 +349,12 @@ def render_lancamento(api_post, carregar_cronograma=None):
         opcoes_cliente = (
             ["Selecione..."]
             + clientes_hoje
-            + ["Suporte", "Outro (fora da escala de hoje)"]
+            + ["Suporte", "Outro (fora da escala)"]
         )
         if not clientes_hoje:
             st.info(
-                "ℹ️ Nenhum cliente/serviço na escala de hoje. "
-                "Use **Suporte** ou **Outro**."
+                "ℹ️ Nenhum cliente na escala para este operador/dia. "
+                "Confira se a escala foi salva na API ou use **Outro**."
             )
 
         cliente_sel = st.selectbox(
@@ -317,7 +373,7 @@ def render_lancamento(api_post, carregar_cronograma=None):
                 opcoes_suporte,
                 key="lanc_cliente_suporte",
             )
-        elif cliente_sel == "Outro (fora da escala de hoje)":
+        elif cliente_sel == "Outro (fora da escala)":
             cliente_final = st.text_input(
                 "Digite o nome do cliente/serviço",
                 placeholder="Ex: Vivest, Hospital Santa Casa...",
@@ -357,10 +413,8 @@ def render_lancamento(api_post, carregar_cronograma=None):
         type="primary",
         key="lanc_salvar",
     )
-
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # ===================== SALVAR =====================
     if salvar:
         cliente_invalido = (
             cliente_sel == "Selecione..."
@@ -379,8 +433,18 @@ def render_lancamento(api_post, carregar_cronograma=None):
             "cliente_nome": str(cliente_final).strip(),
             "status": status,
             "justificativa": justificativa.strip(),
-            "operador_nome": nome_operador,
+            "operador_nome": str(nome_operador).strip(),
         }
+
+        # Admin pode mandar data (backend precisa aceitar — ver trecho abaixo)
+        if eh_admin_lancar:
+            payload["data_registro"] = datetime(
+                data_lancamento.year,
+                data_lancamento.month,
+                data_lancamento.day,
+                datetime.now(FUSO_BR).hour,
+                datetime.now(FUSO_BR).minute,
+            ).isoformat()
 
         with st.spinner("Salvando lançamento..."):
             resposta = api_post("/registros/", payload)

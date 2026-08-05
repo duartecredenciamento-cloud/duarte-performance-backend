@@ -3,7 +3,7 @@ from typing import Optional
 from pydantic import (
     BaseModel,
     ConfigDict,
-    field_validator
+    field_validator,
 )
 
 
@@ -139,13 +139,17 @@ class RegistroBase(BaseModel):
 
 
 class RegistroCreate(RegistroBase):
-    pass
+    # Admin/Gestor: lançar em nome de outro + data custom
+    operador_nome: Optional[str] = None
+    data_registro: Optional[datetime] = None
 
 
 class RegistroUpdate(BaseModel):
     cliente_nome: Optional[str] = None
     status: Optional[str] = None
     justificativa: Optional[str] = None
+    operador_nome: Optional[str] = None
+    data_registro: Optional[datetime] = None
 
 
 class RegistroOut(BaseModel):
@@ -178,7 +182,7 @@ class AuditoriaOut(BaseModel):
 
 
 # =====================================================
-# RECUPERAÇÃO DE SENHA (Admin só autoriza; não define senha)
+# RECUPERAÇÃO DE SENHA
 # =====================================================
 
 class SolicitacaoSenhaCreate(BaseModel):
@@ -216,11 +220,8 @@ class RedefinirSenhaAutorizada(BaseModel):
 
 
 # =====================================================
-# NOMES DA ESCALA DISPONÍVEIS PARA CRIAR CONTA
+# NOMES DA ESCALA (CRIAR CONTA)
 # =====================================================
-# Usado na tela "Criar Conta": lista quem já está na escala mas
-# ainda não tem usuário, junto com o login sugerido
-# (ex: "karine.martinez") calculado no backend.
 
 class NomeDisponivelOut(BaseModel):
     nome: str
