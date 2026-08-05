@@ -19,7 +19,7 @@ from jose import JWTError, jwt
 
 from pydantic import BaseModel
 
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, time
 import unicodedata
 
 import models
@@ -132,10 +132,17 @@ ROLES_GESTAO = ("Admin", "Gestor", "Admin Master", "Coordenador")
 ROLES_VALIDAS = ["Operador", "Visualizador", "Gestor", "Admin"]
 
 
+def _eh_gestao(role: str) -> bool:
+    r = (role or "").strip()
+    if r in ROLES_GESTAO:
+        return True
+    return r.lower() in {"admin", "admin master", "gestor", "coordenador"}
+
+
 def exigir_admin_ou_gestor(
     usuario: models.Usuario = Depends(usuario_logado),
 ) -> models.Usuario:
-    if usuario.role not in ROLES_GESTAO:
+    if not _eh_gestao(usuario.role):
         raise HTTPException(
             status_code=403,
             detail="Acesso restrito a Admin ou Gestor.",
@@ -146,7 +153,10 @@ def exigir_admin_ou_gestor(
 def exigir_admin(
     usuario: models.Usuario = Depends(usuario_logado),
 ) -> models.Usuario:
-    if usuario.role not in ("Admin", "Admin Master"):
+    if usuario.role not in ("Admin", "Admin Master") and (usuario.role or "").lower() not in (
+        "admin",
+        "admin master",
+    ):
         raise HTTPException(
             status_code=403,
             detail="Acesso restrito ao perfil Admin.",
@@ -587,6 +597,34 @@ DIAS_COLUNA = {
 }
 
 
+def _parse_data_registro(valor) -> datetime | None:
+    """Converte string/date/datetime em datetime naive (sem tz)."""
+    if valor is None:
+        return None
+    try:
+        if isinstance(valor, datetime):
+            dt = valor
+        elif isinstance(valor, date) and not isinstance(valor, datetime):
+            dt = datetime.combine(valor, time(12, 0, 0))
+        elif isinstance(valor, str):
+            s = valor.strip().replace("Z", "+00:00")
+            # Só data: YYYY-MM-DD
+            if len(s) == 10 and s[4] == "-" and s[7] == "-":
+                d = date.fromisoformat(s)
+                dt = datetime.combine(d, time(12, 0, 0))
+            else:
+                dt = datetime.fromisoformat(s)
+        else:
+            return None
+
+        if getattr(dt, "tzinfo", None) is not None:
+            dt = dt.replace(tzinfo=None)
+        return dt
+    except Exception as e:
+        print(f"⚠️ Falha ao parsear data_registro={valor!r}: {e}")
+        return None
+
+
 @app.post("/registros/", response_model=schemas.RegistroOut)
 def criar_registro(
     registro: schemas.RegistroCreate,
@@ -594,34 +632,31 @@ def criar_registro(
     usuario: models.Usuario = Depends(usuario_logado),
 ):
     """
-    Operador comum: grava com o próprio nome.
+    Operador comum: grava com o próprio nome e data atual.
     Admin/Gestor/Coordenador: pode mandar operador_nome e data_registro.
     """
     nome_operador = usuario.nome
     role = (usuario.role or "").strip()
+    gestao = _eh_gestao(role)
 
-    if role in ROLES_GESTAO:
+    if gestao:
         op = getattr(registro, "operador_nome", None)
         if op and str(op).strip():
             nome_operador = str(op).strip()
 
+    cliente = registro.cliente_nome or getattr(registro, "cliente", None) or ""
+
     novo = models.RegistroModel(
         operador_nome=nome_operador,
-        cliente_nome=registro.cliente_nome,
+        cliente_nome=cliente,
         status=registro.status,
         justificativa=registro.justificativa or "",
     )
 
-    data_custom = getattr(registro, "data_registro", None)
-    if data_custom is not None and role in ROLES_GESTAO:
-        try:
-            if isinstance(data_custom, str):
-                data_custom = datetime.fromisoformat(
-                    data_custom.replace("Z", "+00:00")
-                )
-            novo.data_registro = data_custom
-        except Exception:
-            pass
+    if gestao:
+        dt = _parse_data_registro(getattr(registro, "data_registro", None))
+        if dt is not None:
+            novo.data_registro = dt
 
     db.add(novo)
     db.commit()
@@ -656,6 +691,11 @@ def atualizar_registro(
     if not r:
         raise HTTPException(404, "Registro não encontrado")
     for campo, valor in dados.dict(exclude_unset=True).items():
+        if campo == "data_registro" and valor is not None:
+            dt = _parse_data_registro(valor)
+            if dt is not None:
+                setattr(r, campo, dt)
+            continue
         setattr(r, campo, valor)
     db.commit()
     return {"status": "Atualizado"}
@@ -694,10 +734,6 @@ def preencher_nao_informado(
     db: Session = Depends(get_db),
     _: models.Usuario = Depends(exigir_admin_ou_gestor),
 ):
-    """
-    Cria 'Não Informado' para cada Operador+Cliente da escala do dia
-    que ainda NÃO tem lançamento. Não apaga nem sobrescreve.
-    """
     if dados and dados.data:
         data_str = dados.data
     elif data:
@@ -738,9 +774,8 @@ def preencher_nao_informado(
         if operador and cliente and cliente != "-":
             esperados.append((operador, cliente))
 
-    # Qualquer status no dia conta como "já existe"
-    inicio = datetime.combine(data_alvo, datetime.min.time())
-    fim = datetime.combine(data_alvo, datetime.max.time())
+    inicio = datetime.combine(data_alvo, time.min)
+    fim = datetime.combine(data_alvo, time.max)
     existentes = (
         db.query(
             models.RegistroModel.operador_nome,
@@ -767,9 +802,7 @@ def preencher_nao_informado(
             ignorados += 1
             continue
 
-        dt = datetime.combine(data_alvo, datetime.min.time()).replace(
-            hour=23, minute=59, second=0
-        )
+        dt = datetime.combine(data_alvo, time(23, 59, 0))
         novo = models.RegistroModel(
             operador_nome=operador,
             cliente_nome=cliente,
@@ -787,9 +820,7 @@ def preencher_nao_informado(
 
     return {
         "status": "sucesso",
-        "mensagem": (
-            f"{data_str}: {criados} criado(s), {ignorados} já existiam."
-        ),
+        "mensagem": f"{data_str}: {criados} criado(s), {ignorados} já existiam.",
         "data": data_str,
         "criados": criados,
         "ignorados_ja_existiam": ignorados,
