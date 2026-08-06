@@ -36,10 +36,6 @@ PERFIS_PODEM_LANCAR = PERFIS_VISAO_GERAL | {"operador"}
 DEBUG_DIAGNOSTICO = False
 
 
-def _dia_semana_atual_brasil() -> str:
-    return DIAS_SEMANA_PT[datetime.now(FUSO_BR).weekday()]
-
-
 def _dia_semana_de_data(d: date) -> str:
     return DIAS_SEMANA_PT[d.weekday()]
 
@@ -57,10 +53,8 @@ def _perfil_usuario_atual() -> str:
 
 
 def _carregar_escala(carregar_cronograma=None):
-    """Sempre tenta a API com token. Fallback só se a API falhar."""
     token = st.session_state.get("token")
 
-    # 1) Função passada pelo app.py (cache)
     if carregar_cronograma is not None:
         try:
             df = carregar_cronograma()
@@ -70,15 +64,12 @@ def _carregar_escala(carregar_cronograma=None):
         except Exception:
             pass
 
-    # 2) API direta com token
-    df = get_cronograma_credenciamento(API_URL, token)
-    return df
+    return get_cronograma_credenciamento(API_URL, token)
 
 
 def _match_operador(serie_operador, nome_busca: str):
-    """Match flexível: nome completo, primeiro nome, contém."""
     if not nome_busca or serie_operador is None:
-        return serie_operador.astype(str).str.len() < 0  # máscara vazia
+        return serie_operador.astype(str).str.len() < 0
 
     nome = str(nome_busca).strip()
     s = serie_operador.astype(str).str.strip()
@@ -92,6 +83,32 @@ def _match_operador(serie_operador, nome_busca: str):
         | s_cf.str.contains(primeiro, na=False)
         | s_cf.str.contains(nome_cf, na=False)
     )
+
+
+def _nome_padrao_escala(df_escala, nome_busca: str) -> str:
+    """
+    Devolve o nome EXATO como está na escala (padrão único no banco).
+    Ex.: busca 'Larissa Adriene...' → encontra 'LARISSA' na matriz.
+    """
+    if not nome_busca:
+        return ""
+    if df_escala is None or df_escala.empty or "Operador" not in df_escala.columns:
+        return str(nome_busca).strip()
+
+    filtro = _match_operador(df_escala["Operador"], nome_busca)
+    hits = (
+        df_escala.loc[filtro, "Operador"]
+        .dropna()
+        .astype(str)
+        .str.strip()
+        .unique()
+        .tolist()
+    )
+    if not hits:
+        return str(nome_busca).strip()
+
+    # Se tiver mais de um, pega o mais curto (padrão da matriz: LARISSA)
+    return min(hits, key=len)
 
 
 def _clientes_do_dia(
@@ -154,46 +171,38 @@ def render_lancamento(api_post, carregar_cronograma=None):
             to   { opacity: 1; transform: translateY(0); }
         }
         @keyframes floatGradient {
-            0%   { background-position: 0% 50%; }
-            50%  { background-position: 100% 50%; }
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
             100% { background-position: 0% 50%; }
         }
         @keyframes pulseGlow {
-            0%   { box-shadow: 0 0 0 0 rgba(255, 146, 0, 0.5); }
-            70%  { box-shadow: 0 0 0 12px rgba(255, 146, 0, 0); }
+            0% { box-shadow: 0 0 0 0 rgba(255, 146, 0, 0.5); }
+            70% { box-shadow: 0 0 0 12px rgba(255, 146, 0, 0); }
             100% { box-shadow: 0 0 0 0 rgba(255, 146, 0, 0); }
         }
         .lanc-hero {
             background: linear-gradient(-45deg, #001E57, #030A1A, #0B296B, #001233);
             background-size: 300% 300%;
             animation: floatGradient 12s ease infinite, fadeInUp 0.55s ease-out;
-            padding: 28px 32px;
-            border-radius: 22px;
-            color: #fff;
-            margin-bottom: 22px;
-            border-left: 6px solid #FF9200;
+            padding: 28px 32px; border-radius: 22px; color: #fff;
+            margin-bottom: 22px; border-left: 6px solid #FF9200;
             box-shadow: 0 16px 40px rgba(0, 30, 87, 0.22);
-            position: relative;
-            overflow: hidden;
         }
-        .lanc-hero h2 { margin: 0; font-weight: 900; font-size: 1.85rem; position: relative; z-index: 1; }
-        .lanc-hero p { margin: 8px 0 0 0; color: #94A3B8; font-size: 0.95rem; position: relative; z-index: 1; }
+        .lanc-hero h2 { margin: 0; font-weight: 900; font-size: 1.85rem; }
+        .lanc-hero p { margin: 8px 0 0 0; color: #94A3B8; font-size: 0.95rem; }
         .lanc-badge {
             display: inline-block; margin-top: 14px;
             background: linear-gradient(135deg, #FF9200, #FFB84D);
             color: #fff; padding: 6px 14px; border-radius: 99px;
             font-weight: 800; font-size: 0.72rem;
-            animation: pulseGlow 2.2s infinite; position: relative; z-index: 1;
+            animation: pulseGlow 2.2s infinite;
         }
         .lanc-shell {
             background: linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 100%);
-            padding: 26px 24px 20px 24px;
-            border-radius: 20px;
+            padding: 26px 24px 20px 24px; border-radius: 20px;
             box-shadow: 0 12px 32px rgba(0, 30, 87, 0.07);
-            border: 1px solid #E2E8F0;
-            border-top: 5px solid #FF9200;
-            animation: fadeInUp 0.6s ease-out;
-            margin-bottom: 12px;
+            border: 1px solid #E2E8F0; border-top: 5px solid #FF9200;
+            animation: fadeInUp 0.6s ease-out; margin-bottom: 12px;
         }
         .lanc-chip-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
         .lanc-chip {
@@ -214,20 +223,16 @@ def render_lancamento(api_post, carregar_cronograma=None):
         .justificativa-box {
             border-left: 4px solid #FF9200;
             background: linear-gradient(135deg, #FFF9F0 0%, #FFF5E6 100%);
-            padding: 16px 16px 6px 16px;
-            border-radius: 12px; margin: 8px 0 14px 0;
-            border: 1px solid rgba(255, 146, 0, 0.2);
+            padding: 16px 16px 6px 16px; border-radius: 12px;
+            margin: 8px 0 14px 0; border: 1px solid rgba(255, 146, 0, 0.2);
         }
         .lanc-section-title {
             color: #001E57; font-weight: 800; font-size: 1rem; margin: 4px 0 12px 0;
         }
         .admin-box {
-            background: #F0F7FF;
-            border: 1px solid #BFDBFE;
-            border-left: 4px solid #001E57;
-            border-radius: 12px;
-            padding: 14px 16px;
-            margin-bottom: 16px;
+            background: #F0F7FF; border: 1px solid #BFDBFE;
+            border-left: 4px solid #001E57; border-radius: 12px;
+            padding: 14px 16px; margin-bottom: 16px;
         }
         div.stButton > button[kind="primary"] {
             background: linear-gradient(135deg, #FF9200 0%, #E07A00 100%) !important;
@@ -265,11 +270,8 @@ def render_lancamento(api_post, carregar_cronograma=None):
         return
 
     eh_admin_lancar = perfil_usuario in PERFIS_ADMIN_LANCAR
-
-    # Escala SEMPRE da API (com token)
     df_escala = _carregar_escala(carregar_cronograma)
 
-    # ----- Admin: operador + data -----
     data_lancamento = date.today()
     nome_operador = nome_logado
 
@@ -277,8 +279,8 @@ def render_lancamento(api_post, carregar_cronograma=None):
         st.markdown(
             """
         <div class="admin-box">
-            <b>🛡️ Modo gestão</b> — você pode lançar em nome de qualquer operador
-            e ajustar a data (correção / atraso).
+            <b>🛡️ Modo gestão</b> — lançar em nome de qualquer operador e ajustar a data.
+            O nome gravado segue o <b>padrão da escala</b> (evita duplicar no dashboard).
         </div>
         """,
             unsafe_allow_html=True,
@@ -301,9 +303,11 @@ def render_lancamento(api_post, carregar_cronograma=None):
                 key="lanc_admin_data",
             )
 
+    # Nome padrão da escala (sempre)
+    nome_para_gravar = _nome_padrao_escala(df_escala, nome_operador)
+
     dia_ref = _dia_semana_de_data(data_lancamento)
 
-    # Clientes do dia (da matriz atual da API)
     if eh_admin_lancar and nome_operador:
         clientes_hoje = _clientes_do_dia(
             df_escala, nome_operador, dia_ref, perfil_usuario, forcar_todos=False
@@ -324,7 +328,7 @@ def render_lancamento(api_post, carregar_cronograma=None):
         f"""
     <div class="lanc-chip-row">
         <span class="lanc-chip">📅 {dia_ref} · {data_lancamento.strftime("%d/%m/%Y")}</span>
-        <span class="lanc-chip orange">👤 {nome_operador or "Usuário"}</span>
+        <span class="lanc-chip orange">👤 {nome_para_gravar or nome_operador or "Usuário"}</span>
         <span class="lanc-chip green">🏷️ {perfil_usuario.title()}</span>
         <span class="lanc-chip">📋 {len(clientes_hoje)} cliente(s) · {visao_txt}</span>
     </div>
@@ -334,14 +338,15 @@ def render_lancamento(api_post, carregar_cronograma=None):
 
     if DEBUG_DIAGNOSTICO:
         st.caption(
-            f"[DEV] op={nome_operador} | perfil={perfil_usuario} | "
-            f"dia={dia_ref} | clientes={clientes_hoje} | "
-            f"linhas_escala={0 if df_escala is None else len(df_escala)}"
+            f"[DEV] busca={nome_operador} | grava={nome_para_gravar} | "
+            f"dia={dia_ref} | clientes={clientes_hoje}"
         )
 
-    # ----- Formulário -----
     st.markdown('<div class="lanc-shell">', unsafe_allow_html=True)
-    st.markdown('<p class="lanc-section-title">Novo apontamento</p>', unsafe_allow_html=True)
+    st.markdown(
+        '<p class="lanc-section-title">Novo apontamento</p>',
+        unsafe_allow_html=True,
+    )
 
     col1, col2 = st.columns(2)
 
@@ -354,7 +359,7 @@ def render_lancamento(api_post, carregar_cronograma=None):
         if not clientes_hoje:
             st.info(
                 "ℹ️ Nenhum cliente na escala para este operador/dia. "
-                "Confira se a escala foi salva na API ou use **Outro**."
+                "Use **Outro** se precisar."
             )
 
         cliente_sel = st.selectbox(
@@ -433,14 +438,12 @@ def render_lancamento(api_post, carregar_cronograma=None):
             "cliente_nome": str(cliente_final).strip(),
             "status": status,
             "justificativa": justificativa.strip(),
-            "operador_nome": str(nome_operador).strip(),
+            # SEMPRE o nome padrão da escala
+            "operador_nome": str(nome_para_gravar or nome_operador).strip(),
         }
 
-        # Admin: data fixa ao meio-dia (evita fuso / “sem data”)
         if eh_admin_lancar:
-            payload["data_registro"] = (
-                f"{data_lancamento.isoformat()}T12:00:00"
-            )
+            payload["data_registro"] = f"{data_lancamento.isoformat()}T12:00:00"
 
         with st.spinner("Salvando lançamento..."):
             resposta = api_post("/registros/", payload)
