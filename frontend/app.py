@@ -28,10 +28,7 @@ API_URL = os.getenv(
     "https://duarte-performance-backend-production.up.railway.app",
 )
 
-# Perfis com acesso total de gestão
 PAPEIS_GESTAO = ["Admin Master", "Gestor", "Admin", "Coordenador"]
-
-# Quem pode LANÇAR tarefa (inclui Visualizador)
 PAPEIS_LANCAMENTO = [
     "Operador",
     "Visualizador",
@@ -41,7 +38,6 @@ PAPEIS_LANCAMENTO = [
     "Coordenador",
 ]
 
-# CSS
 css_path = os.path.join(os.path.dirname(__file__), "styles.css")
 try:
     with open(css_path, "r", encoding="utf-8") as f:
@@ -57,7 +53,6 @@ if st.session_state["carregando"]:
     st.markdown(
         """
     <style>
-        /* Esconde chrome do Streamlit só no loading */
         [data-testid="stSidebar"],
         [data-testid="stHeader"],
         [data-testid="stToolbar"],
@@ -92,84 +87,53 @@ if st.session_state["carregando"]:
             font-family: 'Inter', system-ui, -apple-system, sans-serif;
         }
         .dp-logo-mark {
-            width: 72px;
-            height: 72px;
-            border-radius: 18px;
+            width: 72px; height: 72px; border-radius: 18px;
             background: linear-gradient(135deg, #FF9200 0%, #E07A00 100%);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #fff;
-            font-size: 1.75rem;
-            font-weight: 900;
-            letter-spacing: -1px;
+            display: flex; align-items: center; justify-content: center;
+            color: #fff; font-size: 1.75rem; font-weight: 900;
             box-shadow: 0 12px 40px rgba(255, 146, 0, 0.35);
             margin-bottom: 28px;
         }
         .dp-title {
-            color: #FFFFFF;
-            font-size: 2rem;
-            font-weight: 800;
+            color: #FFFFFF; font-size: 2rem; font-weight: 800;
             margin: 0 0 6px 0;
-            letter-spacing: -0.5px;
         }
         .dp-title span { color: #FF9200; }
         .dp-sub {
-            color: #94A3B8;
-            font-size: 0.95rem;
-            margin: 0 0 36px 0;
-            font-weight: 500;
+            color: #94A3B8; font-size: 0.95rem; margin: 0 0 36px 0;
         }
         .dp-ring {
-            width: 48px;
-            height: 48px;
-            border-radius: 50%;
+            width: 48px; height: 48px; border-radius: 50%;
             border: 3px solid rgba(255, 255, 255, 0.12);
             border-top-color: #FF9200;
             animation: spinRing 0.85s linear infinite;
             margin-bottom: 22px;
         }
         .dp-bar {
-            width: 200px;
-            height: 4px;
-            border-radius: 99px;
+            width: 200px; height: 4px; border-radius: 99px;
             background: rgba(255, 255, 255, 0.1);
-            overflow: hidden;
-            margin-bottom: 18px;
+            overflow: hidden; margin-bottom: 18px;
         }
         .dp-bar-inner {
-            height: 100%;
-            width: 45%;
-            border-radius: 99px;
+            height: 100%; width: 45%; border-radius: 99px;
             background: linear-gradient(90deg, #FF9200, #FFB84D, #FF9200);
             background-size: 200% 100%;
             animation: barShine 1.4s ease-in-out infinite;
         }
         .dp-status {
-            color: #CBD5E1;
-            font-size: 0.8rem;
-            font-weight: 600;
-            letter-spacing: 0.4px;
+            color: #CBD5E1; font-size: 0.8rem; font-weight: 600;
         }
         .dp-dots span {
-            display: inline-block;
-            width: 5px;
-            height: 5px;
-            margin: 0 3px;
-            border-radius: 50%;
-            background: #FF9200;
+            display: inline-block; width: 5px; height: 5px;
+            margin: 0 3px; border-radius: 50%; background: #FF9200;
             animation: pulseDot 1.2s ease-in-out infinite;
         }
         .dp-dots span:nth-child(2) { animation-delay: 0.2s; }
         .dp-dots span:nth-child(3) { animation-delay: 0.4s; }
         .dp-footer {
-            margin-top: 48px;
-            color: #64748B;
-            font-size: 0.72rem;
-            letter-spacing: 0.3px;
+            margin-top: 48px; color: #64748B; font-size: 0.72rem;
         }
     </style>
-
     <div class="dp-loader-wrap">
         <div class="dp-logo-mark">DP</div>
         <h1 class="dp-title">Duarte <span>Performance</span></h1>
@@ -178,9 +142,7 @@ if st.session_state["carregando"]:
         <div class="dp-bar"><div class="dp-bar-inner"></div></div>
         <p class="dp-status">
             Preparando o ambiente
-            <span class="dp-dots">
-                <span></span><span></span><span></span>
-            </span>
+            <span class="dp-dots"><span></span><span></span><span></span></span>
         </p>
         <p class="dp-footer">Duarte Gestão · Acesso seguro</p>
     </div>
@@ -190,6 +152,7 @@ if st.session_state["carregando"]:
     time.sleep(1.9)
     st.session_state["carregando"] = False
     st.rerun()
+
 # ===================== SESSION STATE =====================
 for key, val in {
     "token": None,
@@ -364,7 +327,7 @@ iniciais = (
 role = st.session_state.get("role", "Operador")
 role_norm = str(role).strip().lower()
 
-PAPEIS_GESTAO = ["admin master", "gestor", "admin", "coordenador"]
+PAPEIS_GESTAO_NORM = ["admin master", "gestor", "admin", "coordenador"]
 PAPEIS_COM_DASH_RELATORIO = [
     "admin master",
     "gestor",
@@ -384,9 +347,7 @@ st.sidebar.markdown(
     unsafe_allow_html=True,
 )
 
-# ----- MENU POR PERFIL -----
 if role_norm == "operador":
-    # Operador: só escala e lançar
     menus = [
         "🗓️ Escala Semanal",
         "📝 Lançar Execução Diária",
@@ -395,21 +356,16 @@ else:
     menus = []
     if role_norm in PAPEIS_COM_DASH_RELATORIO:
         menus.append("📊 Dashboard Gerencial")
-
     menus.append("🗓️ Escala Semanal")
-
     if role_norm in PAPEIS_COM_DASH_RELATORIO:
         menus.append("📑 Relatórios Operacionais")
-
     menus.append("📝 Lançar Execução Diária")
-
-    if role_norm in PAPEIS_GESTAO:
+    if role_norm in PAPEIS_GESTAO_NORM:
         menus.append("✏️ Editor de Apontamentos")
         menus.append("🛡️ Painel Admin")
 
 menu = st.sidebar.radio("Navegação", menus, label_visibility="collapsed")
 
-# ===================== BOTÃO SAIR =====================
 st.sidebar.markdown(
     """
 <style>
