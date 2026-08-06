@@ -1,233 +1,463 @@
+import os
+import time
+from datetime import datetime, date
+from zoneinfo import ZoneInfo
+
 import streamlit as st
-import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
-from datetime import datetime, timedelta
 
-COR_AZUL = "#001E57"
-COR_LARANJA = "#FF9200"
-COR_VERDE = "#10B981"
-COR_AMARELO = "#F59E0B"
-COR_VERMELHO = "#EF4444"
-COR_CINZA = "#94A3B8"
+from views.permissoes import pode_editar, aviso_somente_leitura
+from views.escala import get_cronograma_credenciamento
 
-CORES_STATUS = {
-    "Realizado Total": COR_VERDE,
-    "Realizado Parcial": COR_AMARELO,
-    "Não Realizado": COR_VERMELHO,
-    "Não Se Aplica": COR_CINZA,
-    "Não Informado": "#64748B",
+DIAS_SEMANA_PT = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
+FUSO_BR = ZoneInfo("America/Sao_Paulo")
+
+API_URL = os.getenv(
+    "BACKEND_URL",
+    "https://duarte-performance-backend-production.up.railway.app",
+)
+
+PERFIS_VISAO_GERAL = {
+    "admin master",
+    "admin",
+    "gestor",
+    "coordenador",
+    "visualizador",
 }
 
+PERFIS_ADMIN_LANCAR = {
+    "admin master",
+    "admin",
+    "gestor",
+    "coordenador",
+}
 
-def _layout_padrao(fig, altura=320):
-    fig.update_layout(
-        height=altura,
-        margin=dict(l=10, r=10, t=40, b=10),
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(family="Inter, sans-serif", color="#334155", size=13),
-        title_font=dict(color=COR_AZUL, size=16),
-        legend=dict(
-            orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5
-        ),
+PERFIS_PODEM_LANCAR = PERFIS_VISAO_GERAL | {"operador"}
+
+DEBUG_DIAGNOSTICO = False
+
+
+def _dia_semana_de_data(d: date) -> str:
+    return DIAS_SEMANA_PT[d.weekday()]
+
+
+def _perfil_usuario_atual() -> str:
+    perfil = (
+        st.session_state.get("user_role")
+        or st.session_state.get("perfil")
+        or st.session_state.get("role")
+        or st.session_state.get("perfil_usuario")
+        or st.session_state.get("cargo")
+        or ""
     )
-    return fig
+    return str(perfil).strip().lower()
 
 
-def _chave_operador(nome: str) -> str:
-    """Chave estável: primeiro nome em minúsculo, sem acento simples."""
-    if nome is None or (isinstance(nome, float) and pd.isna(nome)):
+def _carregar_escala(carregar_cronograma=None):
+    token = st.session_state.get("token")
+
+    if carregar_cronograma is not None:
+        try:
+            df = carregar_cronograma()
+            if df is not None and not (hasattr(df, "empty") and df.empty):
+                from views.escala import _normalizar_colunas_escala
+                return _normalizar_colunas_escala(df)
+        except Exception:
+            pass
+
+    return get_cronograma_credenciamento(API_URL, token)
+
+
+def _match_operador(serie_operador, nome_busca: str):
+    if not nome_busca or serie_operador is None:
+        return serie_operador.astype(str).str.len() < 0
+
+    nome = str(nome_busca).strip()
+    s = serie_operador.astype(str).str.strip()
+    s_cf = s.str.casefold()
+    nome_cf = nome.casefold()
+    primeiro = nome.split()[0].casefold() if nome.split() else nome_cf
+
+    return (
+        (s_cf == nome_cf)
+        | (s_cf == primeiro)
+        | s_cf.str.contains(primeiro, na=False)
+        | s_cf.str.contains(nome_cf, na=False)
+    )
+
+
+def _nome_padrao_escala(df_escala, nome_busca: str) -> str:
+    """
+    Devolve o nome EXATO como está na escala (padrão único no banco).
+    Ex.: busca 'Larissa Adriene...' → encontra 'LARISSA' na matriz.
+    """
+    if not nome_busca:
         return ""
-    s = str(nome).strip()
-    if not s:
-        return ""
-    primeiro = s.split()[0]
-    # normaliza basico
-    mapa = str.maketrans(
-        "áàâãäéèêëíìîïóòôõöúùûüçÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇ",
-        "aaaaaeeeeiiiiooooouuuucAAAAAEEEEIIIIOOOOOUUUUC",
+    if df_escala is None or df_escala.empty or "Operador" not in df_escala.columns:
+        return str(nome_busca).strip()
+
+    filtro = _match_operador(df_escala["Operador"], nome_busca)
+    hits = (
+        df_escala.loc[filtro, "Operador"]
+        .dropna()
+        .astype(str)
+        .str.strip()
+        .unique()
+        .tolist()
     )
-    return primeiro.translate(mapa).casefold()
+    if not hits:
+        return str(nome_busca).strip()
+
+    # Se tiver mais de um, pega o mais curto (padrão da matriz: LARISSA)
+    return min(hits, key=len)
 
 
-def _rotulo_operador(series_nomes: pd.Series) -> str:
-    """Escolhe o nome mais completo do grupo para exibir no gráfico."""
-    nomes = [str(n).strip() for n in series_nomes if n and str(n).strip()]
-    if not nomes:
-        return "Sem nome"
-    # prioriza o mais longo (nome completo do cadastro)
-    return max(nomes, key=len)
+def _clientes_do_dia(
+    df_escala,
+    nome_operador: str,
+    dia_ref: str,
+    perfil_usuario: str,
+    forcar_todos: bool = False,
+) -> list:
+    if df_escala is None or df_escala.empty:
+        return []
+    if dia_ref not in df_escala.columns:
+        return []
+
+    perfil_normalizado = (perfil_usuario or "").strip().lower()
+    visao_geral = forcar_todos or perfil_normalizado in PERFIS_VISAO_GERAL
+
+    if visao_geral and not nome_operador:
+        valores = df_escala[dia_ref].dropna().astype(str).str.strip()
+    elif nome_operador:
+        filtro = _match_operador(df_escala["Operador"], nome_operador)
+        valores = df_escala.loc[filtro, dia_ref].dropna().astype(str).str.strip()
+    else:
+        return []
+
+    clientes = [v for v in valores.unique().tolist() if v and v != "-"]
+    return sorted(clientes)
 
 
-def _normalizar_operadores(df: pd.DataFrame) -> pd.DataFrame:
-    """Cria colunas op_key e operador_exibicao (sem duplicar a mesma pessoa)."""
-    df = df.copy()
-    if "operador_nome" not in df.columns:
-        df["op_key"] = ""
-        df["operador_exibicao"] = "Sem nome"
-        return df
+def _todos_clientes_do_dia(df_escala, dia_ref: str) -> list:
+    if df_escala is None or df_escala.empty or dia_ref not in df_escala.columns:
+        return []
+    valores = df_escala[dia_ref].dropna().astype(str).str.strip()
+    clientes = [v for v in valores.unique().tolist() if v and v != "-"]
+    return sorted(clientes)
 
-    df["op_key"] = df["operador_nome"].apply(_chave_operador)
-    mapa_rotulo = (
-        df.groupby("op_key")["operador_nome"]
-        .apply(_rotulo_operador)
-        .to_dict()
+
+def _lista_operadores(df_escala) -> list:
+    if df_escala is None or df_escala.empty or "Operador" not in df_escala.columns:
+        return []
+    ops = (
+        df_escala["Operador"]
+        .dropna()
+        .astype(str)
+        .str.strip()
+        .replace("", None)
+        .dropna()
+        .unique()
+        .tolist()
     )
-    df["operador_exibicao"] = df["op_key"].map(mapa_rotulo).fillna(
-        df["operador_nome"].astype(str)
-    )
-    return df
+    return sorted(ops)
 
 
-def render_dashboard(api_get):
+def render_lancamento(api_post, carregar_cronograma=None):
     st.markdown(
         """
     <style>
-        .dash-header {
-            background: linear-gradient(135deg, #001E57 0%, #0A2540 100%);
-            padding: 28px 30px;
-            border-radius: 18px;
-            color: white;
-            margin-bottom: 22px;
-            border-left: 6px solid #FF9200;
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(18px); }
+            to   { opacity: 1; transform: translateY(0); }
         }
-        .dash-header h2 { margin: 0; font-weight: 900; }
-        .dash-header p { margin: 6px 0 0 0; color: #94A3B8; font-size: 0.9rem; }
+        @keyframes floatGradient {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+        @keyframes pulseGlow {
+            0% { box-shadow: 0 0 0 0 rgba(255, 146, 0, 0.5); }
+            70% { box-shadow: 0 0 0 12px rgba(255, 146, 0, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(255, 146, 0, 0); }
+        }
+        .lanc-hero {
+            background: linear-gradient(-45deg, #001E57, #030A1A, #0B296B, #001233);
+            background-size: 300% 300%;
+            animation: floatGradient 12s ease infinite, fadeInUp 0.55s ease-out;
+            padding: 28px 32px; border-radius: 22px; color: #fff;
+            margin-bottom: 22px; border-left: 6px solid #FF9200;
+            box-shadow: 0 16px 40px rgba(0, 30, 87, 0.22);
+        }
+        .lanc-hero h2 { margin: 0; font-weight: 900; font-size: 1.85rem; }
+        .lanc-hero p { margin: 8px 0 0 0; color: #94A3B8; font-size: 0.95rem; }
+        .lanc-badge {
+            display: inline-block; margin-top: 14px;
+            background: linear-gradient(135deg, #FF9200, #FFB84D);
+            color: #fff; padding: 6px 14px; border-radius: 99px;
+            font-weight: 800; font-size: 0.72rem;
+            animation: pulseGlow 2.2s infinite;
+        }
+        .lanc-shell {
+            background: linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 100%);
+            padding: 26px 24px 20px 24px; border-radius: 20px;
+            box-shadow: 0 12px 32px rgba(0, 30, 87, 0.07);
+            border: 1px solid #E2E8F0; border-top: 5px solid #FF9200;
+            animation: fadeInUp 0.6s ease-out; margin-bottom: 12px;
+        }
+        .lanc-chip-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
+        .lanc-chip {
+            display: inline-flex; align-items: center; gap: 6px;
+            background: rgba(0, 30, 87, 0.06); color: #001E57;
+            border: 1px solid rgba(0, 30, 87, 0.1);
+            padding: 6px 12px; border-radius: 99px;
+            font-size: 0.78rem; font-weight: 700;
+        }
+        .lanc-chip.orange {
+            background: rgba(255, 146, 0, 0.12); color: #C2410C;
+            border-color: rgba(255, 146, 0, 0.28);
+        }
+        .lanc-chip.green {
+            background: rgba(16, 185, 129, 0.12); color: #047857;
+            border-color: rgba(16, 185, 129, 0.25);
+        }
+        .justificativa-box {
+            border-left: 4px solid #FF9200;
+            background: linear-gradient(135deg, #FFF9F0 0%, #FFF5E6 100%);
+            padding: 16px 16px 6px 16px; border-radius: 12px;
+            margin: 8px 0 14px 0; border: 1px solid rgba(255, 146, 0, 0.2);
+        }
+        .lanc-section-title {
+            color: #001E57; font-weight: 800; font-size: 1rem; margin: 4px 0 12px 0;
+        }
+        .admin-box {
+            background: #F0F7FF; border: 1px solid #BFDBFE;
+            border-left: 4px solid #001E57; border-radius: 12px;
+            padding: 14px 16px; margin-bottom: 16px;
+        }
+        div.stButton > button[kind="primary"] {
+            background: linear-gradient(135deg, #FF9200 0%, #E07A00 100%) !important;
+            color: white !important; font-weight: 800 !important;
+            height: 52px !important; border-radius: 14px !important; border: none !important;
+            box-shadow: 0 6px 18px rgba(255, 146, 0, 0.3) !important;
+        }
     </style>
-    <div class="dash-header">
-        <h2>📊 Dashboard Gerencial</h2>
-        <p>Visão consolidada das execuções operacionais</p>
+    """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        """
+    <div class="lanc-hero">
+        <h2>📝 Lançar Execução Diária</h2>
+        <p>Registre as atividades operacionais com base na escala atualizada</p>
+        <span class="lanc-badge">⚡ APONTAMENTO · ESCALA AO VIVO</span>
     </div>
     """,
         unsafe_allow_html=True,
     )
 
-    with st.spinner("Carregando..."):
-        resp = api_get("/registros/")
-
-    if resp is None or resp.status_code != 200:
-        st.error("Erro ao carregar registros.")
-        return
-
-    df = pd.DataFrame(resp.json())
-    if df.empty:
-        st.info("Nenhum registro encontrado.")
-        return
-
-    if "data_registro" in df.columns:
-        df["data_registro"] = pd.to_datetime(df["data_registro"], errors="coerce")
-
-    # ----- Filtro de período -----
-    periodo = st.selectbox(
-        "Período",
-        ["Hoje", "Últimos 7 dias", "Últimos 30 dias", "Todos"],
-        index=3,
-        key="dash_periodo",
+    perfil_usuario = _perfil_usuario_atual()
+    nome_logado = (
+        st.session_state.get("nome")
+        or st.session_state.get("user_nome")
+        or st.session_state.get("username")
+        or ""
     )
 
-    agora = datetime.utcnow()
-    df_f = df.copy()
-    if periodo == "Hoje" and "data_registro" in df_f.columns:
-        hoje = agora.date()
-        df_f = df_f[df_f["data_registro"].dt.date == hoje]
-    elif periodo == "Últimos 7 dias" and "data_registro" in df_f.columns:
-        ini = agora - timedelta(days=7)
-        df_f = df_f[df_f["data_registro"] >= ini]
-    elif periodo == "Últimos 30 dias" and "data_registro" in df_f.columns:
-        ini = agora - timedelta(days=30)
-        df_f = df_f[df_f["data_registro"] >= ini]
-
-    if df_f.empty:
-        st.warning("Nenhum registro neste período.")
+    pode_lancar = perfil_usuario in PERFIS_PODEM_LANCAR or pode_editar(perfil_usuario)
+    if not pode_lancar:
+        aviso_somente_leitura()
         return
 
-    # Unifica nomes de operador
-    df_f = _normalizar_operadores(df_f)
+    eh_admin_lancar = perfil_usuario in PERFIS_ADMIN_LANCAR
+    df_escala = _carregar_escala(carregar_cronograma)
 
-    total = len(df_f)
-    realizados = len(df_f[df_f["status"] == "Realizado Total"]) if "status" in df_f.columns else 0
-    parciais = len(df_f[df_f["status"] == "Realizado Parcial"]) if "status" in df_f.columns else 0
-    nao = len(df_f[df_f["status"] == "Não Realizado"]) if "status" in df_f.columns else 0
-    eficiencia = round((realizados / total * 100), 1) if total else 0
+    data_lancamento = date.today()
+    nome_operador = nome_logado
 
-    m1, m2, m3, m4, m5 = st.columns(5)
-    m1.metric("TOTAL", total)
-    m2.metric("REALIZADOS", realizados)
-    m3.metric("PARCIAIS", parciais)
-    m4.metric("NÃO REALIZADOS", nao)
-    m5.metric("EFICIÊNCIA", f"{eficiencia}%")
-
-    st.divider()
-
-    c1, c2 = st.columns(2)
-
-    with c1:
-        st.subheader("Distribuição por Status")
-        if "status" in df_f.columns:
-            vc = df_f["status"].value_counts().reset_index()
-            vc.columns = ["status", "qtd"]
-            fig = px.pie(
-                vc,
-                names="status",
-                values="qtd",
-                color="status",
-                color_discrete_map=CORES_STATUS,
-                hole=0.45,
-            )
-            fig.update_traces(textposition="inside", textinfo="percent")
-            fig = _layout_padrao(fig, 340)
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("Sem dados de status.")
-
-    with c2:
-        st.subheader("Execuções por Operador")
-        # AGRUPA pela chave unificada
-        por_op = (
-            df_f.groupby("operador_exibicao", dropna=False)
-            .size()
-            .reset_index(name="qtd")
-            .sort_values("qtd", ascending=True)
+    if eh_admin_lancar:
+        st.markdown(
+            """
+        <div class="admin-box">
+            <b>🛡️ Modo gestão</b> — lançar em nome de qualquer operador e ajustar a data.
+            O nome gravado segue o <b>padrão da escala</b> (evita duplicar no dashboard).
+        </div>
+        """,
+            unsafe_allow_html=True,
         )
-        if not por_op.empty:
-            fig2 = px.bar(
-                por_op,
-                x="qtd",
-                y="operador_exibicao",
-                orientation="h",
-                color="qtd",
-                color_continuous_scale=["#FFB84D", "#FF9200", "#001E57"],
+        a1, a2 = st.columns(2)
+        with a1:
+            ops = _lista_operadores(df_escala)
+            opcoes_op = ["Eu mesmo (logado)"] + ops
+            escolha_op = st.selectbox(
+                "👤 Lançar como operador",
+                opcoes_op,
+                key="lanc_admin_operador",
             )
-            fig2.update_layout(coloraxis_showscale=False)
-            fig2 = _layout_padrao(fig2, max(340, 28 * len(por_op) + 80))
-            fig2.update_yaxes(title="")
-            fig2.update_xaxes(title="Lançamentos")
-            st.plotly_chart(fig2, use_container_width=True)
-        else:
-            st.info("Sem dados de operador.")
+            if escolha_op != "Eu mesmo (logado)":
+                nome_operador = escolha_op
+        with a2:
+            data_lancamento = st.date_input(
+                "📅 Data do lançamento",
+                value=date.today(),
+                key="lanc_admin_data",
+            )
 
-    st.divider()
-    st.subheader("📋 Últimos lançamentos")
+    # Nome padrão da escala (sempre)
+    nome_para_gravar = _nome_padrao_escala(df_escala, nome_operador)
 
-    cols = [
-        c
-        for c in [
-            "data_registro",
-            "operador_nome",
-            "cliente_nome",
-            "status",
-            "justificativa",
-        ]
-        if c in df_f.columns
-    ]
-    if cols and "data_registro" in df_f.columns:
-        st.dataframe(
-            df_f[cols]
-            .sort_values("data_registro", ascending=False)
-            .head(20),
-            use_container_width=True,
-            hide_index=True,
+    dia_ref = _dia_semana_de_data(data_lancamento)
+
+    if eh_admin_lancar and nome_operador:
+        clientes_hoje = _clientes_do_dia(
+            df_escala, nome_operador, dia_ref, perfil_usuario, forcar_todos=False
         )
     else:
-        st.info("Sem lançamentos para listar.")
+        clientes_hoje = _clientes_do_dia(
+            df_escala, nome_operador, dia_ref, perfil_usuario
+        )
+
+    todos_clientes_hoje = _todos_clientes_do_dia(df_escala, dia_ref)
+
+    visao_txt = (
+        "Visão geral"
+        if perfil_usuario in PERFIS_VISAO_GERAL and not eh_admin_lancar
+        else "Escala do operador"
+    )
+    st.markdown(
+        f"""
+    <div class="lanc-chip-row">
+        <span class="lanc-chip">📅 {dia_ref} · {data_lancamento.strftime("%d/%m/%Y")}</span>
+        <span class="lanc-chip orange">👤 {nome_para_gravar or nome_operador or "Usuário"}</span>
+        <span class="lanc-chip green">🏷️ {perfil_usuario.title()}</span>
+        <span class="lanc-chip">📋 {len(clientes_hoje)} cliente(s) · {visao_txt}</span>
+    </div>
+    """,
+        unsafe_allow_html=True,
+    )
+
+    if DEBUG_DIAGNOSTICO:
+        st.caption(
+            f"[DEV] busca={nome_operador} | grava={nome_para_gravar} | "
+            f"dia={dia_ref} | clientes={clientes_hoje}"
+        )
+
+    st.markdown('<div class="lanc-shell">', unsafe_allow_html=True)
+    st.markdown(
+        '<p class="lanc-section-title">Novo apontamento</p>',
+        unsafe_allow_html=True,
+    )
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        opcoes_cliente = (
+            ["Selecione..."]
+            + clientes_hoje
+            + ["Suporte", "Outro (fora da escala)"]
+        )
+        if not clientes_hoje:
+            st.info(
+                "ℹ️ Nenhum cliente na escala para este operador/dia. "
+                "Use **Outro** se precisar."
+            )
+
+        cliente_sel = st.selectbox(
+            "🏢 Cliente / Serviço *",
+            opcoes_cliente,
+            key="lanc_cliente_sel",
+        )
+
+        cliente_final = cliente_sel
+        if cliente_sel == "Suporte":
+            opcoes_suporte = ["Selecione..."] + [
+                f"Suporte - {c}" for c in todos_clientes_hoje
+            ]
+            cliente_final = st.selectbox(
+                "🛠️ Suporte para qual cliente?",
+                opcoes_suporte,
+                key="lanc_cliente_suporte",
+            )
+        elif cliente_sel == "Outro (fora da escala)":
+            cliente_final = st.text_input(
+                "Digite o nome do cliente/serviço",
+                placeholder="Ex: Vivest, Hospital Santa Casa...",
+                key="lanc_cliente_outro",
+            )
+
+    with col2:
+        status = st.selectbox(
+            "📌 Status da Execução *",
+            [
+                "Realizado Total",
+                "Realizado Parcial",
+                "Não Realizado",
+                "Não Se Aplica",
+            ],
+            key="lanc_status",
+        )
+
+    justificativa = ""
+    exige_justificativa = status != "Realizado Total"
+
+    if exige_justificativa:
+        st.markdown('<div class="justificativa-box">', unsafe_allow_html=True)
+        justificativa = st.text_area(
+            "⚠️ Motivo / Justificativa *",
+            placeholder="Explique o motivo deste status (obrigatório)...",
+            height=110,
+            key="lanc_justificativa",
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    salvar = st.button(
+        "💾 Salvar Lançamento",
+        use_container_width=True,
+        type="primary",
+        key="lanc_salvar",
+    )
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    if salvar:
+        cliente_invalido = (
+            cliente_sel == "Selecione..."
+            or not cliente_final
+            or cliente_final in ("Selecione...", "")
+        )
+        if cliente_invalido:
+            st.error("❌ Selecione o cliente/serviço antes de salvar.")
+            return
+
+        if exige_justificativa and not justificativa.strip():
+            st.error("❌ Justificativa é obrigatória para este status!")
+            return
+
+        payload = {
+            "cliente_nome": str(cliente_final).strip(),
+            "status": status,
+            "justificativa": justificativa.strip(),
+            # SEMPRE o nome padrão da escala
+            "operador_nome": str(nome_para_gravar or nome_operador).strip(),
+        }
+
+        if eh_admin_lancar:
+            payload["data_registro"] = f"{data_lancamento.isoformat()}T12:00:00"
+
+        with st.spinner("Salvando lançamento..."):
+            resposta = api_post("/registros/", payload)
+
+        if resposta is not None and resposta.status_code in [200, 201]:
+            st.success("✅ Lançamento registrado com sucesso!")
+            st.balloons()
+            time.sleep(1.2)
+            st.rerun()
+        elif resposta is not None:
+            try:
+                detalhe = resposta.json().get("detail", resposta.text)
+            except Exception:
+                detalhe = resposta.text
+            st.error(f"❌ Erro ao salvar (status {resposta.status_code}): {detalhe}")
+        else:
+            st.error("❌ Erro ao salvar. Verifique a conexão com o backend.")
