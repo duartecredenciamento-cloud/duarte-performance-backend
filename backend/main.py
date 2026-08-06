@@ -33,10 +33,6 @@ from database import (
 )
 
 
-# =====================================================
-# CRIAÇÃO DAS TABELAS
-# =====================================================
-
 models.Base.metadata.create_all(bind=engine)
 
 
@@ -70,14 +66,10 @@ def criar_admin_inicial():
         db.close()
 
 
-# =====================================================
-# APP
-# =====================================================
-
 app = FastAPI(
     title="Duarte Performance API",
     description="Gestão Operacional Duarte Gestão",
-    version="2.8",
+    version="2.9",
 )
 
 
@@ -94,10 +86,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-# =====================================================
-# JWT
-# =====================================================
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/token")
 
@@ -153,10 +141,9 @@ def exigir_admin_ou_gestor(
 def exigir_admin(
     usuario: models.Usuario = Depends(usuario_logado),
 ) -> models.Usuario:
-    if usuario.role not in ("Admin", "Admin Master") and (usuario.role or "").lower() not in (
-        "admin",
-        "admin master",
-    ):
+    if usuario.role not in ("Admin", "Admin Master") and (
+        usuario.role or ""
+    ).lower() not in ("admin", "admin master"):
         raise HTTPException(
             status_code=403,
             detail="Acesso restrito ao perfil Admin.",
@@ -164,16 +151,12 @@ def exigir_admin(
     return usuario
 
 
-# =====================================================
-# HEALTH
-# =====================================================
-
 @app.get("/")
 def home():
     return {
         "status": "online",
         "sistema": "Duarte Performance API",
-        "versao": "2.8",
+        "versao": "2.9",
     }
 
 
@@ -201,10 +184,6 @@ def setup_admin_manual(db: Session = Depends(get_db)):
     db.commit()
     return {"status": "sucesso", "mensagem": "Senha admin resetada para 123456"}
 
-
-# =====================================================
-# LOGIN
-# =====================================================
 
 @app.post("/token")
 def login(
@@ -237,10 +216,6 @@ def login(
         "role": usuario.role,
     }
 
-
-# =====================================================
-# USUÁRIOS
-# =====================================================
 
 @app.post("/usuarios/", status_code=201)
 def criar_usuario(
@@ -335,10 +310,6 @@ def meu_usuario(usuario: models.Usuario = Depends(usuario_logado)):
     }
 
 
-# =====================================================
-# NOMES ESCALA / USERNAME
-# =====================================================
-
 def _remover_acentos(texto: str) -> str:
     if not texto:
         return ""
@@ -388,10 +359,6 @@ def sugerir_username(
         "username_sugerido": _gerar_username_sugerido(nome_escala, sobrenome, db)
     }
 
-
-# =====================================================
-# RECUPERAÇÃO DE SENHA
-# =====================================================
 
 JANELA_REDEFINICAO_MINUTOS = 10
 
@@ -514,9 +481,7 @@ def autorizar_solicitacao_senha(
     if not s:
         raise HTTPException(status_code=404, detail="Solicitação não encontrada.")
     if s.status != "pendente":
-        raise HTTPException(
-            status_code=400, detail=f"Status atual: {s.status}."
-        )
+        raise HTTPException(status_code=400, detail=f"Status atual: {s.status}.")
     agora = datetime.utcnow()
     s.status = "autorizado"
     s.autorizado_em = agora
@@ -584,10 +549,6 @@ def redefinir_senha_autorizada(
     return {"status": "sucesso", "mensagem": "Senha redefinida!"}
 
 
-# =====================================================
-# REGISTROS
-# =====================================================
-
 DIAS_COLUNA = {
     0: "segunda",
     1: "terca",
@@ -598,7 +559,6 @@ DIAS_COLUNA = {
 
 
 def _parse_data_registro(valor) -> datetime | None:
-    """Converte string/date/datetime em datetime naive (sem tz)."""
     if valor is None:
         return None
     try:
@@ -608,10 +568,12 @@ def _parse_data_registro(valor) -> datetime | None:
             dt = datetime.combine(valor, time(12, 0, 0))
         elif isinstance(valor, str):
             s = valor.strip().replace("Z", "+00:00")
-            # Só data: YYYY-MM-DD
-            if len(s) == 10 and s[4] == "-" and s[7] == "-":
-                d = date.fromisoformat(s)
-                dt = datetime.combine(d, time(12, 0, 0))
+            if len(s) >= 10 and s[4] == "-" and s[7] == "-":
+                if len(s) == 10:
+                    d = date.fromisoformat(s)
+                    dt = datetime.combine(d, time(12, 0, 0))
+                else:
+                    dt = datetime.fromisoformat(s)
             else:
                 dt = datetime.fromisoformat(s)
         else:
@@ -621,7 +583,7 @@ def _parse_data_registro(valor) -> datetime | None:
             dt = dt.replace(tzinfo=None)
         return dt
     except Exception as e:
-        print(f"⚠️ Falha ao parsear data_registro={valor!r}: {e}")
+        print(f"⚠️ Falha data_registro={valor!r}: {e}")
         return None
 
 
@@ -631,10 +593,6 @@ def criar_registro(
     db: Session = Depends(get_db),
     usuario: models.Usuario = Depends(usuario_logado),
 ):
-    """
-    Operador comum: grava com o próprio nome e data atual.
-    Admin/Gestor/Coordenador: pode mandar operador_nome e data_registro.
-    """
     nome_operador = usuario.nome
     role = (usuario.role or "").strip()
     gestao = _eh_gestao(role)
@@ -690,15 +648,46 @@ def atualizar_registro(
     )
     if not r:
         raise HTTPException(404, "Registro não encontrado")
-    for campo, valor in dados.dict(exclude_unset=True).items():
-        if campo == "data_registro" and valor is not None:
-            dt = _parse_data_registro(valor)
-            if dt is not None:
-                setattr(r, campo, dt)
-            continue
-        setattr(r, campo, valor)
+
+    # Pydantic v1/v2
+    try:
+        payload = dados.model_dump(exclude_unset=True)
+    except Exception:
+        payload = dados.dict(exclude_unset=True)
+
+    if "cliente_nome" in payload and payload["cliente_nome"] is not None:
+        r.cliente_nome = str(payload["cliente_nome"]).strip()
+
+    if "status" in payload and payload["status"] is not None:
+        r.status = str(payload["status"]).strip()
+
+    if "justificativa" in payload:
+        r.justificativa = str(payload["justificativa"] or "").strip()
+
+    if "operador_nome" in payload and payload["operador_nome"]:
+        r.operador_nome = str(payload["operador_nome"]).strip()
+
+    if "data_registro" in payload and payload["data_registro"] is not None:
+        dt = _parse_data_registro(payload["data_registro"])
+        if dt is None:
+            raise HTTPException(
+                400,
+                f"data_registro inválida: {payload['data_registro']!r}",
+            )
+        r.data_registro = dt
+
+    db.add(r)
     db.commit()
-    return {"status": "Atualizado"}
+    db.refresh(r)
+
+    return {
+        "status": "Atualizado",
+        "id": r.id,
+        "data_registro": r.data_registro.isoformat() if r.data_registro else None,
+        "operador_nome": r.operador_nome,
+        "cliente_nome": r.cliente_nome,
+        "status_atual": r.status,
+    }
 
 
 @app.delete("/registros/{registro_id}")
@@ -719,12 +708,8 @@ def deletar_registro(
     return {"status": "Excluído"}
 
 
-# =====================================================
-# PREENCHER NÃO INFORMADO
-# =====================================================
-
 class PreencherNaoInformadoIn(BaseModel):
-    data: str | None = None  # YYYY-MM-DD
+    data: str | None = None
 
 
 @app.post("/registros/preencher-nao-informado")
@@ -827,10 +812,6 @@ def preencher_nao_informado(
         "detalhes": detalhes[:50],
     }
 
-
-# =====================================================
-# CRONOGRAMA
-# =====================================================
 
 class CronogramaIn(BaseModel):
     operador: str = None

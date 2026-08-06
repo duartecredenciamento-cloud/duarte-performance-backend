@@ -436,15 +436,11 @@ def render_lancamento(api_post, carregar_cronograma=None):
             "operador_nome": str(nome_operador).strip(),
         }
 
-        # Admin pode mandar data (backend precisa aceitar — ver trecho abaixo)
+        # Admin: data fixa ao meio-dia (evita fuso / “sem data”)
         if eh_admin_lancar:
-            payload["data_registro"] = datetime(
-                data_lancamento.year,
-                data_lancamento.month,
-                data_lancamento.day,
-                datetime.now(FUSO_BR).hour,
-                datetime.now(FUSO_BR).minute,
-            ).isoformat()
+            payload["data_registro"] = (
+                f"{data_lancamento.isoformat()}T12:00:00"
+            )
 
         with st.spinner("Salvando lançamento..."):
             resposta = api_post("/registros/", payload)

@@ -123,7 +123,6 @@ class CronogramaOut(CronogramaBase):
 # =====================================================
 
 class RegistroBase(BaseModel):
-    # Compatibilidade com frontend antigo
     cliente_nome: Optional[str] = None
     cliente: Optional[str] = None
     status: str
@@ -139,7 +138,7 @@ class RegistroBase(BaseModel):
 
 
 class RegistroCreate(RegistroBase):
-    # Admin/Gestor: lançar em nome de outro + data custom
+    # Admin/Gestor: lançar em nome de outro + data
     operador_nome: Optional[str] = None
     data_registro: Optional[datetime] = None
 

@@ -20,6 +20,15 @@ STATUS_OPCOES = [
 ]
 
 
+def _to_dt(v):
+    if v is None or (isinstance(v, float) and pd.isna(v)):
+        return None
+    try:
+        return pd.Timestamp(v).to_pydatetime().replace(microsecond=0, tzinfo=None)
+    except Exception:
+        return None
+
+
 def render_editor(api_get, api_put, api_delete):
 
     st.markdown(
@@ -108,7 +117,9 @@ def render_editor(api_get, api_put, api_delete):
         df["data_registro"] = pd.to_datetime(df["data_registro"], errors="coerce")
 
     total = len(df)
-    concluidos = len(df[df["status"] == "Realizado Total"]) if "status" in df.columns else 0
+    concluidos = (
+        len(df[df["status"] == "Realizado Total"]) if "status" in df.columns else 0
+    )
     taxa = round((concluidos / total * 100), 1) if total > 0 else 0
 
     c1, c2, c3 = st.columns(3)
@@ -131,8 +142,12 @@ def render_editor(api_get, api_put, api_delete):
     df_filtered = df.copy()
     if search:
         mask = (
-            df_filtered["cliente_nome"].astype(str).str.contains(search, case=False, na=False)
-            | df_filtered["operador_nome"].astype(str).str.contains(search, case=False, na=False)
+            df_filtered["cliente_nome"]
+            .astype(str)
+            .str.contains(search, case=False, na=False)
+            | df_filtered["operador_nome"]
+            .astype(str)
+            .str.contains(search, case=False, na=False)
         )
         df_filtered = df_filtered[mask]
     if status_filter != "Todos":
@@ -147,14 +162,19 @@ def render_editor(api_get, api_put, api_delete):
     if not pode_editar(role_atual):
         aviso_somente_leitura()
         colunas_mostrar = [
-            "id", "operador_nome", "cliente_nome", "status", "justificativa", "data_registro"
+            "id",
+            "operador_nome",
+            "cliente_nome",
+            "status",
+            "justificativa",
+            "data_registro",
         ]
         cols = [c for c in colunas_mostrar if c in df_filtered.columns]
         st.dataframe(df_filtered[cols], use_container_width=True, hide_index=True)
         return
 
     st.subheader("📋 Edição em Massa")
-    st.caption("Altere cliente, status, justificativa e **data** · depois clique em Salvar.")
+    st.caption("Altere cliente, status, justificativa e **data** · depois Salvar.")
 
     colunas_mostrar = [
         "id",
@@ -183,7 +203,6 @@ def render_editor(api_get, api_put, api_delete):
                 required=True,
             ),
             "justificativa": st.column_config.TextColumn("Justificativa"),
-            # DATA EDITÁVEL
             "data_registro": st.column_config.DatetimeColumn(
                 "Data",
                 format="DD/MM/YYYY HH:mm",
@@ -193,7 +212,11 @@ def render_editor(api_get, api_put, api_delete):
         },
     )
 
-    if st.button("💾 Salvar Todas as Alterações", type="primary", use_container_width=True):
+    if st.button(
+        "💾 Salvar Todas as Alterações",
+        type="primary",
+        use_container_width=True,
+    ):
         alterados = 0
         erros = 0
 
@@ -205,26 +228,23 @@ def render_editor(api_get, api_put, api_delete):
             status_novo = str(row.get("status", "")).strip()
             just_nova = str(row.get("justificativa", "") or "").strip()
 
-            data_nova = row.get("data_registro")
-            data_antiga = original.get("data_registro")
+            data_nova_dt = _to_dt(row.get("data_registro"))
+            data_antiga_dt = _to_dt(original.get("data_registro"))
 
-            # normaliza datas para comparar
-            def _ts(v):
-                if v is None or (isinstance(v, float) and pd.isna(v)):
-                    return None
-                try:
-                    return pd.Timestamp(v).to_pydatetime().replace(microsecond=0)
-                except Exception:
-                    return None
-
-            data_nova_dt = _ts(data_nova)
-            data_antiga_dt = _ts(data_antiga)
+            # compara dia+hora (sem microsegundo)
+            data_mudou = False
+            if data_nova_dt is not None and data_antiga_dt is not None:
+                data_mudou = data_nova_dt.replace(second=0) != data_antiga_dt.replace(
+                    second=0
+                )
+            elif data_nova_dt is not None and data_antiga_dt is None:
+                data_mudou = True
 
             houve_mudanca = (
                 cliente_novo != str(original.get("cliente_nome", "")).strip()
                 or status_novo != str(original.get("status", "")).strip()
                 or just_nova != str(original.get("justificativa", "") or "").strip()
-                or data_nova_dt != data_antiga_dt
+                or data_mudou
             )
 
             if not houve_mudanca:
@@ -233,7 +253,7 @@ def render_editor(api_get, api_put, api_delete):
             if status_novo in STATUS_COM_JUSTIFICATIVA and not just_nova:
                 st.error(
                     f"❌ Registro #{registro_id}: justificativa obrigatória "
-                    f"para o status '{status_novo}'."
+                    f"para '{status_novo}'."
                 )
                 return
 
@@ -243,18 +263,30 @@ def render_editor(api_get, api_put, api_delete):
                 "justificativa": just_nova,
             }
 
+            # SEMPRE manda data se existir valor na linha editada
             if data_nova_dt is not None:
-                # meio-dia se for só mudança de dia sem hora útil
                 payload["data_registro"] = data_nova_dt.strftime("%Y-%m-%dT%H:%M:%S")
 
             resp = api_put(f"/registros/{registro_id}", payload)
 
-            if resp and resp.status_code in [200, 204]:
+            if resp is not None and resp.status_code in (200, 204):
                 alterados += 1
+                try:
+                    body = resp.json()
+                    if body.get("data_registro"):
+                        st.caption(
+                            f"#{registro_id} → data gravada: {body['data_registro']}"
+                        )
+                except Exception:
+                    pass
             else:
                 erros += 1
                 try:
-                    detalhe = resp.json().get("detail", resp.text) if resp else "sem resposta"
+                    detalhe = (
+                        resp.json().get("detail", resp.text)
+                        if resp is not None
+                        else "sem resposta"
+                    )
                 except Exception:
                     detalhe = resp.text if resp is not None else "sem resposta"
                 st.warning(f"Falha no #{registro_id}: {detalhe}")
@@ -276,7 +308,7 @@ def render_editor(api_get, api_put, api_delete):
             )
             if st.button("Confirmar Exclusão", type="secondary", key="btn_delete"):
                 resp = api_delete(f"/registros/{id_to_delete}")
-                if resp and resp.status_code in [200, 204]:
+                if resp is not None and resp.status_code in (200, 204):
                     st.success(f"Registro #{id_to_delete} excluído!")
                     st.rerun()
                 else:
