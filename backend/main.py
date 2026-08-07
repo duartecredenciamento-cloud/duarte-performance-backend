@@ -13,6 +13,7 @@ from fastapi.security import (
 from fastapi.middleware.cors import CORSMiddleware
 
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.exc import IntegrityError
 
 from jose import JWTError, jwt
@@ -69,7 +70,7 @@ def criar_admin_inicial():
 app = FastAPI(
     title="Duarte Performance API",
     description="Gestão Operacional Duarte Gestão",
-    version="2.9",
+    version="2.9.1",
 )
 
 
@@ -156,7 +157,7 @@ def home():
     return {
         "status": "online",
         "sistema": "Duarte Performance API",
-        "versao": "2.9",
+        "versao": "2.9.1",
     }
 
 
@@ -593,7 +594,7 @@ def criar_registro(
     db: Session = Depends(get_db),
     usuario: models.Usuario = Depends(usuario_logado),
 ):
-    nome_operador = usuario.nome
+    nome_operador = usuario.nome or usuario.username or "Operador"
     role = (usuario.role or "").strip()
     gestao = _eh_gestao(role)
 
@@ -606,15 +607,18 @@ def criar_registro(
 
     novo = models.RegistroModel(
         operador_nome=nome_operador,
-        cliente_nome=cliente,
+        cliente_nome=str(cliente).strip(),
         status=registro.status,
-        justificativa=registro.justificativa or "",
+        justificativa=(registro.justificativa or ""),
     )
 
-    if gestao:
-        dt = _parse_data_registro(getattr(registro, "data_registro", None))
-        if dt is not None:
-            novo.data_registro = dt
+    # SEMPRE aplica se veio no body
+    dt = _parse_data_registro(getattr(registro, "data_registro", None))
+    if dt is not None:
+        novo.data_registro = dt
+        print(f"[CREATE] data_registro={dt} user={usuario.username} role={role}")
+    else:
+        print(f"[CREATE] sem data custom user={usuario.username} role={role}")
 
     db.add(novo)
     db.commit()
@@ -649,11 +653,12 @@ def atualizar_registro(
     if not r:
         raise HTTPException(404, "Registro não encontrado")
 
-    # Pydantic v1/v2
     try:
         payload = dados.model_dump(exclude_unset=True)
     except Exception:
         payload = dados.dict(exclude_unset=True)
+
+    print(f"[PUT] id={registro_id} payload={payload}")
 
     if "cliente_nome" in payload and payload["cliente_nome"] is not None:
         r.cliente_nome = str(payload["cliente_nome"]).strip()
@@ -675,6 +680,8 @@ def atualizar_registro(
                 f"data_registro inválida: {payload['data_registro']!r}",
             )
         r.data_registro = dt
+        flag_modified(r, "data_registro")
+        print(f"[PUT] data_registro={dt}")
 
     db.add(r)
     db.commit()
