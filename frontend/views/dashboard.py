@@ -79,7 +79,7 @@ def _normalizar_operadores(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def render_dashboard(api_get):
-    # ===================== CSS PREMIUM =====================
+        # ===================== CSS PREMIUM =====================
     st.markdown(
         """
     <style>
@@ -199,6 +199,51 @@ def render_dashboard(api_get):
             font-weight: 800;
             font-size: 1rem;
         }
+
+        /* ===== TABELA PREMIUM ===== */
+        div[data-testid="stDataFrame"] {
+            background: #FFFFFF !important;
+            border: 1px solid #E2E8F0 !important;
+            border-radius: 16px !important;
+            box-shadow: 0 10px 28px rgba(0, 30, 87, 0.07) !important;
+            overflow: hidden !important;
+            animation: fadeInUp 0.75s ease-out;
+        }
+        div[data-testid="stDataFrame"] table {
+            border-collapse: separate !important;
+            border-spacing: 0 !important;
+            width: 100% !important;
+        }
+        div[data-testid="stDataFrame"] thead tr th {
+            background: linear-gradient(135deg, #001E57 0%, #0B296B 100%) !important;
+            color: #FFFFFF !important;
+            font-weight: 800 !important;
+            font-size: 0.78rem !important;
+            text-transform: uppercase !important;
+            letter-spacing: 0.4px !important;
+            padding: 12px 14px !important;
+            border: none !important;
+        }
+        div[data-testid="stDataFrame"] tbody tr td {
+            padding: 11px 14px !important;
+            font-size: 0.88rem !important;
+            color: #1E293B !important;
+            border-bottom: 1px solid #F1F5F9 !important;
+        }
+        div[data-testid="stDataFrame"] tbody tr:nth-child(even) td {
+            background: #F8FAFC !important;
+        }
+        div[data-testid="stDataFrame"] tbody tr:hover td {
+            background: rgba(255, 146, 0, 0.08) !important;
+        }
+        .table-section-title {
+            color: #001E57;
+            font-weight: 900;
+            font-size: 1.15rem;
+            margin: 18px 0 12px 0;
+            padding-left: 10px;
+            border-left: 4px solid #FF9200;
+        }
     </style>
     """,
         unsafe_allow_html=True,
@@ -271,7 +316,7 @@ def render_dashboard(api_get):
     )
     eficiencia = round((realizados / total * 100), 1) if total else 0.0
 
-    # ----- KPIs -----
+       # ----- KPIs -----
     k1, k2, k3, k4, k5 = st.columns(5)
     with k1:
         st.markdown(
@@ -347,7 +392,7 @@ def render_dashboard(api_get):
             )
             fig.update_traces(
                 textposition="inside",
-                textinfo="percent",
+                textinfo="percent+label",
                 marker=dict(line=dict(color="#FFFFFF", width=2)),
             )
             fig = _layout_padrao(fig, 360)
@@ -394,6 +439,43 @@ def render_dashboard(api_get):
             st.info("Sem dados de operador.")
         st.markdown("</div>", unsafe_allow_html=True)
 
+    # ----- Comparativo status x operador -----
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown(
+        '<div class="chart-card"><h4>📊 Comparativo: Status por Operador</h4>',
+        unsafe_allow_html=True,
+    )
+    if (
+        "status" in df_f.columns
+        and "operador_exibicao" in df_f.columns
+        and not df_f.empty
+    ):
+        comp = (
+            df_f.groupby(["operador_exibicao", "status"])
+            .size()
+            .reset_index(name="qtd")
+        )
+        fig_comp = px.bar(
+            comp,
+            x="operador_exibicao",
+            y="qtd",
+            color="status",
+            barmode="stack",
+            color_discrete_map=CORES_STATUS,
+        )
+        fig_comp.update_layout(
+            xaxis_title="",
+            yaxis_title="Lançamentos",
+            legend_title="Status",
+        )
+        fig_comp.update_xaxes(tickangle=-25)
+        fig_comp.update_yaxes(gridcolor="#F1F5F9")
+        fig_comp = _layout_padrao(fig_comp, 380)
+        st.plotly_chart(fig_comp, use_container_width=True)
+    else:
+        st.info("Sem dados para comparativo.")
+    st.markdown("</div>", unsafe_allow_html=True)
+
     # ----- Evolução temporal -----
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown(
@@ -436,9 +518,13 @@ def render_dashboard(api_get):
             st.info("Sem dados suficientes para a evolução.")
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # ----- Tabela -----
+    # ----- Tabela premium -----
     st.markdown("<br>", unsafe_allow_html=True)
-    st.subheader("📋 Últimos lançamentos")
+    st.markdown(
+        '<p class="table-section-title">📋 Últimos lançamentos</p>',
+        unsafe_allow_html=True,
+    )
+
     cols = [
         c
         for c in [
@@ -450,11 +536,32 @@ def render_dashboard(api_get):
         ]
         if c in df_f.columns
     ]
+
     if cols and "data_registro" in df_f.columns:
-        st.dataframe(
+        tabela = (
             df_f[cols]
             .sort_values("data_registro", ascending=False)
-            .head(20),
+            .head(20)
+            .copy()
+        )
+        tabela["data_registro"] = pd.to_datetime(
+            tabela["data_registro"], errors="coerce"
+        ).dt.strftime("%d/%m/%Y %H:%M")
+
+        # renomeia colunas pra exibição
+        rename_map = {
+            "data_registro": "Data",
+            "operador_nome": "Operador",
+            "cliente_nome": "Cliente",
+            "status": "Status",
+            "justificativa": "Justificativa",
+        }
+        tabela = tabela.rename(
+            columns={k: v for k, v in rename_map.items() if k in tabela.columns}
+        )
+
+        st.dataframe(
+            tabela,
             use_container_width=True,
             hide_index=True,
         )
