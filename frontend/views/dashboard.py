@@ -79,7 +79,7 @@ def _normalizar_operadores(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def render_dashboard(api_get):
-        # ===================== CSS PREMIUM =====================
+    # ===================== CSS PREMIUM EVOLUÍDO =====================
     st.markdown(
         """
     <style>
@@ -102,10 +102,10 @@ def render_dashboard(api_get):
             background: linear-gradient(-45deg, #001E57, #030A1A, #0A2540, #001233);
             background-size: 300% 300%;
             animation: floatGradient 12s ease infinite, fadeInUp 0.55s ease-out;
-            padding: 32px 34px;
+            padding: 28px 32px;
             border-radius: 22px;
             color: #fff;
-            margin-bottom: 26px;
+            margin-bottom: 22px;
             border-left: 6px solid #FF9200;
             box-shadow:
                 0 18px 42px rgba(0, 30, 87, 0.22),
@@ -125,25 +125,25 @@ def render_dashboard(api_get):
         .dash-header h2 {
             margin: 0;
             font-weight: 900;
-            font-size: 1.9rem;
+            font-size: 1.75rem;
             letter-spacing: -0.4px;
             position: relative; z-index: 1;
         }
         .dash-header p {
-            margin: 8px 0 0 0;
+            margin: 6px 0 0 0;
             color: #94A3B8;
-            font-size: 0.95rem;
+            font-size: 0.92rem;
             position: relative; z-index: 1;
         }
         .dash-badge {
             display: inline-block;
-            margin-top: 14px;
+            margin-top: 12px;
             background: linear-gradient(135deg, #FF9200, #FFB84D);
             color: #fff;
-            padding: 6px 14px;
+            padding: 5px 13px;
             border-radius: 99px;
             font-weight: 800;
-            font-size: 0.72rem;
+            font-size: 0.70rem;
             letter-spacing: 0.3px;
             animation: pulseGlow 2.4s infinite;
             position: relative; z-index: 1;
@@ -153,7 +153,7 @@ def render_dashboard(api_get):
             background: linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 100%);
             border: 1px solid #E2E8F0;
             border-radius: 16px;
-            padding: 18px 14px;
+            padding: 16px 12px;
             text-align: center;
             box-shadow: 0 8px 22px rgba(0, 30, 87, 0.06);
             transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -168,7 +168,7 @@ def render_dashboard(api_get):
         .metric-card h3 {
             margin: 0;
             color: #001E57;
-            font-size: 1.75rem;
+            font-size: 1.65rem;
             font-weight: 900;
         }
         .metric-card h3.accent { color: #FF9200; }
@@ -176,19 +176,25 @@ def render_dashboard(api_get):
         .metric-card h3.red    { color: #EF4444; }
         .metric-card h3.yellow { color: #F59E0B; }
         .metric-card p {
-            margin: 6px 0 0 0;
+            margin: 5px 0 0 0;
             color: #64748B;
-            font-size: 0.72rem;
+            font-size: 0.70rem;
             font-weight: 800;
             text-transform: uppercase;
-            letter-spacing: 0.45px;
+            letter-spacing: 0.4px;
+        }
+        .metric-card .sub {
+            margin-top: 4px;
+            font-size: 0.68rem;
+            color: #94A3B8;
+            font-weight: 600;
         }
 
         .chart-card {
             background: #FFFFFF;
             border: 1px solid #E2E8F0;
             border-radius: 18px;
-            padding: 18px 16px 8px 16px;
+            padding: 16px 14px 8px 14px;
             box-shadow: 0 10px 28px rgba(0, 30, 87, 0.06);
             animation: fadeInUp 0.7s ease-out;
             margin-bottom: 8px;
@@ -197,10 +203,35 @@ def render_dashboard(api_get):
             margin: 0 0 6px 8px;
             color: #001E57;
             font-weight: 800;
-            font-size: 1rem;
+            font-size: 0.98rem;
         }
 
-        /* ===== TABELA PREMIUM ===== */
+        .insight-box {
+            background: linear-gradient(135deg, #FFF7ED 0%, #FFEDD5 100%);
+            border: 1px solid #FDBA74;
+            border-left: 5px solid #FF9200;
+            border-radius: 14px;
+            padding: 14px 18px;
+            margin-bottom: 18px;
+            animation: fadeInUp 0.65s ease-out;
+        }
+        .insight-box strong {
+            color: #9A3412;
+        }
+        .insight-box span {
+            color: #7C2D12;
+            font-size: 0.9rem;
+        }
+
+        .section-title {
+            color: #001E57;
+            font-weight: 900;
+            font-size: 1.12rem;
+            margin: 22px 0 12px 0;
+            padding-left: 10px;
+            border-left: 4px solid #FF9200;
+        }
+
         div[data-testid="stDataFrame"] {
             background: #FFFFFF !important;
             border: 1px solid #E2E8F0 !important;
@@ -209,24 +240,19 @@ def render_dashboard(api_get):
             overflow: hidden !important;
             animation: fadeInUp 0.75s ease-out;
         }
-        div[data-testid="stDataFrame"] table {
-            border-collapse: separate !important;
-            border-spacing: 0 !important;
-            width: 100% !important;
-        }
         div[data-testid="stDataFrame"] thead tr th {
             background: linear-gradient(135deg, #001E57 0%, #0B296B 100%) !important;
             color: #FFFFFF !important;
             font-weight: 800 !important;
-            font-size: 0.78rem !important;
+            font-size: 0.76rem !important;
             text-transform: uppercase !important;
-            letter-spacing: 0.4px !important;
-            padding: 12px 14px !important;
+            letter-spacing: 0.35px !important;
+            padding: 11px 13px !important;
             border: none !important;
         }
         div[data-testid="stDataFrame"] tbody tr td {
-            padding: 11px 14px !important;
-            font-size: 0.88rem !important;
+            padding: 10px 13px !important;
+            font-size: 0.86rem !important;
             color: #1E293B !important;
             border-bottom: 1px solid #F1F5F9 !important;
         }
@@ -236,30 +262,29 @@ def render_dashboard(api_get):
         div[data-testid="stDataFrame"] tbody tr:hover td {
             background: rgba(255, 146, 0, 0.08) !important;
         }
-        .table-section-title {
-            color: #001E57;
-            font-weight: 900;
-            font-size: 1.15rem;
-            margin: 18px 0 12px 0;
-            padding-left: 10px;
-            border-left: 4px solid #FF9200;
+
+        /* Filtros mais limpos */
+        div[data-testid="stHorizontalBlock"] > div {
+            padding-right: 6px;
         }
     </style>
     """,
         unsafe_allow_html=True,
     )
 
+    # ===================== HEADER =====================
     st.markdown(
         """
     <div class="dash-header">
         <h2>📊 Dashboard Gerencial</h2>
-        <p>Visão consolidada das execuções operacionais · tempo real</p>
+        <p>Visão consolidada das execuções operacionais · performance da equipe</p>
         <span class="dash-badge">⚡ PERFORMANCE · DUARTE</span>
     </div>
     """,
         unsafe_allow_html=True,
     )
 
+    # ===================== CARREGAMENTO =====================
     with st.spinner("Carregando indicadores..."):
         resp = api_get("/registros/")
 
@@ -275,15 +300,23 @@ def render_dashboard(api_get):
     if "data_registro" in df.columns:
         df["data_registro"] = pd.to_datetime(df["data_registro"], errors="coerce")
 
-    periodo = st.selectbox(
-        "📅 Período",
-        ["Hoje", "Últimos 7 dias", "Últimos 30 dias", "Todos"],
-        index=3,
-        key="dash_periodo",
-    )
+    df = _normalizar_operadores(df)
+
+    # ===================== FILTROS =====================
+    st.markdown("##### 🎛️ Filtros")
+    f1, f2, f3, f4 = st.columns([1.4, 1.3, 1.3, 1.5])
+
+    with f1:
+        periodo = st.selectbox(
+            "Período",
+            ["Hoje", "Últimos 7 dias", "Últimos 30 dias", "Este mês", "Todos"],
+            index=2,
+            key="dash_periodo",
+        )
 
     agora = datetime.utcnow()
     df_f = df.copy()
+
     if "data_registro" in df_f.columns:
         if periodo == "Hoje":
             df_f = df_f[df_f["data_registro"].dt.date == agora.date()]
@@ -291,39 +324,65 @@ def render_dashboard(api_get):
             df_f = df_f[df_f["data_registro"] >= agora - timedelta(days=7)]
         elif periodo == "Últimos 30 dias":
             df_f = df_f[df_f["data_registro"] >= agora - timedelta(days=30)]
+        elif periodo == "Este mês":
+            df_f = df_f[
+                (df_f["data_registro"].dt.month == agora.month)
+                & (df_f["data_registro"].dt.year == agora.year)
+            ]
+
+    # Filtro operador
+    operadores = ["Todos"]
+    if "operador_exibicao" in df_f.columns:
+        operadores += sorted(df_f["operador_exibicao"].dropna().unique().tolist())
+
+    with f2:
+        filtro_op = st.selectbox("Operador", operadores, key="dash_op")
+
+    # Filtro status
+    status_list = ["Todos"]
+    if "status" in df_f.columns:
+        status_list += sorted(df_f["status"].dropna().unique().tolist())
+
+    with f3:
+        filtro_status = st.selectbox("Status", status_list, key="dash_status")
+
+    # Filtro cliente
+    clientes = ["Todos"]
+    if "cliente_nome" in df_f.columns:
+        clientes += sorted(df_f["cliente_nome"].dropna().unique().tolist())
+
+    with f4:
+        filtro_cliente = st.selectbox("Cliente", clientes, key="dash_cliente")
+
+    # Aplicar filtros
+    if filtro_op != "Todos" and "operador_exibicao" in df_f.columns:
+        df_f = df_f[df_f["operador_exibicao"] == filtro_op]
+    if filtro_status != "Todos" and "status" in df_f.columns:
+        df_f = df_f[df_f["status"] == filtro_status]
+    if filtro_cliente != "Todos" and "cliente_nome" in df_f.columns:
+        df_f = df_f[df_f["cliente_nome"] == filtro_cliente]
 
     if df_f.empty:
-        st.warning("Nenhum registro neste período.")
+        st.warning("Nenhum registro encontrado com os filtros selecionados.")
         return
 
-    df_f = _normalizar_operadores(df_f)
-
+    # ===================== KPIs =====================
     total = len(df_f)
-    realizados = (
-        len(df_f[df_f["status"] == "Realizado Total"])
-        if "status" in df_f.columns
-        else 0
-    )
-    parciais = (
-        len(df_f[df_f["status"] == "Realizado Parcial"])
-        if "status" in df_f.columns
-        else 0
-    )
-    nao = (
-        len(df_f[df_f["status"] == "Não Realizado"])
-        if "status" in df_f.columns
-        else 0
-    )
+    realizados = len(df_f[df_f["status"] == "Realizado Total"]) if "status" in df_f.columns else 0
+    parciais = len(df_f[df_f["status"] == "Realizado Parcial"]) if "status" in df_f.columns else 0
+    nao = len(df_f[df_f["status"] == "Não Realizado"]) if "status" in df_f.columns else 0
     eficiencia = round((realizados / total * 100), 1) if total else 0.0
+    taxa_problema = round(((parciais + nao) / total * 100), 1) if total else 0.0
 
-       # ----- KPIs -----
     k1, k2, k3, k4, k5 = st.columns(5)
+
     with k1:
         st.markdown(
             f"""
         <div class="metric-card">
             <h3>{total}</h3>
             <p>Total</p>
+            <div class="sub">lançamentos</div>
         </div>
         """,
             unsafe_allow_html=True,
@@ -334,6 +393,7 @@ def render_dashboard(api_get):
         <div class="metric-card">
             <h3 class="green">{realizados}</h3>
             <p>Realizados</p>
+            <div class="sub">{round(realizados/total*100,1) if total else 0}%</div>
         </div>
         """,
             unsafe_allow_html=True,
@@ -344,6 +404,7 @@ def render_dashboard(api_get):
         <div class="metric-card">
             <h3 class="yellow">{parciais}</h3>
             <p>Parciais</p>
+            <div class="sub">{round(parciais/total*100,1) if total else 0}%</div>
         </div>
         """,
             unsafe_allow_html=True,
@@ -354,6 +415,7 @@ def render_dashboard(api_get):
         <div class="metric-card">
             <h3 class="red">{nao}</h3>
             <p>Não realizados</p>
+            <div class="sub">{round(nao/total*100,1) if total else 0}%</div>
         </div>
         """,
             unsafe_allow_html=True,
@@ -364,6 +426,7 @@ def render_dashboard(api_get):
         <div class="metric-card">
             <h3 class="accent">{eficiencia}%</h3>
             <p>Eficiência</p>
+            <div class="sub">Realizado Total</div>
         </div>
         """,
             unsafe_allow_html=True,
@@ -371,7 +434,54 @@ def render_dashboard(api_get):
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # ----- Gráficos -----
+    # ===================== INSIGHTS AUTOMÁTICOS =====================
+    insights = []
+
+    if "operador_exibicao" in df_f.columns and "status" in df_f.columns:
+        # Ranking de eficiência
+        rank = (
+            df_f.groupby("operador_exibicao")
+            .agg(
+                total=("status", "count"),
+                realizados=("status", lambda x: (x == "Realizado Total").sum()),
+            )
+            .reset_index()
+        )
+        rank["eficiencia"] = (rank["realizados"] / rank["total"] * 100).round(1)
+        rank = rank[rank["total"] >= 3]  # só quem tem volume mínimo
+
+        if not rank.empty:
+            melhor = rank.loc[rank["eficiencia"].idxmax()]
+            pior = rank.loc[rank["eficiencia"].idxmin()]
+
+            if melhor["eficiencia"] >= 80:
+                insights.append(
+                    f"🏆 <strong>{melhor['operador_exibicao']}</strong> lidera em eficiência "
+                    f"({melhor['eficiencia']}% com {int(melhor['total'])} lançamentos)."
+                )
+            if pior["eficiencia"] < 50 and pior["total"] >= 5:
+                insights.append(
+                    f"⚠️ <strong>{pior['operador_exibicao']}</strong> está com eficiência baixa "
+                    f"({pior['eficiencia']}% em {int(pior['total'])} lançamentos)."
+                )
+
+    if taxa_problema > 35:
+        insights.append(
+            f"📉 Taxa de problemas (Parcial + Não Realizado) está em <strong>{taxa_problema}%</strong> neste período."
+        )
+
+    if insights:
+        for ins in insights[:3]:
+            st.markdown(
+                f"""
+            <div class="insight-box">
+                <span>{ins}</span>
+            </div>
+            """,
+                unsafe_allow_html=True,
+            )
+
+    # ===================== GRÁFICOS PRINCIPAIS =====================
     c1, c2 = st.columns(2)
 
     with c1:
@@ -388,14 +498,14 @@ def render_dashboard(api_get):
                 values="qtd",
                 color="status",
                 color_discrete_map=CORES_STATUS,
-                hole=0.52,
+                hole=0.55,
             )
             fig.update_traces(
                 textposition="inside",
                 textinfo="percent+label",
                 marker=dict(line=dict(color="#FFFFFF", width=2)),
             )
-            fig = _layout_padrao(fig, 360)
+            fig = _layout_padrao(fig, 340)
             st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("Sem dados de status.")
@@ -403,53 +513,57 @@ def render_dashboard(api_get):
 
     with c2:
         st.markdown(
-            '<div class="chart-card"><h4>👥 Execuções por Operador</h4>',
+            '<div class="chart-card"><h4>📈 Ranking de Eficiência por Operador</h4>',
             unsafe_allow_html=True,
         )
-        por_op = (
-            df_f.groupby("operador_exibicao", dropna=False)
-            .size()
-            .reset_index(name="qtd")
-            .sort_values("qtd", ascending=True)
-        )
-        if not por_op.empty:
-            fig2 = px.bar(
-                por_op,
-                x="qtd",
-                y="operador_exibicao",
-                orientation="h",
-                color="qtd",
-                color_continuous_scale=[
-                    "#FFD59A",
-                    "#FF9200",
-                    "#E07A00",
-                    "#001E57",
-                ],
+        if "operador_exibicao" in df_f.columns and "status" in df_f.columns:
+            rank_plot = (
+                df_f.groupby("operador_exibicao")
+                .agg(
+                    total=("status", "count"),
+                    realizados=("status", lambda x: (x == "Realizado Total").sum()),
+                )
+                .reset_index()
             )
-            fig2.update_traces(
-                marker_line_width=0,
-                hovertemplate="<b>%{y}</b><br>%{x} lançamentos<extra></extra>",
-            )
-            fig2.update_layout(coloraxis_showscale=False)
-            fig2 = _layout_padrao(fig2, max(360, 30 * len(por_op) + 90))
-            fig2.update_yaxes(title="")
-            fig2.update_xaxes(title="Lançamentos", gridcolor="#F1F5F9")
-            st.plotly_chart(fig2, use_container_width=True)
+            rank_plot["eficiencia"] = (
+                rank_plot["realizados"] / rank_plot["total"] * 100
+            ).round(1)
+            rank_plot = rank_plot.sort_values("eficiencia", ascending=True)
+
+            if not rank_plot.empty:
+                fig2 = px.bar(
+                    rank_plot,
+                    x="eficiencia",
+                    y="operador_exibicao",
+                    orientation="h",
+                    color="eficiencia",
+                    color_continuous_scale=["#EF4444", "#F59E0B", "#10B981"],
+                    text="eficiencia",
+                )
+                fig2.update_traces(
+                    texttemplate="%{text}%",
+                    textposition="outside",
+                    marker_line_width=0,
+                    hovertemplate="<b>%{y}</b><br>Eficiência: %{x}%<extra></extra>",
+                )
+                fig2.update_layout(coloraxis_showscale=False)
+                fig2 = _layout_padrao(fig2, max(340, 28 * len(rank_plot) + 80))
+                fig2.update_yaxes(title="")
+                fig2.update_xaxes(title="Eficiência %", gridcolor="#F1F5F9", range=[0, 110])
+                st.plotly_chart(fig2, use_container_width=True)
+            else:
+                st.info("Sem dados suficientes.")
         else:
             st.info("Sem dados de operador.")
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # ----- Comparativo status x operador -----
+    # ===================== VOLUME + STATUS POR OPERADOR =====================
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown(
-        '<div class="chart-card"><h4>📊 Comparativo: Status por Operador</h4>',
+        '<div class="chart-card"><h4>👥 Volume e Status por Operador</h4>',
         unsafe_allow_html=True,
     )
-    if (
-        "status" in df_f.columns
-        and "operador_exibicao" in df_f.columns
-        and not df_f.empty
-    ):
+    if "status" in df_f.columns and "operador_exibicao" in df_f.columns:
         comp = (
             df_f.groupby(["operador_exibicao", "status"])
             .size()
@@ -468,15 +582,59 @@ def render_dashboard(api_get):
             yaxis_title="Lançamentos",
             legend_title="Status",
         )
-        fig_comp.update_xaxes(tickangle=-25)
+        fig_comp.update_xaxes(tickangle=-20)
         fig_comp.update_yaxes(gridcolor="#F1F5F9")
-        fig_comp = _layout_padrao(fig_comp, 380)
+        fig_comp = _layout_padrao(fig_comp, 370)
         st.plotly_chart(fig_comp, use_container_width=True)
     else:
         st.info("Sem dados para comparativo.")
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # ----- Evolução temporal -----
+    # ===================== ANÁLISE POR CLIENTE =====================
+    if "cliente_nome" in df_f.columns:
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown(
+            '<div class="chart-card"><h4>🏢 Top Clientes (Volume + Eficiência)</h4>',
+            unsafe_allow_html=True,
+        )
+
+        cli = (
+            df_f.groupby("cliente_nome")
+            .agg(
+                total=("status", "count"),
+                realizados=("status", lambda x: (x == "Realizado Total").sum() if "status" in df_f.columns else 0),
+            )
+            .reset_index()
+        )
+        cli["eficiencia"] = (cli["realizados"] / cli["total"] * 100).round(1)
+        cli = cli.sort_values("total", ascending=False).head(12)
+
+        if not cli.empty:
+            fig_cli = px.bar(
+                cli,
+                x="cliente_nome",
+                y="total",
+                color="eficiencia",
+                color_continuous_scale=["#EF4444", "#F59E0B", "#10B981"],
+                text="total",
+            )
+            fig_cli.update_traces(
+                textposition="outside",
+                hovertemplate="<b>%{x}</b><br>Volume: %{y}<br>Eficiência: %{marker.color}%<extra></extra>",
+            )
+            fig_cli.update_layout(
+                xaxis_title="",
+                yaxis_title="Lançamentos",
+                coloraxis_colorbar=dict(title="Eficiência %"),
+            )
+            fig_cli.update_xaxes(tickangle=-25)
+            fig_cli = _layout_padrao(fig_cli, 380)
+            st.plotly_chart(fig_cli, use_container_width=True)
+        else:
+            st.info("Sem dados de clientes.")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    # ===================== EVOLUÇÃO TEMPORAL =====================
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown(
         '<div class="chart-card"><h4>📈 Evolução das Execuções</h4>',
@@ -492,38 +650,75 @@ def render_dashboard(api_get):
                 .reset_index(name="quantidade")
                 .sort_values("dia")
             )
-            fig3 = go.Figure(
-                data=[
+
+            # Se tiver status, calcula eficiência diária também
+            if "status" in tmp.columns:
+                tmp["realizado"] = (tmp["status"] == "Realizado Total").astype(int)
+                efic = (
+                    tmp.groupby("dia")
+                    .agg(total=("status", "count"), real=("realizado", "sum"))
+                    .reset_index()
+                )
+                efic["eficiencia"] = (efic["real"] / efic["total"] * 100).round(1)
+
+                fig3 = go.Figure()
+                fig3.add_trace(
                     go.Scatter(
                         x=serie["dia"],
                         y=serie["quantidade"],
                         mode="lines+markers",
+                        name="Volume",
                         line=dict(color=COR_AZUL, width=3, shape="spline"),
-                        marker=dict(
-                            color=COR_LARANJA,
-                            size=9,
-                            line=dict(color="#FFF", width=2),
-                        ),
+                        marker=dict(color=COR_LARANJA, size=8),
                         fill="tozeroy",
-                        fillcolor="rgba(255, 146, 0, 0.12)",
-                        hovertemplate="%{x}<br><b>%{y}</b> lançamentos<extra></extra>",
+                        fillcolor="rgba(255, 146, 0, 0.10)",
                     )
-                ]
-            )
-            fig3.update_xaxes(showgrid=False)
-            fig3.update_yaxes(showgrid=True, gridcolor="#F1F5F9")
-            fig3 = _layout_padrao(fig3, 300)
+                )
+                fig3.add_trace(
+                    go.Scatter(
+                        x=efic["dia"],
+                        y=efic["eficiencia"],
+                        mode="lines+markers",
+                        name="Eficiência %",
+                        yaxis="y2",
+                        line=dict(color=COR_VERDE, width=2.5, dash="dot"),
+                        marker=dict(size=7),
+                    )
+                )
+                fig3.update_layout(
+                    yaxis=dict(title="Volume", gridcolor="#F1F5F9"),
+                    yaxis2=dict(
+                        title="Eficiência %",
+                        overlaying="y",
+                        side="right",
+                        range=[0, 105],
+                        showgrid=False,
+                    ),
+                    legend=dict(orientation="h", y=-0.22),
+                )
+            else:
+                fig3 = go.Figure(
+                    data=[
+                        go.Scatter(
+                            x=serie["dia"],
+                            y=serie["quantidade"],
+                            mode="lines+markers",
+                            line=dict(color=COR_AZUL, width=3, shape="spline"),
+                            marker=dict(color=COR_LARANJA, size=9),
+                            fill="tozeroy",
+                            fillcolor="rgba(255, 146, 0, 0.12)",
+                        )
+                    ]
+                )
+
+            fig3 = _layout_padrao(fig3, 320)
             st.plotly_chart(fig3, use_container_width=True)
         else:
             st.info("Sem dados suficientes para a evolução.")
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # ----- Tabela premium -----
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown(
-        '<p class="table-section-title">📋 Últimos lançamentos</p>',
-        unsafe_allow_html=True,
-    )
+    # ===================== TABELA =====================
+    st.markdown('<p class="section-title">📋 Lançamentos filtrados</p>', unsafe_allow_html=True)
 
     cols = [
         c
@@ -537,18 +732,17 @@ def render_dashboard(api_get):
         if c in df_f.columns
     ]
 
-    if cols and "data_registro" in df_f.columns:
-        tabela = (
-            df_f[cols]
-            .sort_values("data_registro", ascending=False)
-            .head(20)
-            .copy()
-        )
-        tabela["data_registro"] = pd.to_datetime(
-            tabela["data_registro"], errors="coerce"
-        ).dt.strftime("%d/%m/%Y %H:%M")
+    if cols:
+        tabela = df_f[cols].sort_values(
+            "data_registro" if "data_registro" in cols else cols[0],
+            ascending=False,
+        ).copy()
 
-        # renomeia colunas pra exibição
+        if "data_registro" in tabela.columns:
+            tabela["data_registro"] = pd.to_datetime(
+                tabela["data_registro"], errors="coerce"
+            ).dt.strftime("%d/%m/%Y %H:%M")
+
         rename_map = {
             "data_registro": "Data",
             "operador_nome": "Operador",
@@ -556,14 +750,15 @@ def render_dashboard(api_get):
             "status": "Status",
             "justificativa": "Justificativa",
         }
-        tabela = tabela.rename(
-            columns={k: v for k, v in rename_map.items() if k in tabela.columns}
-        )
+        tabela = tabela.rename(columns={k: v for k, v in rename_map.items() if k in tabela.columns})
 
+        # Mostrar quantidade total + opção de ver tudo
+        st.caption(f"Exibindo {min(50, len(tabela))} de {len(tabela)} registros")
         st.dataframe(
-            tabela,
+            tabela.head(50),
             use_container_width=True,
             hide_index=True,
+            height=420,
         )
     else:
         st.info("Sem lançamentos para listar.")
