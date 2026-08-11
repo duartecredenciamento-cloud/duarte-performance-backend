@@ -71,7 +71,7 @@ def _normalizar_operadores(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-@st.cache_data(ttl=30, show_spinner=False)
+@st.cache_data(ttl=15, show_spinner=False)
 def _fetch_registros(_api_get):
     try:
         resp = _api_get("/registros/")
@@ -161,7 +161,6 @@ def _inject_count_up():
                 const duracao = 700;
                 const inicio = performance.now();
 
-                // Já coloca o valor final caso a animação falhe
                 el.textContent = (casas ? alvo.toFixed(casas) : Math.round(alvo)) + sufixo;
 
                 function passo(agora) {
@@ -174,11 +173,9 @@ def _inject_count_up():
                 requestAnimationFrame(passo);
             }
 
-            // Limpa animações antigas e roda de novo
             setTimeout(function() {
                 const elementos = doc.querySelectorAll('.kpi-number');
                 elementos.forEach(function(el) {
-                    // força reset
                     el.textContent = '0' + (el.getAttribute('data-suffix') || '');
                     animar(el);
                 });
@@ -387,33 +384,45 @@ def render_dashboard(api_get):
         opcoes_periodo = ["Hoje", "Últimos 7 dias", "Últimos 30 dias", "Este mês", "Todos"]
         if hasattr(st, "segmented_control"):
             periodo = st.segmented_control(
-                "Período", opcoes_periodo, default="Últimos 30 dias", key="dash_periodo"
-            ) or "Últimos 30 dias"
+                "Período", opcoes_periodo, default="Todos", key="dash_periodo"
+            ) or "Todos"
         else:
-            periodo = st.selectbox("Período", opcoes_periodo, index=2, key="dash_periodo")
+            periodo = st.selectbox("Período", opcoes_periodo, index=4, key="dash_periodo")
 
     agora = _agora_br()
     df_f = df.copy()
 
-    if "data_registro" in df_f.columns:
-        # Remove timezone se existir para comparação segura
-        col_data = df_f["data_registro"]
-        if hasattr(col_data.dt, "tz") and col_data.dt.tz is not None:
-            col_data = col_data.dt.tz_convert("America/Sao_Paulo").dt.tz_localize(None)
-            df_f["data_registro"] = col_data
+    # ===== CORREÇÃO PRINCIPAL: só filtra data se NÃO for "Todos" =====
+    if periodo != "Todos" and "data_registro" in df_f.columns:
+        # Remove timezone se existir
+        try:
+            if getattr(df_f["data_registro"].dt, "tz", None) is not None:
+                df_f["data_registro"] = (
+                    df_f["data_registro"]
+                    .dt.tz_convert("America/Sao_Paulo")
+                    .dt.tz_localize(None)
+                )
+        except Exception:
+            pass
+
+        # Mantém apenas linhas que TÊM data válida quando o filtro de período está ativo
+        df_f = df_f[df_f["data_registro"].notna()].copy()
 
         if periodo == "Hoje":
             df_f = df_f[df_f["data_registro"].dt.date == agora.date()]
         elif periodo == "Últimos 7 dias":
-            df_f = df_f[df_f["data_registro"] >= (agora - timedelta(days=7)).replace(tzinfo=None)]
+            limite = (agora - timedelta(days=7)).replace(tzinfo=None)
+            df_f = df_f[df_f["data_registro"] >= limite]
         elif periodo == "Últimos 30 dias":
-            df_f = df_f[df_f["data_registro"] >= (agora - timedelta(days=30)).replace(tzinfo=None)]
+            limite = (agora - timedelta(days=30)).replace(tzinfo=None)
+            df_f = df_f[df_f["data_registro"] >= limite]
         elif periodo == "Este mês":
             df_f = df_f[
                 (df_f["data_registro"].dt.month == agora.month)
                 & (df_f["data_registro"].dt.year == agora.year)
             ]
 
+    # Filtros de Operador / Status / Cliente
     operadores = ["Todos"]
     if "operador_exibicao" in df_f.columns:
         operadores += sorted(df_f["operador_exibicao"].dropna().unique().tolist())
@@ -449,9 +458,6 @@ def render_dashboard(api_get):
     parciais = len(df_f[df_f["status"] == "Realizado Parcial"]) if "status" in df_f.columns else 0
     nao = len(df_f[df_f["status"] == "Não Realizado"]) if "status" in df_f.columns else 0
     eficiencia = round((realizados / total * 100), 1) if total else 0.0
-
-    # key muda quando os dados mudam → força recriação dos cards
-    kpi_key = f"{total}-{realizados}-{parciais}-{nao}-{eficiencia}"
 
     k1, k2, k3, k4, k5 = st.columns(5)
     with k1:
