@@ -146,6 +146,24 @@ def _todos_clientes_do_dia(df_escala, dia_ref: str) -> list:
     return sorted(clientes)
 
 
+def _todos_clientes_do_cronograma(df_escala) -> list:
+    """Retorna todos os clientes únicos de todo o cronograma (todos os dias)."""
+    if df_escala is None or df_escala.empty:
+        return []
+
+    dias = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
+    clientes = set()
+
+    for dia in dias:
+        if dia in df_escala.columns:
+            valores = df_escala[dia].dropna().astype(str).str.strip()
+            for v in valores:
+                if v and v != "-":
+                    clientes.add(v)
+
+    return sorted(clientes)
+
+
 def _lista_operadores(df_escala) -> list:
     if df_escala is None or df_escala.empty or "Operador" not in df_escala.columns:
         return []
@@ -164,86 +182,250 @@ def _lista_operadores(df_escala) -> list:
 
 def render_lancamento(api_post, carregar_cronograma=None):
     st.markdown(
-        """
-    <style>
-        @keyframes fadeInUp {
-            from { opacity: 0; transform: translateY(18px); }
-            to   { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes floatGradient {
-            0% { background-position: 0% 50%; }
-            50% { background-position: 100% 50%; }
-            100% { background-position: 0% 50%; }
-        }
-        @keyframes pulseGlow {
-            0% { box-shadow: 0 0 0 0 rgba(255, 146, 0, 0.5); }
-            70% { box-shadow: 0 0 0 12px rgba(255, 146, 0, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(255, 146, 0, 0); }
-        }
-        .lanc-hero {
-            background: linear-gradient(-45deg, #001E57, #030A1A, #0B296B, #001233);
-            background-size: 300% 300%;
-            animation: floatGradient 12s ease infinite, fadeInUp 0.55s ease-out;
-            padding: 28px 32px; border-radius: 22px; color: #fff;
-            margin-bottom: 22px; border-left: 6px solid #FF9200;
-            box-shadow: 0 16px 40px rgba(0, 30, 87, 0.22);
-        }
-        .lanc-hero h2 { margin: 0; font-weight: 900; font-size: 1.85rem; }
-        .lanc-hero p { margin: 8px 0 0 0; color: #94A3B8; font-size: 0.95rem; }
-        .lanc-badge {
-            display: inline-block; margin-top: 14px;
-            background: linear-gradient(135deg, #FF9200, #FFB84D);
-            color: #fff; padding: 6px 14px; border-radius: 99px;
-            font-weight: 800; font-size: 0.72rem;
-            animation: pulseGlow 2.2s infinite;
-        }
-        .lanc-shell {
-            background: linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 100%);
-            padding: 26px 24px 20px 24px; border-radius: 20px;
-            box-shadow: 0 12px 32px rgba(0, 30, 87, 0.07);
-            border: 1px solid #E2E8F0; border-top: 5px solid #FF9200;
-            animation: fadeInUp 0.6s ease-out; margin-bottom: 12px;
-        }
-        .lanc-chip-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
-        .lanc-chip {
-            display: inline-flex; align-items: center; gap: 6px;
-            background: rgba(0, 30, 87, 0.06); color: #001E57;
-            border: 1px solid rgba(0, 30, 87, 0.1);
-            padding: 6px 12px; border-radius: 99px;
-            font-size: 0.78rem; font-weight: 700;
-        }
-        .lanc-chip.orange {
-            background: rgba(255, 146, 0, 0.12); color: #C2410C;
-            border-color: rgba(255, 146, 0, 0.28);
-        }
-        .lanc-chip.green {
-            background: rgba(16, 185, 129, 0.12); color: #047857;
-            border-color: rgba(16, 185, 129, 0.25);
-        }
-        .justificativa-box {
-            border-left: 4px solid #FF9200;
-            background: linear-gradient(135deg, #FFF9F0 0%, #FFF5E6 100%);
-            padding: 16px 16px 6px 16px; border-radius: 12px;
-            margin: 8px 0 14px 0; border: 1px solid rgba(255, 146, 0, 0.2);
-        }
-        .lanc-section-title {
-            color: #001E57; font-weight: 800; font-size: 1rem; margin: 4px 0 12px 0;
-        }
-        .admin-box {
-            background: #F0F7FF; border: 1px solid #BFDBFE;
-            border-left: 4px solid #001E57; border-radius: 12px;
-            padding: 14px 16px; margin-bottom: 16px;
-        }
-        div.stButton > button[kind="primary"] {
-            background: linear-gradient(135deg, #FF9200 0%, #E07A00 100%) !important;
-            color: white !important; font-weight: 800 !important;
-            height: 52px !important; border-radius: 14px !important; border: none !important;
-            box-shadow: 0 6px 18px rgba(255, 146, 0, 0.3) !important;
-        }
-    </style>
-    """,
-        unsafe_allow_html=True,
-    )
+    """
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+
+    @keyframes fadeInUp {
+        from { opacity: 0; transform: translateY(22px); }
+        to   { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes floatGradient {
+        0%   { background-position: 0% 50%; }
+        50%  { background-position: 100% 50%; }
+        100% { background-position: 0% 50%; }
+    }
+    @keyframes pulseGlow {
+        0%   { box-shadow: 0 0 0 0 rgba(255, 146, 0, 0.55); }
+        70%  { box-shadow: 0 0 0 14px rgba(255, 146, 0, 0); }
+        100% { box-shadow: 0 0 0 0 rgba(255, 146, 0, 0); }
+    }
+    @keyframes softFloat {
+        0%, 100% { transform: translateY(0); }
+        50%      { transform: translateY(-3px); }
+    }
+    @keyframes shimmer {
+        0%   { background-position: -200% 0; }
+        100% { background-position: 200% 0; }
+    }
+    @keyframes borderGlow {
+        0%, 100% { border-color: rgba(255, 146, 0, 0.35); }
+        50%      { border-color: rgba(255, 146, 0, 0.7); }
+    }
+
+    /* ===== HERO ===== */
+    .lanc-hero {
+        background: linear-gradient(-45deg, #001E57, #030A1A, #0B296B, #001233);
+        background-size: 300% 300%;
+        animation: floatGradient 14s ease infinite, fadeInUp 0.6s ease-out;
+        padding: 32px 34px;
+        border-radius: 24px;
+        color: #fff;
+        margin-bottom: 24px;
+        border-left: 6px solid #FF9200;
+        box-shadow: 0 20px 50px rgba(0, 30, 87, 0.28);
+        position: relative;
+        overflow: hidden;
+    }
+    .lanc-hero::before {
+        content: '';
+        position: absolute;
+        top: -50%; right: -8%;
+        width: 280px; height: 280px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(255,146,0,0.18) 0%, transparent 70%);
+        pointer-events: none;
+        animation: softFloat 6s ease-in-out infinite;
+    }
+    .lanc-hero::after {
+        content: '';
+        position: absolute;
+        bottom: -40%; left: 5%;
+        width: 200px; height: 200px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(16,185,129,0.12) 0%, transparent 70%);
+        pointer-events: none;
+    }
+    .lanc-hero h2 {
+        margin: 0;
+        font-weight: 900;
+        font-size: 1.9rem;
+        letter-spacing: -0.5px;
+        position: relative;
+        z-index: 1;
+    }
+    .lanc-hero p {
+        margin: 8px 0 0 0;
+        color: #94A3B8;
+        font-size: 0.96rem;
+        position: relative;
+        z-index: 1;
+    }
+    .lanc-badge {
+        display: inline-block;
+        margin-top: 16px;
+        background: linear-gradient(135deg, #FF9200, #FFB84D);
+        color: #fff;
+        padding: 7px 16px;
+        border-radius: 99px;
+        font-weight: 800;
+        font-size: 0.73rem;
+        letter-spacing: 0.4px;
+        animation: pulseGlow 2.4s infinite;
+        position: relative;
+        z-index: 1;
+        box-shadow: 0 4px 14px rgba(255, 146, 0, 0.35);
+    }
+
+    /* ===== SHELL (CARD PRINCIPAL) ===== */
+    .lanc-shell {
+        background: linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 100%);
+        padding: 28px 26px 22px 26px;
+        border-radius: 22px;
+        box-shadow: 0 14px 40px rgba(0, 30, 87, 0.08);
+        border: 1px solid #E2E8F0;
+        border-top: 5px solid #FF9200;
+        animation: fadeInUp 0.65s ease-out;
+        margin-bottom: 16px;
+        transition: box-shadow 0.3s ease, transform 0.3s ease;
+    }
+    .lanc-shell:hover {
+        box-shadow: 0 18px 48px rgba(0, 30, 87, 0.12);
+    }
+
+    /* ===== CHIPS ===== */
+    .lanc-chip-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-bottom: 20px;
+        animation: fadeInUp 0.55s ease-out;
+    }
+    .lanc-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        background: rgba(0, 30, 87, 0.06);
+        color: #001E57;
+        border: 1px solid rgba(0, 30, 87, 0.1);
+        padding: 7px 14px;
+        border-radius: 99px;
+        font-size: 0.8rem;
+        font-weight: 700;
+        transition: all 0.25s ease;
+    }
+    .lanc-chip:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0, 30, 87, 0.1);
+    }
+    .lanc-chip.orange {
+        background: rgba(255, 146, 0, 0.12);
+        color: #C2410C;
+        border-color: rgba(255, 146, 0, 0.3);
+    }
+    .lanc-chip.green {
+        background: rgba(16, 185, 129, 0.12);
+        color: #047857;
+        border-color: rgba(16, 185, 129, 0.28);
+    }
+
+    /* ===== JUSTIFICATIVA ===== */
+    .justificativa-box {
+        border-left: 5px solid #FF9200;
+        background: linear-gradient(135deg, #FFF9F0 0%, #FFF5E6 100%);
+        padding: 18px 18px 8px 18px;
+        border-radius: 14px;
+        margin: 10px 0 16px 0;
+        border: 1px solid rgba(255, 146, 0, 0.22);
+        animation: fadeInUp 0.5s ease-out, borderGlow 3s ease-in-out infinite;
+        box-shadow: 0 4px 16px rgba(255, 146, 0, 0.08);
+    }
+
+    /* ===== TÍTULOS ===== */
+    .lanc-section-title {
+        color: #001E57;
+        font-weight: 800;
+        font-size: 1.05rem;
+        margin: 4px 0 14px 0;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    /* ===== ADMIN BOX ===== */
+    .admin-box {
+        background: linear-gradient(135deg, #F0F7FF 0%, #E0F2FE 100%);
+        border: 1px solid #BFDBFE;
+        border-left: 5px solid #001E57;
+        border-radius: 14px;
+        padding: 16px 18px;
+        margin-bottom: 18px;
+        animation: fadeInUp 0.5s ease-out;
+        box-shadow: 0 4px 14px rgba(0, 30, 87, 0.06);
+    }
+
+    /* ===== BOTÃO PRINCIPAL ===== */
+    div.stButton > button[kind="primary"] {
+        background: linear-gradient(135deg, #FF9200 0%, #E07A00 100%) !important;
+        color: white !important;
+        font-weight: 800 !important;
+        font-size: 1rem !important;
+        height: 54px !important;
+        border-radius: 16px !important;
+        border: none !important;
+        box-shadow: 0 8px 22px rgba(255, 146, 0, 0.35) !important;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        letter-spacing: 0.3px !important;
+    }
+    div.stButton > button[kind="primary"]:hover {
+        transform: translateY(-3px) !important;
+        box-shadow: 0 12px 28px rgba(255, 146, 0, 0.45) !important;
+        background: linear-gradient(135deg, #FFA733 0%, #FF9200 100%) !important;
+    }
+    div.stButton > button[kind="primary"]:active {
+        transform: translateY(-1px) !important;
+    }
+
+    /* ===== SELECTS E INPUTS ===== */
+    div[data-testid="stSelectbox"] > div > div,
+    div[data-testid="stTextInput"] > div > div,
+    div[data-testid="stDateInput"] > div > div {
+        border-radius: 12px !important;
+        border-color: #E2E8F0 !important;
+        transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
+    }
+    div[data-testid="stSelectbox"] > div > div:hover,
+    div[data-testid="stTextInput"] > div > div:hover {
+        border-color: #FF9200 !important;
+    }
+    div[data-baseweb="select"]:focus-within > div,
+    div[data-testid="stTextInput"] input:focus {
+        border-color: #FF9200 !important;
+        box-shadow: 0 0 0 3px rgba(255, 146, 0, 0.15) !important;
+    }
+
+    /* ===== TEXTAREA ===== */
+    div[data-testid="stTextArea"] textarea {
+        border-radius: 12px !important;
+        border-color: #E2E8F0 !important;
+        transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
+    }
+    div[data-testid="stTextArea"] textarea:focus {
+        border-color: #FF9200 !important;
+        box-shadow: 0 0 0 3px rgba(255, 146, 0, 0.15) !important;
+    }
+
+    /* ===== RESPONSIVO ===== */
+    @media (max-width: 640px) {
+        .lanc-hero { padding: 22px 20px; border-radius: 18px; }
+        .lanc-hero h2 { font-size: 1.45rem; }
+        .lanc-shell { padding: 20px 16px; }
+        .lanc-chip { font-size: 0.74rem; padding: 6px 11px; }
+    }
+</style>
+""",
+    unsafe_allow_html=True,
+)
 
     st.markdown(
         """
@@ -318,6 +500,7 @@ def render_lancamento(api_post, carregar_cronograma=None):
         )
 
     todos_clientes_hoje = _todos_clientes_do_dia(df_escala, dia_ref)
+    todos_clientes_cronograma = _todos_clientes_do_cronograma(df_escala)  # ← NOVO
 
     visao_txt = (
         "Visão geral"
@@ -370,8 +553,9 @@ def render_lancamento(api_post, carregar_cronograma=None):
 
         cliente_final = cliente_sel
         if cliente_sel == "Suporte":
+            # Agora usa TODOS os clientes do cronograma (qualquer dia)
             opcoes_suporte = ["Selecione..."] + [
-                f"Suporte - {c}" for c in todos_clientes_hoje
+                f"Suporte - {c}" for c in todos_clientes_cronograma
             ]
             cliente_final = st.selectbox(
                 "🛠️ Suporte para qual cliente?",

@@ -6,6 +6,12 @@ import plotly.graph_objects as go
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 
+try:
+    from zoneinfo import ZoneInfo
+    FUSO_BR = ZoneInfo("America/Sao_Paulo")
+except Exception:
+    FUSO_BR = None
+
 # ===================== PALETA DUARTE =====================
 COR_AZUL = "#001E57"
 COR_AZUL_CLARO = "#0B296B"
@@ -23,10 +29,6 @@ CORES_STATUS = {
     "Não Informado": "#64748B",
 }
 
-# Suporte a marker.cornerradius (barras com cantos arredondados) só existe em
-# versões mais novas do plotly. Detectamos uma vez, no import, e usamos em
-# todo o arquivo — se a versão instalada não suportar, caímos para o padrão
-# sem quebrar o dashboard.
 try:
     _fig_teste = go.Figure(go.Bar(x=[1], y=[1], marker=dict(cornerradius=6)))
     _fig_teste.to_dict()
@@ -35,7 +37,7 @@ except Exception:
     SUPORTA_CORNER_RADIUS = False
 
 
-# ===================== HELPERS DE DADOS (iguais ao original) =====================
+# ===================== HELPERS =====================
 def _chave_operador(nome: str) -> str:
     if nome is None or (isinstance(nome, float) and pd.isna(nome)):
         return ""
@@ -71,26 +73,28 @@ def _normalizar_operadores(df: pd.DataFrame) -> pd.DataFrame:
 
 @st.cache_data(ttl=30, show_spinner=False)
 def _fetch_registros(_api_get):
-    """
-    Busca os registros na API e guarda em cache por 30s.
-    O underscore em `_api_get` diz ao Streamlit para não tentar "hashear"
-    a função (evita erro de cache e evita bater na API a cada clique em
-    um filtro, o que deixava o dashboard mais lento do que precisava).
-    """
-    resp = _api_get("/registros/")
-    if resp is None or resp.status_code != 200:
+    try:
+        resp = _api_get("/registros/")
+        if resp is None or resp.status_code != 200:
+            return None
+        dados = resp.json()
+        if isinstance(dados, dict) and "data" in dados:
+            return dados["data"]
+        if isinstance(dados, list):
+            return dados
+        return []
+    except Exception:
         return None
-    return resp.json()
 
 
-# ===================== LAYOUT PADRÃO DOS GRÁFICOS (bug corrigido aqui) =====================
+def _agora_br():
+    if FUSO_BR:
+        return datetime.now(FUSO_BR)
+    return datetime.now()
+
+
 def _layout_padrao(fig, altura=320):
     fig.update_layout(
-        # IMPORTANTE: nunca definir "title=None" aqui. Fazer isso deixa um
-        # objeto vazio {} no JSON enviado pro navegador, e o Plotly.js
-        # renderiza esse objeto vazio como o texto literal "undefined" na
-        # tela. A correção é simplesmente não tocar na chave "title" —
-        # sem ela, nenhum título aparece (que é o efeito desejado).
         height=altura,
         margin=dict(l=12, r=12, t=18, b=16),
         paper_bgcolor="rgba(0,0,0,0)",
@@ -111,23 +115,12 @@ def _layout_padrao(fig, altura=320):
             x=0.5,
             font=dict(size=12),
         ),
-        transition=dict(duration=450, easing="cubic-in-out"),
     )
     return fig
 
 
-# ===================== CARD DE GRÁFICO (agora realmente encapsula o gráfico) =====================
 @contextmanager
 def chart_card(icon: str, titulo: str, badge: str | None = None):
-    """
-    No dashboard antigo, o cabeçalho do card era um <div> fechado à parte,
-    e o gráfico do Plotly renderizava DEPOIS, fora daquele card — por isso
-    ele aparecia "solto" no fundo cinza, sem o balão branco ao redor.
-
-    Aqui usamos st.container(border=True) e colocamos o cabeçalho E o
-    gráfico dentro do MESMO container, então os dois viram um bloco só,
-    de verdade, com o mesmo balão.
-    """
     card = st.container(border=True)
     with card:
         badge_html = f'<span class="card-badge">{badge}</span>' if badge else ""
@@ -144,7 +137,6 @@ def chart_card(icon: str, titulo: str, badge: str | None = None):
         yield card
 
 
-# ===================== KPIs animados (contagem crescente) =====================
 def _kpi_html(valor, label, sub, css_class="", suffix=""):
     return f"""
     <div class="metric-card">
@@ -156,12 +148,6 @@ def _kpi_html(valor, label, sub, css_class="", suffix=""):
 
 
 def _inject_count_up():
-    """
-    Pequeno script único (não um por card) que anima os números dos KPIs
-    subindo de 0 até o valor real. Usa `window.parent.document` porque
-    st.components.v1.html roda dentro de um iframe. height=0 pra não
-    ocupar espaço nenhum na tela.
-    """
     components.html(
         """
         <script>
@@ -171,7 +157,7 @@ def _inject_count_up():
                 const alvo = parseFloat(el.getAttribute('data-target')) || 0;
                 const sufixo = el.getAttribute('data-suffix') || '';
                 const casas = sufixo.includes('%') ? 1 : 0;
-                const duracao = 850;
+                const duracao = 900;
                 const inicio = performance.now();
                 function passo(agora) {
                     const p = Math.min((agora - inicio) / duracao, 1);
@@ -182,12 +168,9 @@ def _inject_count_up():
                 }
                 requestAnimationFrame(passo);
             }
-            function rodar() {
-                doc.querySelectorAll('.kpi-number').forEach(function(el) {
-                    animar(el);
-                });
-            }
-            setTimeout(rodar, 50);
+            setTimeout(function() {
+                doc.querySelectorAll('.kpi-number').forEach(animar);
+            }, 80);
         })();
         </script>
         """,
@@ -201,7 +184,7 @@ def render_dashboard(api_get):
         """
     <style>
         @keyframes fadeInUp {
-            from { opacity: 0; transform: translateY(18px); }
+            from { opacity: 0; transform: translateY(16px); }
             to   { opacity: 1; transform: translateY(0); }
         }
         @keyframes floatGradient {
@@ -211,29 +194,24 @@ def render_dashboard(api_get):
         }
         @keyframes pulseGlow {
             0%   { box-shadow: 0 0 0 0 rgba(255, 146, 0, 0.45); }
-            70%  { box-shadow: 0 0 0 14px rgba(255, 146, 0, 0); }
+            70%  { box-shadow: 0 0 0 12px rgba(255, 146, 0, 0); }
             100% { box-shadow: 0 0 0 0 rgba(255, 146, 0, 0); }
-        }
-        @keyframes shimmer {
-            0%   { background-position: -400px 0; }
-            100% { background-position: 400px 0; }
         }
         @keyframes softBounce {
             0%, 100% { transform: translateY(0); }
-            50%      { transform: translateY(-3px); }
+            50%      { transform: translateY(-2px); }
         }
 
-        /* ---------- Header ---------- */
         .dash-header {
             background: linear-gradient(-45deg, #001E57, #030A1A, #0A2540, #001233);
             background-size: 300% 300%;
-            animation: floatGradient 12s ease infinite, fadeInUp 0.55s ease-out;
-            padding: 28px 32px;
-            border-radius: 22px;
+            animation: floatGradient 14s ease infinite, fadeInUp 0.5s ease-out;
+            padding: 26px 30px;
+            border-radius: 20px;
             color: #fff;
-            margin-bottom: 22px;
-            border-left: 6px solid #FF9200;
-            box-shadow: 0 18px 42px rgba(0, 30, 87, 0.22), 0 0 0 1px rgba(255, 146, 0, 0.08);
+            margin-bottom: 20px;
+            border-left: 5px solid #FF9200;
+            box-shadow: 0 16px 40px rgba(0, 30, 87, 0.22);
             position: relative;
             overflow: hidden;
         }
@@ -241,37 +219,27 @@ def render_dashboard(api_get):
             content: '';
             position: absolute;
             top: -40%; right: -5%;
-            width: 260px; height: 260px;
+            width: 240px; height: 240px;
             border-radius: 50%;
-            background: radial-gradient(circle, rgba(255,146,0,0.18) 0%, transparent 70%);
-            pointer-events: none;
-        }
-        .dash-header::after {
-            content: '';
-            position: absolute;
-            bottom: -60%; left: 10%;
-            width: 220px; height: 220px;
-            border-radius: 50%;
-            background: radial-gradient(circle, rgba(16,185,129,0.10) 0%, transparent 70%);
+            background: radial-gradient(circle, rgba(255,146,0,0.16) 0%, transparent 70%);
             pointer-events: none;
         }
         .dash-header h2 {
-            margin: 0; font-weight: 900; font-size: 1.75rem;
+            margin: 0; font-weight: 900; font-size: 1.7rem;
             letter-spacing: -0.4px; position: relative; z-index: 1;
         }
         .dash-header p {
-            margin: 6px 0 0 0; color: #94A3B8; font-size: 0.92rem;
+            margin: 6px 0 0 0; color: #94A3B8; font-size: 0.9rem;
             position: relative; z-index: 1;
         }
         .dash-badge {
-            display: inline-block; margin-top: 12px;
+            display: inline-block; margin-top: 11px;
             background: linear-gradient(135deg, #FF9200, #FFB84D);
-            color: #fff; padding: 5px 13px; border-radius: 99px;
-            font-weight: 800; font-size: 0.70rem; letter-spacing: 0.3px;
-            animation: pulseGlow 2.4s infinite; position: relative; z-index: 1;
+            color: #fff; padding: 5px 12px; border-radius: 99px;
+            font-weight: 800; font-size: 0.68rem; letter-spacing: 0.3px;
+            animation: pulseGlow 2.5s infinite; position: relative; z-index: 1;
         }
 
-        /* ---------- KPI cards ---------- */
         .metric-card {
             background: linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 100%);
             border: 1px solid #E2E8F0;
@@ -279,32 +247,19 @@ def render_dashboard(api_get):
             padding: 16px 12px;
             text-align: center;
             box-shadow: 0 8px 22px rgba(0, 30, 87, 0.06);
-            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.3s;
-            animation: fadeInUp 0.55s ease-out backwards;
+            transition: all 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+            animation: fadeInUp 0.5s ease-out backwards;
             height: 100%;
-            position: relative;
-            overflow: hidden;
-        }
-        .metric-card::before {
-            content: '';
-            position: absolute; inset: 0;
-            background: linear-gradient(90deg, transparent, rgba(255,146,0,0.06), transparent);
-            background-size: 400px 100%;
-            opacity: 0;
-            transition: opacity .3s;
         }
         .metric-card:hover {
             transform: translateY(-4px);
-            border-color: rgba(255, 146, 0, 0.4);
-            box-shadow: 0 14px 32px rgba(255, 146, 0, 0.14);
+            border-color: rgba(255, 146, 0, 0.45);
+            box-shadow: 0 14px 30px rgba(255, 146, 0, 0.13);
         }
-        .metric-card:hover::before { opacity: 1; animation: shimmer 1.1s ease; }
-        div[data-testid="column"]:nth-of-type(1) .metric-card { animation-delay: .02s; }
-        div[data-testid="column"]:nth-of-type(2) .metric-card { animation-delay: .08s; }
-        div[data-testid="column"]:nth-of-type(3) .metric-card { animation-delay: .14s; }
-        div[data-testid="column"]:nth-of-type(4) .metric-card { animation-delay: .20s; }
-        div[data-testid="column"]:nth-of-type(5) .metric-card { animation-delay: .26s; }
-        .metric-card h3 { margin: 0; color: #001E57; font-size: 1.65rem; font-weight: 900; font-variant-numeric: tabular-nums; }
+        .metric-card h3 {
+            margin: 0; color: #001E57; font-size: 1.65rem; font-weight: 900;
+            font-variant-numeric: tabular-nums;
+        }
         .metric-card h3.accent { color: #FF9200; }
         .metric-card h3.green  { color: #10B981; }
         .metric-card h3.red    { color: #EF4444; }
@@ -313,32 +268,20 @@ def render_dashboard(api_get):
             margin: 5px 0 0 0; color: #64748B; font-size: 0.70rem;
             font-weight: 800; text-transform: uppercase; letter-spacing: 0.4px;
         }
-        .metric-card .sub { margin-top: 4px; font-size: 0.68rem; color: #94A3B8; font-weight: 600; }
+        .metric-card .sub { margin-top: 3px; font-size: 0.67rem; color: #94A3B8; font-weight: 600; }
 
-        /* ---------- Cards de gráfico (agora englobam o gráfico de verdade) ---------- */
         div[data-testid="stVerticalBlockBorderWrapper"] {
             border-radius: 18px !important;
             border: 1px solid #E2E8F0 !important;
             box-shadow: 0 10px 28px rgba(0, 30, 87, 0.06) !important;
-            animation: fadeInUp 0.6s ease-out backwards;
-            transition: box-shadow .3s ease, transform .3s ease, border-color .3s ease;
-            position: relative;
+            animation: fadeInUp 0.55s ease-out backwards;
+            transition: box-shadow .28s ease, transform .28s ease, border-color .28s ease;
         }
         div[data-testid="stVerticalBlockBorderWrapper"]:hover {
-            box-shadow: 0 18px 40px rgba(0, 30, 87, 0.12) !important;
+            box-shadow: 0 16px 36px rgba(0, 30, 87, 0.11) !important;
             border-color: rgba(255, 146, 0, 0.35) !important;
             transform: translateY(-2px);
         }
-        div[data-testid="stVerticalBlockBorderWrapper"]::before {
-            content: '';
-            position: absolute; top: 0; left: 18px; right: 18px; height: 3px;
-            background: linear-gradient(90deg, #FF9200, #001E57);
-            border-radius: 0 0 4px 4px;
-            transform: scaleX(0);
-            transform-origin: left;
-            transition: transform .35s ease;
-        }
-        div[data-testid="stVerticalBlockBorderWrapper"]:hover::before { transform: scaleX(1); }
 
         .card-head {
             display: flex; align-items: center; gap: 10px;
@@ -349,54 +292,37 @@ def render_dashboard(api_get):
             width: 30px; height: 30px; border-radius: 10px;
             background: linear-gradient(135deg, rgba(255,146,0,0.14), rgba(0,30,87,0.08));
             font-size: 15px;
-            animation: softBounce 2.6s ease-in-out infinite;
+            animation: softBounce 2.8s ease-in-out infinite;
         }
-        .card-head h4 { margin: 0; color: #001E57; font-weight: 800; font-size: 1rem; flex: 1; }
+        .card-head h4 { margin: 0; color: #001E57; font-weight: 800; font-size: 0.98rem; flex: 1; }
         .card-badge {
-            font-size: 0.66rem; font-weight: 800; text-transform: uppercase;
+            font-size: 0.65rem; font-weight: 800; text-transform: uppercase;
             letter-spacing: .04em; color: #FF9200;
             background: rgba(255,146,0,0.10); padding: 3px 9px; border-radius: 99px;
         }
 
-        /* ---------- Insights ---------- */
         .insight-box {
             background: linear-gradient(135deg, #FFF7ED 0%, #FFEDD5 100%);
             border: 1px solid #FDBA74; border-left: 5px solid #FF9200;
-            border-radius: 14px; padding: 14px 18px; margin-bottom: 12px;
-            animation: fadeInUp 0.6s ease-out backwards;
-            transition: transform .2s ease;
+            border-radius: 14px; padding: 13px 16px; margin-bottom: 12px;
+            animation: fadeInUp 0.5s ease-out backwards;
         }
-        .insight-box:hover { transform: translateX(3px); }
         .insight-box strong { color: #9A3412; }
         .insight-box span { color: #7C2D12; font-size: 0.9rem; }
 
         .section-title {
-            color: #001E57; font-weight: 900; font-size: 1.12rem;
+            color: #001E57; font-weight: 900; font-size: 1.1rem;
             margin: 22px 0 12px 0; padding-left: 10px; border-left: 4px solid #FF9200;
-            animation: fadeInUp .5s ease-out backwards;
         }
 
-        /* ---------- Filtros ---------- */
-        div[data-testid="stSelectbox"] > div > div {
-            border-radius: 10px !important;
-            border-color: #E2E8F0 !important;
-            transition: border-color .2s ease, box-shadow .2s ease;
-        }
-        div[data-testid="stSelectbox"] > div > div:hover { border-color: #FF9200 !important; }
-        div[data-baseweb="select"]:focus-within > div { border-color: #FF9200 !important; box-shadow: 0 0 0 3px rgba(255,146,0,0.14) !important; }
-
-        /* ---------- Spinner ---------- */
-        div[data-testid="stSpinner"] > div { border-top-color: #FF9200 !important; }
-
-        /* ---------- Tabela ---------- */
         div[data-testid="stDataFrame"] {
             background: #FFFFFF !important; border: 1px solid #E2E8F0 !important;
             border-radius: 16px !important; box-shadow: 0 10px 28px rgba(0, 30, 87, 0.07) !important;
-            overflow: hidden !important; animation: fadeInUp .6s ease-out backwards;
+            overflow: hidden !important;
         }
         div[data-testid="stDataFrame"] thead tr th {
             background: linear-gradient(135deg, #001E57 0%, #0B296B 100%) !important;
-            color: #FFFFFF !important; font-weight: 800 !important; font-size: 0.76rem !important;
+            color: #FFFFFF !important; font-weight: 800 !important; font-size: 0.75rem !important;
             text-transform: uppercase !important; letter-spacing: 0.35px !important;
             padding: 11px 13px !important; border: none !important;
         }
@@ -406,15 +332,6 @@ def render_dashboard(api_get):
         }
         div[data-testid="stDataFrame"] tbody tr:nth-child(even) td { background: #F8FAFC !important; }
         div[data-testid="stDataFrame"] tbody tr:hover td { background: rgba(255, 146, 0, 0.08) !important; }
-
-        /* ---------- Responsivo ---------- */
-        @media (max-width: 640px) {
-            .dash-header { padding: 20px 18px; border-radius: 16px; }
-            .dash-header h2 { font-size: 1.35rem; }
-            .metric-card { padding: 12px 8px; }
-            .metric-card h3 { font-size: 1.25rem; }
-            .card-head h4 { font-size: 0.9rem; }
-        }
     </style>
     """,
         unsafe_allow_html=True,
@@ -432,12 +349,12 @@ def render_dashboard(api_get):
         unsafe_allow_html=True,
     )
 
-    # ===================== CARREGAMENTO (com cache de 30s) =====================
+    # ===================== CARREGAMENTO =====================
     with st.spinner("Carregando indicadores..."):
         dados = _fetch_registros(api_get)
 
     if dados is None:
-        st.error("Erro ao carregar registros.")
+        st.error("Erro ao carregar registros da API.")
         return
 
     df = pd.DataFrame(dados)
@@ -463,16 +380,22 @@ def render_dashboard(api_get):
         else:
             periodo = st.selectbox("Período", opcoes_periodo, index=2, key="dash_periodo")
 
-    agora = datetime.utcnow()
+    agora = _agora_br()
     df_f = df.copy()
 
     if "data_registro" in df_f.columns:
+        # Remove timezone se existir para comparação segura
+        col_data = df_f["data_registro"]
+        if hasattr(col_data.dt, "tz") and col_data.dt.tz is not None:
+            col_data = col_data.dt.tz_convert("America/Sao_Paulo").dt.tz_localize(None)
+            df_f["data_registro"] = col_data
+
         if periodo == "Hoje":
             df_f = df_f[df_f["data_registro"].dt.date == agora.date()]
         elif periodo == "Últimos 7 dias":
-            df_f = df_f[df_f["data_registro"] >= agora - timedelta(days=7)]
+            df_f = df_f[df_f["data_registro"] >= (agora - timedelta(days=7)).replace(tzinfo=None)]
         elif periodo == "Últimos 30 dias":
-            df_f = df_f[df_f["data_registro"] >= agora - timedelta(days=30)]
+            df_f = df_f[df_f["data_registro"] >= (agora - timedelta(days=30)).replace(tzinfo=None)]
         elif periodo == "Este mês":
             df_f = df_f[
                 (df_f["data_registro"].dt.month == agora.month)
@@ -560,12 +483,14 @@ def render_dashboard(api_get):
 
     taxa_problema = round(((parciais + nao) / total * 100), 1) if total else 0.0
     if taxa_problema > 35:
-        insights.append(f"📉 Taxa de problemas (Parcial + Não Realizado) está em <strong>{taxa_problema}%</strong> neste período.")
+        insights.append(
+            f"📉 Taxa de problemas (Parcial + Não Realizado) está em <strong>{taxa_problema}%</strong> neste período."
+        )
 
     for ins in insights[:3]:
         st.markdown(f'<div class="insight-box"><span>{ins}</span></div>', unsafe_allow_html=True)
 
-    # ===================== GRÁFICOS PRINCIPAIS =====================
+    # ===================== GRÁFICOS =====================
     c1, c2 = st.columns(2)
 
     with c1:
@@ -588,7 +513,7 @@ def render_dashboard(api_get):
                     x=0.5, y=0.5, showarrow=False, align="center",
                 )
                 fig = _layout_padrao(fig, 340)
-                st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False, "responsive": True})
+                st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
             else:
                 st.info("Sem dados de status.")
 
@@ -620,13 +545,12 @@ def render_dashboard(api_get):
                     fig2 = _layout_padrao(fig2, max(340, 30 * len(rank_plot) + 70))
                     fig2.update_yaxes(title="")
                     fig2.update_xaxes(title="Eficiência %", gridcolor="#F1F5F9", range=[0, 112])
-                    st.plotly_chart(fig2, use_container_width=True, config={"displayModeBar": False, "responsive": True})
+                    st.plotly_chart(fig2, use_container_width=True, config={"displayModeBar": False})
                 else:
                     st.info("Sem dados suficientes.")
             else:
                 st.info("Sem dados de operador.")
 
-    # ===================== VOLUME + STATUS POR OPERADOR =====================
     with chart_card("👥", "Volume e Status por Operador"):
         if "status" in df_f.columns and "operador_exibicao" in df_f.columns:
             comp = df_f.groupby(["operador_exibicao", "status"]).size().reset_index(name="qtd")
@@ -639,11 +563,10 @@ def render_dashboard(api_get):
             fig_comp.update_xaxes(tickangle=-20)
             fig_comp.update_yaxes(gridcolor="#F1F5F9")
             fig_comp = _layout_padrao(fig_comp, 370)
-            st.plotly_chart(fig_comp, use_container_width=True, config={"displayModeBar": False, "responsive": True})
+            st.plotly_chart(fig_comp, use_container_width=True, config={"displayModeBar": False})
         else:
             st.info("Sem dados para comparativo.")
 
-    # ===================== TOP CLIENTES =====================
     if "cliente_nome" in df_f.columns:
         with chart_card("🏢", "Top Clientes (Volume + Eficiência)"):
             cli = (
@@ -668,11 +591,10 @@ def render_dashboard(api_get):
                 fig_cli.update_layout(xaxis_title="", yaxis_title="Lançamentos", coloraxis_colorbar=dict(title="Eficiência %"))
                 fig_cli.update_xaxes(tickangle=-25)
                 fig_cli = _layout_padrao(fig_cli, 380)
-                st.plotly_chart(fig_cli, use_container_width=True, config={"displayModeBar": False, "responsive": True})
+                st.plotly_chart(fig_cli, use_container_width=True, config={"displayModeBar": False})
             else:
                 st.info("Sem dados de clientes.")
 
-    # ===================== EVOLUÇÃO TEMPORAL =====================
     with chart_card("📈", "Evolução das Execuções"):
         if "data_registro" in df_f.columns:
             tmp = df_f.dropna(subset=["data_registro"]).copy()
@@ -713,7 +635,7 @@ def render_dashboard(api_get):
                     )])
 
                 fig3 = _layout_padrao(fig3, 320)
-                st.plotly_chart(fig3, use_container_width=True, config={"displayModeBar": False, "responsive": True})
+                st.plotly_chart(fig3, use_container_width=True, config={"displayModeBar": False})
             else:
                 st.info("Sem dados suficientes para a evolução.")
 
@@ -723,14 +645,21 @@ def render_dashboard(api_get):
     cols = [c for c in ["data_registro", "operador_nome", "cliente_nome", "status", "justificativa"] if c in df_f.columns]
 
     if cols:
-        tabela = df_f[cols].sort_values("data_registro" if "data_registro" in cols else cols[0], ascending=False).copy()
+        tabela = df_f[cols].sort_values(
+            "data_registro" if "data_registro" in cols else cols[0], ascending=False
+        ).copy()
 
         if "data_registro" in tabela.columns:
-            tabela["data_registro"] = pd.to_datetime(tabela["data_registro"], errors="coerce").dt.strftime("%d/%m/%Y %H:%M")
+            tabela["data_registro"] = pd.to_datetime(
+                tabela["data_registro"], errors="coerce"
+            ).dt.strftime("%d/%m/%Y %H:%M")
 
         rename_map = {
-            "data_registro": "Data", "operador_nome": "Operador", "cliente_nome": "Cliente",
-            "status": "Status", "justificativa": "Justificativa",
+            "data_registro": "Data",
+            "operador_nome": "Operador",
+            "cliente_nome": "Cliente",
+            "status": "Status",
+            "justificativa": "Justificativa",
         }
         tabela = tabela.rename(columns={k: v for k, v in rename_map.items() if k in tabela.columns})
 
