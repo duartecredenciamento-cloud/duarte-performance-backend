@@ -153,12 +153,17 @@ def _inject_count_up():
         <script>
         (function() {
             const doc = window.parent.document;
+
             function animar(el) {
                 const alvo = parseFloat(el.getAttribute('data-target')) || 0;
                 const sufixo = el.getAttribute('data-suffix') || '';
                 const casas = sufixo.includes('%') ? 1 : 0;
-                const duracao = 900;
+                const duracao = 700;
                 const inicio = performance.now();
+
+                // Já coloca o valor final caso a animação falhe
+                el.textContent = (casas ? alvo.toFixed(casas) : Math.round(alvo)) + sufixo;
+
                 function passo(agora) {
                     const p = Math.min((agora - inicio) / duracao, 1);
                     const suave = 1 - Math.pow(1 - p, 3);
@@ -168,9 +173,16 @@ def _inject_count_up():
                 }
                 requestAnimationFrame(passo);
             }
+
+            // Limpa animações antigas e roda de novo
             setTimeout(function() {
-                doc.querySelectorAll('.kpi-number').forEach(animar);
-            }, 80);
+                const elementos = doc.querySelectorAll('.kpi-number');
+                elementos.forEach(function(el) {
+                    // força reset
+                    el.textContent = '0' + (el.getAttribute('data-suffix') || '');
+                    animar(el);
+                });
+            }, 60);
         })();
         </script>
         """,
@@ -437,6 +449,9 @@ def render_dashboard(api_get):
     parciais = len(df_f[df_f["status"] == "Realizado Parcial"]) if "status" in df_f.columns else 0
     nao = len(df_f[df_f["status"] == "Não Realizado"]) if "status" in df_f.columns else 0
     eficiencia = round((realizados / total * 100), 1) if total else 0.0
+
+    # key muda quando os dados mudam → força recriação dos cards
+    kpi_key = f"{total}-{realizados}-{parciais}-{nao}-{eficiencia}"
 
     k1, k2, k3, k4, k5 = st.columns(5)
     with k1:
