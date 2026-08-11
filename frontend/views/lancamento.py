@@ -86,10 +86,6 @@ def _match_operador(serie_operador, nome_busca: str):
 
 
 def _nome_padrao_escala(df_escala, nome_busca: str) -> str:
-    """
-    Devolve o nome EXATO como está na escala (padrão único no banco).
-    Ex.: busca 'Larissa Adriene...' → encontra 'LARISSA' na matriz.
-    """
     if not nome_busca:
         return ""
     if df_escala is None or df_escala.empty or "Operador" not in df_escala.columns:
@@ -107,7 +103,6 @@ def _nome_padrao_escala(df_escala, nome_busca: str) -> str:
     if not hits:
         return str(nome_busca).strip()
 
-    # Se tiver mais de um, pega o mais curto (padrão da matriz: LARISSA)
     return min(hits, key=len)
 
 
@@ -147,7 +142,6 @@ def _todos_clientes_do_dia(df_escala, dia_ref: str) -> list:
 
 
 def _todos_clientes_do_cronograma(df_escala) -> list:
-    """Retorna todos os clientes únicos de todo o cronograma (todos os dias)."""
     if df_escala is None or df_escala.empty:
         return []
 
@@ -182,7 +176,7 @@ def _lista_operadores(df_escala) -> list:
 
 def render_lancamento(api_post, carregar_cronograma=None):
     st.markdown(
-    """
+        """
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
 
@@ -204,16 +198,20 @@ def render_lancamento(api_post, carregar_cronograma=None):
         0%, 100% { transform: translateY(0); }
         50%      { transform: translateY(-3px); }
     }
-    @keyframes shimmer {
-        0%   { background-position: -200% 0; }
-        100% { background-position: 200% 0; }
+    @keyframes slideDown {
+        from { opacity: 0; transform: translateY(-12px); max-height: 0; }
+        to   { opacity: 1; transform: translateY(0); max-height: 300px; }
     }
     @keyframes borderGlow {
         0%, 100% { border-color: rgba(255, 146, 0, 0.35); }
-        50%      { border-color: rgba(255, 146, 0, 0.7); }
+        50%      { border-color: rgba(255, 146, 0, 0.75); }
+    }
+    @keyframes successPop {
+        0%   { transform: scale(0.8); opacity: 0; }
+        50%  { transform: scale(1.05); }
+        100% { transform: scale(1); opacity: 1; }
     }
 
-    /* ===== HERO ===== */
     .lanc-hero {
         background: linear-gradient(-45deg, #001E57, #030A1A, #0B296B, #001233);
         background-size: 300% 300%;
@@ -236,15 +234,6 @@ def render_lancamento(api_post, carregar_cronograma=None):
         background: radial-gradient(circle, rgba(255,146,0,0.18) 0%, transparent 70%);
         pointer-events: none;
         animation: softFloat 6s ease-in-out infinite;
-    }
-    .lanc-hero::after {
-        content: '';
-        position: absolute;
-        bottom: -40%; left: 5%;
-        width: 200px; height: 200px;
-        border-radius: 50%;
-        background: radial-gradient(circle, rgba(16,185,129,0.12) 0%, transparent 70%);
-        pointer-events: none;
     }
     .lanc-hero h2 {
         margin: 0;
@@ -277,7 +266,6 @@ def render_lancamento(api_post, carregar_cronograma=None):
         box-shadow: 0 4px 14px rgba(255, 146, 0, 0.35);
     }
 
-    /* ===== SHELL (CARD PRINCIPAL) ===== */
     .lanc-shell {
         background: linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 100%);
         padding: 28px 26px 22px 26px;
@@ -287,13 +275,12 @@ def render_lancamento(api_post, carregar_cronograma=None):
         border-top: 5px solid #FF9200;
         animation: fadeInUp 0.65s ease-out;
         margin-bottom: 16px;
-        transition: box-shadow 0.3s ease, transform 0.3s ease;
+        transition: box-shadow 0.3s ease;
     }
     .lanc-shell:hover {
         box-shadow: 0 18px 48px rgba(0, 30, 87, 0.12);
     }
 
-    /* ===== CHIPS ===== */
     .lanc-chip-row {
         display: flex;
         flex-wrap: wrap;
@@ -329,30 +316,26 @@ def render_lancamento(api_post, carregar_cronograma=None):
         border-color: rgba(16, 185, 129, 0.28);
     }
 
-    /* ===== JUSTIFICATIVA ===== */
+    /* Justificativa com animação de entrada */
     .justificativa-box {
         border-left: 5px solid #FF9200;
         background: linear-gradient(135deg, #FFF9F0 0%, #FFF5E6 100%);
         padding: 18px 18px 8px 18px;
         border-radius: 14px;
-        margin: 10px 0 16px 0;
-        border: 1px solid rgba(255, 146, 0, 0.22);
-        animation: fadeInUp 0.5s ease-out, borderGlow 3s ease-in-out infinite;
-        box-shadow: 0 4px 16px rgba(255, 146, 0, 0.08);
+        margin: 12px 0 16px 0;
+        border: 1px solid rgba(255, 146, 0, 0.25);
+        animation: slideDown 0.4s ease-out, borderGlow 3s ease-in-out infinite;
+        box-shadow: 0 4px 16px rgba(255, 146, 0, 0.1);
+        overflow: hidden;
     }
 
-    /* ===== TÍTULOS ===== */
     .lanc-section-title {
         color: #001E57;
         font-weight: 800;
         font-size: 1.05rem;
         margin: 4px 0 14px 0;
-        display: flex;
-        align-items: center;
-        gap: 8px;
     }
 
-    /* ===== ADMIN BOX ===== */
     .admin-box {
         background: linear-gradient(135deg, #F0F7FF 0%, #E0F2FE 100%);
         border: 1px solid #BFDBFE;
@@ -364,7 +347,7 @@ def render_lancamento(api_post, carregar_cronograma=None):
         box-shadow: 0 4px 14px rgba(0, 30, 87, 0.06);
     }
 
-    /* ===== BOTÃO PRINCIPAL ===== */
+    /* Botão principal */
     div.stButton > button[kind="primary"] {
         background: linear-gradient(135deg, #FF9200 0%, #E07A00 100%) !important;
         color: white !important;
@@ -386,7 +369,7 @@ def render_lancamento(api_post, carregar_cronograma=None):
         transform: translateY(-1px) !important;
     }
 
-    /* ===== SELECTS E INPUTS ===== */
+    /* Inputs */
     div[data-testid="stSelectbox"] > div > div,
     div[data-testid="stTextInput"] > div > div,
     div[data-testid="stDateInput"] > div > div {
@@ -404,18 +387,28 @@ def render_lancamento(api_post, carregar_cronograma=None):
         box-shadow: 0 0 0 3px rgba(255, 146, 0, 0.15) !important;
     }
 
-    /* ===== TEXTAREA ===== */
     div[data-testid="stTextArea"] textarea {
         border-radius: 12px !important;
         border-color: #E2E8F0 !important;
-        transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
     }
     div[data-testid="stTextArea"] textarea:focus {
         border-color: #FF9200 !important;
         box-shadow: 0 0 0 3px rgba(255, 146, 0, 0.15) !important;
     }
 
-    /* ===== RESPONSIVO ===== */
+    /* Feedback de sucesso */
+    .success-box {
+        background: linear-gradient(135deg, #ECFDF5 0%, #D1FAE5 100%);
+        border: 1px solid #6EE7B7;
+        border-left: 5px solid #10B981;
+        border-radius: 14px;
+        padding: 16px 18px;
+        margin: 16px 0;
+        animation: successPop 0.45s ease-out;
+        color: #065F46;
+        font-weight: 600;
+    }
+
     @media (max-width: 640px) {
         .lanc-hero { padding: 22px 20px; border-radius: 18px; }
         .lanc-hero h2 { font-size: 1.45rem; }
@@ -424,8 +417,8 @@ def render_lancamento(api_post, carregar_cronograma=None):
     }
 </style>
 """,
-    unsafe_allow_html=True,
-)
+        unsafe_allow_html=True,
+    )
 
     st.markdown(
         """
@@ -485,9 +478,7 @@ def render_lancamento(api_post, carregar_cronograma=None):
                 key="lanc_admin_data",
             )
 
-    # Nome padrão da escala (sempre)
     nome_para_gravar = _nome_padrao_escala(df_escala, nome_operador)
-
     dia_ref = _dia_semana_de_data(data_lancamento)
 
     if eh_admin_lancar and nome_operador:
@@ -499,8 +490,7 @@ def render_lancamento(api_post, carregar_cronograma=None):
             df_escala, nome_operador, dia_ref, perfil_usuario
         )
 
-    todos_clientes_hoje = _todos_clientes_do_dia(df_escala, dia_ref)
-    todos_clientes_cronograma = _todos_clientes_do_cronograma(df_escala)  # ← NOVO
+    todos_clientes_cronograma = _todos_clientes_do_cronograma(df_escala)
 
     visao_txt = (
         "Visão geral"
@@ -518,12 +508,6 @@ def render_lancamento(api_post, carregar_cronograma=None):
     """,
         unsafe_allow_html=True,
     )
-
-    if DEBUG_DIAGNOSTICO:
-        st.caption(
-            f"[DEV] busca={nome_operador} | grava={nome_para_gravar} | "
-            f"dia={dia_ref} | clientes={clientes_hoje}"
-        )
 
     st.markdown('<div class="lanc-shell">', unsafe_allow_html=True)
     st.markdown(
@@ -553,7 +537,6 @@ def render_lancamento(api_post, carregar_cronograma=None):
 
         cliente_final = cliente_sel
         if cliente_sel == "Suporte":
-            # Agora usa TODOS os clientes do cronograma (qualquer dia)
             opcoes_suporte = ["Selecione..."] + [
                 f"Suporte - {c}" for c in todos_clientes_cronograma
             ]
@@ -622,7 +605,6 @@ def render_lancamento(api_post, carregar_cronograma=None):
             "cliente_nome": str(cliente_final).strip(),
             "status": status,
             "justificativa": justificativa.strip(),
-            # SEMPRE o nome padrão da escala
             "operador_nome": str(nome_para_gravar or nome_operador).strip(),
         }
 
@@ -633,9 +615,16 @@ def render_lancamento(api_post, carregar_cronograma=None):
             resposta = api_post("/registros/", payload)
 
         if resposta is not None and resposta.status_code in [200, 201]:
-            st.success("✅ Lançamento registrado com sucesso!")
+            st.markdown(
+                """
+            <div class="success-box">
+                ✅ Lançamento registrado com sucesso!
+            </div>
+            """,
+                unsafe_allow_html=True,
+            )
             st.balloons()
-            time.sleep(1.2)
+            time.sleep(1.4)
             st.rerun()
         elif resposta is not None:
             try:

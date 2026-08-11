@@ -61,6 +61,12 @@ def render_editor(api_get, api_put, api_delete):
             70%  { box-shadow: 0 0 0 12px rgba(255, 146, 0, 0); }
             100% { box-shadow: 0 0 0 0 rgba(255, 146, 0, 0); }
         }
+        @keyframes successPop {
+            0%   { transform: scale(0.85); opacity: 0; }
+            50%  { transform: scale(1.03); }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
         .editor-header {
             background: linear-gradient(-45deg, #001E57, #030A1A, #0A2540, #001233);
             background-size: 300% 300%;
@@ -89,14 +95,29 @@ def render_editor(api_get, api_put, api_delete):
             font-weight: 800; font-size: 0.72rem;
             animation: pulseGlow 2.2s infinite; position: relative; z-index: 1;
         }
+
         div.stButton > button[kind="primary"] {
             background: linear-gradient(135deg, #001E57 0%, #0B296B 100%) !important;
             border: none !important; border-radius: 12px !important;
             font-weight: 800 !important; height: 48px !important;
+            transition: all 0.25s ease !important;
         }
         div.stButton > button[kind="primary"]:hover {
             background: linear-gradient(135deg, #FF9200 0%, #E07A00 100%) !important;
-            transform: translateY(-2px);
+            transform: translateY(-2px) !important;
+            box-shadow: 0 8px 20px rgba(255, 146, 0, 0.3) !important;
+        }
+
+        .success-box {
+            background: linear-gradient(135deg, #ECFDF5 0%, #D1FAE5 100%);
+            border: 1px solid #6EE7B7;
+            border-left: 5px solid #10B981;
+            border-radius: 14px;
+            padding: 16px 18px;
+            margin: 16px 0;
+            animation: successPop 0.45s ease-out;
+            color: #065F46;
+            font-weight: 600;
         }
     </style>
     """,
@@ -211,9 +232,7 @@ def render_editor(api_get, api_put, api_delete):
     colunas_existentes = [c for c in colunas_mostrar if c in df_filtered.columns]
     df_edit = df_filtered[colunas_existentes].copy()
 
-    # ===== CORREÇÃO PRINCIPAL AQUI =====
-    # Se a data estiver vazia (None/NaT), preenche com a data/hora atual
-    # Isso permite o usuário editar facilmente no data_editor
+    # Preenche datas vazias com agora (facilita edição)
     if "data_registro" in df_edit.columns:
         df_edit["data_registro"] = pd.to_datetime(
             df_edit["data_registro"], errors="coerce"
@@ -247,7 +266,7 @@ def render_editor(api_get, api_put, api_delete):
                 "Data",
                 format="DD/MM/YYYY HH:mm",
                 step=60,
-                required=True,          # agora é obrigatória no editor
+                required=True,
             ),
         },
     )
@@ -279,7 +298,6 @@ def render_editor(api_get, api_put, api_delete):
             data_nova_dt = _to_dt(row.get("data_registro"))
             data_antiga_dt = _to_dt(original.get("data_registro"))
 
-            # Detecta mudança de data (incluindo None → data)
             data_mudou = False
             if data_nova_dt is not None and data_antiga_dt is not None:
                 data_mudou = (
@@ -314,7 +332,6 @@ def render_editor(api_get, api_put, api_delete):
                 "justificativa": just_nova,
             }
 
-            # Sempre envia a data se existir
             if data_nova_dt is not None:
                 payload["data_registro"] = data_nova_dt.strftime("%Y-%m-%dT%H:%M:%S")
 
@@ -335,7 +352,14 @@ def render_editor(api_get, api_put, api_delete):
         if erros > 0:
             st.error(f"⚠️ {erros} registro(s) não atualizados.")
         if alterados > 0:
-            st.success(f"✅ {alterados} registro(s) atualizados!")
+            st.markdown(
+                f"""
+            <div class="success-box">
+                ✅ {alterados} registro(s) atualizados com sucesso!
+            </div>
+            """,
+                unsafe_allow_html=True,
+            )
             st.rerun()
         elif erros == 0:
             st.info("Nenhuma alteração detectada.")

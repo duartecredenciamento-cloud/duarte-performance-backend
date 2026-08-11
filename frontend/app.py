@@ -393,6 +393,22 @@ if st.sidebar.button(
     st.session_state.clear()
     st.rerun()
 
+# ===================== TRANSIÇÃO SUAVE ENTRE PÁGINAS =====================
+st.markdown(
+    """
+<style>
+    @keyframes pageFadeIn {
+        from { opacity: 0; transform: translateY(12px); }
+        to   { opacity: 1; transform: translateY(0); }
+    }
+    section[data-testid="stMain"] > div {
+        animation: pageFadeIn 0.45s ease-out;
+    }
+</style>
+""",
+    unsafe_allow_html=True,
+)
+
 # ===================== ROTEAMENTO =====================
 if menu == "📊 Dashboard Gerencial":
     render_dashboard(api_get)
