@@ -126,12 +126,11 @@ def render_editor(api_get, api_put, api_delete):
         st.info("Nenhum registro encontrado.")
         return
 
-    # Normaliza a data para datetime limpo (sem timezone)
+    # Normaliza a data
     if "data_registro" in df.columns:
         df["data_registro"] = pd.to_datetime(df["data_registro"], errors="coerce")
-        # Remove timezone se existir
         try:
-            if df["data_registro"].dt.tz is not None:
+            if getattr(df["data_registro"].dt, "tz", None) is not None:
                 df["data_registro"] = df["data_registro"].dt.tz_localize(None)
         except Exception:
             pass
@@ -197,7 +196,8 @@ def render_editor(api_get, api_put, api_delete):
 
     st.subheader("📋 Edição em Massa")
     st.caption(
-        "Altere cliente, status, justificativa e **data** · depois clique em Salvar."
+        "Altere cliente, status, justificativa e **data** · depois clique em Salvar. "
+        "Registros sem data já vêm com a data de hoje preenchida para facilitar a edição."
     )
 
     colunas_mostrar = [
@@ -211,11 +211,15 @@ def render_editor(api_get, api_put, api_delete):
     colunas_existentes = [c for c in colunas_mostrar if c in df_filtered.columns]
     df_edit = df_filtered[colunas_existentes].copy()
 
-    # Garante que a coluna de data esteja como datetime limpo para o editor
+    # ===== CORREÇÃO PRINCIPAL AQUI =====
+    # Se a data estiver vazia (None/NaT), preenche com a data/hora atual
+    # Isso permite o usuário editar facilmente no data_editor
     if "data_registro" in df_edit.columns:
         df_edit["data_registro"] = pd.to_datetime(
             df_edit["data_registro"], errors="coerce"
         )
+        agora = pd.Timestamp.now().floor("min")
+        df_edit["data_registro"] = df_edit["data_registro"].fillna(agora)
 
     edited_df = st.data_editor(
         df_edit,
@@ -243,7 +247,7 @@ def render_editor(api_get, api_put, api_delete):
                 "Data",
                 format="DD/MM/YYYY HH:mm",
                 step=60,
-                required=False,
+                required=True,          # agora é obrigatória no editor
             ),
         },
     )
@@ -275,13 +279,16 @@ def render_editor(api_get, api_put, api_delete):
             data_nova_dt = _to_dt(row.get("data_registro"))
             data_antiga_dt = _to_dt(original.get("data_registro"))
 
-            # Detecta se a data mudou
+            # Detecta mudança de data (incluindo None → data)
             data_mudou = False
             if data_nova_dt is not None and data_antiga_dt is not None:
-                data_mudou = data_nova_dt.replace(second=0, microsecond=0) != data_antiga_dt.replace(
-                    second=0, microsecond=0
+                data_mudou = (
+                    data_nova_dt.replace(second=0, microsecond=0)
+                    != data_antiga_dt.replace(second=0, microsecond=0)
                 )
             elif data_nova_dt is not None and data_antiga_dt is None:
+                data_mudou = True
+            elif data_nova_dt is None and data_antiga_dt is not None:
                 data_mudou = True
 
             houve_mudanca = (
@@ -307,7 +314,7 @@ def render_editor(api_get, api_put, api_delete):
                 "justificativa": just_nova,
             }
 
-            # Envia a data se ela existir
+            # Sempre envia a data se existir
             if data_nova_dt is not None:
                 payload["data_registro"] = data_nova_dt.strftime("%Y-%m-%dT%H:%M:%S")
 
