@@ -1,5 +1,6 @@
 import pandas as pd
 import streamlit as st
+from datetime import datetime
 
 from views.permissoes import pode_editar, aviso_somente_leitura
 
@@ -20,7 +21,7 @@ STATUS_OPCOES = [
 
 
 def _to_dt(v):
-    """Converte para datetime Python ou None. Nunca devolve NaT."""
+    """Converte para datetime Python limpo (sem timezone e sem microsegundos)."""
     if v is None:
         return None
     try:
@@ -28,6 +29,7 @@ def _to_dt(v):
             return None
     except Exception:
         pass
+
     try:
         ts = pd.Timestamp(v)
         if pd.isna(ts):
@@ -124,8 +126,15 @@ def render_editor(api_get, api_put, api_delete):
         st.info("Nenhum registro encontrado.")
         return
 
+    # Normaliza a data para datetime limpo (sem timezone)
     if "data_registro" in df.columns:
         df["data_registro"] = pd.to_datetime(df["data_registro"], errors="coerce")
+        # Remove timezone se existir
+        try:
+            if df["data_registro"].dt.tz is not None:
+                df["data_registro"] = df["data_registro"].dt.tz_localize(None)
+        except Exception:
+            pass
 
     total = len(df)
     concluidos = (
@@ -202,6 +211,12 @@ def render_editor(api_get, api_put, api_delete):
     colunas_existentes = [c for c in colunas_mostrar if c in df_filtered.columns]
     df_edit = df_filtered[colunas_existentes].copy()
 
+    # Garante que a coluna de data esteja como datetime limpo para o editor
+    if "data_registro" in df_edit.columns:
+        df_edit["data_registro"] = pd.to_datetime(
+            df_edit["data_registro"], errors="coerce"
+        )
+
     edited_df = st.data_editor(
         df_edit,
         use_container_width=True,
@@ -237,6 +252,7 @@ def render_editor(api_get, api_put, api_delete):
         "💾 Salvar Todas as Alterações",
         type="primary",
         use_container_width=True,
+        key="btn_salvar_editor",
     ):
         alterados = 0
         erros = 0
@@ -259,10 +275,11 @@ def render_editor(api_get, api_put, api_delete):
             data_nova_dt = _to_dt(row.get("data_registro"))
             data_antiga_dt = _to_dt(original.get("data_registro"))
 
+            # Detecta se a data mudou
             data_mudou = False
             if data_nova_dt is not None and data_antiga_dt is not None:
-                data_mudou = data_nova_dt.replace(second=0) != data_antiga_dt.replace(
-                    second=0
+                data_mudou = data_nova_dt.replace(second=0, microsecond=0) != data_antiga_dt.replace(
+                    second=0, microsecond=0
                 )
             elif data_nova_dt is not None and data_antiga_dt is None:
                 data_mudou = True
@@ -290,13 +307,9 @@ def render_editor(api_get, api_put, api_delete):
                 "justificativa": just_nova,
             }
 
+            # Envia a data se ela existir
             if data_nova_dt is not None:
-                try:
-                    payload["data_registro"] = data_nova_dt.strftime(
-                        "%Y-%m-%dT%H:%M:%S"
-                    )
-                except Exception:
-                    pass
+                payload["data_registro"] = data_nova_dt.strftime("%Y-%m-%dT%H:%M:%S")
 
             resp = api_put(f"/registros/{registro_id}", payload)
 
