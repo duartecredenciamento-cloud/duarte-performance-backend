@@ -158,10 +158,8 @@ def _inject_count_up():
                 const alvo = parseFloat(el.getAttribute('data-target')) || 0;
                 const sufixo = el.getAttribute('data-suffix') || '';
                 const casas = sufixo.includes('%') ? 1 : 0;
-                const duracao = 700;
+                const duracao = 650;
                 const inicio = performance.now();
-
-                el.textContent = (casas ? alvo.toFixed(casas) : Math.round(alvo)) + sufixo;
 
                 function passo(agora) {
                     const p = Math.min((agora - inicio) / duracao, 1);
@@ -173,13 +171,12 @@ def _inject_count_up():
                 requestAnimationFrame(passo);
             }
 
+            // Sempre reanima os números atuais
             setTimeout(function() {
-                const elementos = doc.querySelectorAll('.kpi-number');
-                elementos.forEach(function(el) {
-                    el.textContent = '0' + (el.getAttribute('data-suffix') || '');
+                doc.querySelectorAll('.kpi-number').forEach(function(el) {
                     animar(el);
                 });
-            }, 60);
+            }, 80);
         })();
         </script>
         """,
@@ -452,28 +449,48 @@ def render_dashboard(api_get):
         st.warning("Nenhum registro encontrado com os filtros selecionados.")
         return
 
-    # ===================== KPIs =====================
+        # ===================== KPIs =====================
     total = len(df_f)
     realizados = len(df_f[df_f["status"] == "Realizado Total"]) if "status" in df_f.columns else 0
     parciais = len(df_f[df_f["status"] == "Realizado Parcial"]) if "status" in df_f.columns else 0
     nao = len(df_f[df_f["status"] == "Não Realizado"]) if "status" in df_f.columns else 0
     eficiencia = round((realizados / total * 100), 1) if total else 0.0
 
+    # Chave única força o Streamlit a recriar os cards quando o filtro muda
+    filtro_atual = f"{filtro_op}|{filtro_status}|{filtro_cliente}|{periodo}|{total}"
+
     k1, k2, k3, k4, k5 = st.columns(5)
+
     with k1:
-        st.markdown(_kpi_html(total, "Total", "lançamentos"), unsafe_allow_html=True)
+        st.markdown(
+            _kpi_html(total, "Total", "lançamentos"),
+            unsafe_allow_html=True,
+        )
     with k2:
         pct = round(realizados / total * 100, 1) if total else 0
-        st.markdown(_kpi_html(realizados, "Realizados", f"{pct}%", "green"), unsafe_allow_html=True)
+        st.markdown(
+            _kpi_html(realizados, "Realizados", f"{pct}%", "green"),
+            unsafe_allow_html=True,
+        )
     with k3:
         pct = round(parciais / total * 100, 1) if total else 0
-        st.markdown(_kpi_html(parciais, "Parciais", f"{pct}%", "yellow"), unsafe_allow_html=True)
+        st.markdown(
+            _kpi_html(parciais, "Parciais", f"{pct}%", "yellow"),
+            unsafe_allow_html=True,
+        )
     with k4:
         pct = round(nao / total * 100, 1) if total else 0
-        st.markdown(_kpi_html(nao, "Não realizados", f"{pct}%", "red"), unsafe_allow_html=True)
+        st.markdown(
+            _kpi_html(nao, "Não realizados", f"{pct}%", "red"),
+            unsafe_allow_html=True,
+        )
     with k5:
-        st.markdown(_kpi_html(eficiencia, "Eficiência", "Realizado Total", "accent", suffix="%"), unsafe_allow_html=True)
+        st.markdown(
+            _kpi_html(eficiencia, "Eficiência", "Realizado Total", "accent", suffix="%"),
+            unsafe_allow_html=True,
+        )
 
+    # Força a animação a rodar de novo com os novos valores
     _inject_count_up()
     st.markdown("<br>", unsafe_allow_html=True)
 
