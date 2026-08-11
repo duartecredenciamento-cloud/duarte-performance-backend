@@ -446,30 +446,72 @@ def render_escala(carregar_cronograma_custom=None):
         ])
 
         with tab_add:
-            st.caption("Cria uma nova linha na matriz (operador + período + clientes).")
+            st.caption(
+                "Cria uma nova linha na matriz. "
+                "Use **Suporte geral** para quem não tem cliente fixo no dia "
+                "(ex.: Felipe — só suporte / mailing na sexta)."
+            )
+
             c1, c2 = st.columns(2)
             with c1:
-                novo_op = st.text_input("Nome do operador *", placeholder="Ex: MARIA", key="add_op")
-                novo_periodo = st.selectbox("Período *", ["MANHÃ", "TARDE", "INTEGRAL"], key="add_per")
+                novo_op = st.text_input(
+                    "Nome do operador *",
+                    placeholder="Ex: FELIPE",
+                    key="add_op",
+                )
+                novo_periodo = st.selectbox(
+                    "Período *",
+                    ["MANHÃ", "TARDE", "INTEGRAL"],
+                    key="add_per",
+                )
+                suporte_geral = st.checkbox(
+                    "🛠️ Suporte geral (pode lançar suporte p/ qualquer cliente da escala)",
+                    value=False,
+                    key="add_suporte_geral",
+                    help=(
+                        "Marque se o operador não tem carteira fixa no dia. "
+                        "No Lançar Execução, a opção Suporte lista TODOS os clientes da matriz."
+                    ),
+                )
             with c2:
-                seg = st.text_input("Segunda", value="-", key="add_seg")
-                ter = st.text_input("Terça", value="-", key="add_ter")
-                qua = st.text_input("Quarta", value="-", key="add_qua")
-                qui = st.text_input("Quinta", value="-", key="add_qui")
-                sex = st.text_input("Sexta", value="-", key="add_sex")
+                if suporte_geral:
+                    st.info(
+                        "Dias ficam **sem cliente fixo** (-). "
+                        "Na sexta você pode colocar **MAILING** se quiser."
+                    )
+                    seg = "-"
+                    ter = "-"
+                    qua = "-"
+                    qui = "-"
+                    sex = st.text_input(
+                        "Sexta (opcional — ex: MAILING)",
+                        value="MAILING",
+                        key="add_sex_suporte",
+                    )
+                else:
+                    seg = st.text_input("Segunda", value="-", key="add_seg")
+                    ter = st.text_input("Terça", value="-", key="add_ter")
+                    qua = st.text_input("Quarta", value="-", key="add_qua")
+                    qui = st.text_input("Quinta", value="-", key="add_qui")
+                    sex = st.text_input("Sexta", value="-", key="add_sex")
 
-            if st.button("💾 Salvar na escala", type="primary", use_container_width=True, key="btn_add"):
+            if st.button(
+                "💾 Salvar na escala",
+                type="primary",
+                use_container_width=True,
+                key="btn_add",
+            ):
                 if not novo_op.strip():
                     st.error("Informe o nome do operador.")
                 else:
                     payload = {
                         "Operador": novo_op.strip().upper(),
                         "Periodo": novo_periodo,
-                        "Segunda": seg.strip() or "-",
-                        "Terça": ter.strip() or "-",
-                        "Quarta": qua.strip() or "-",
-                        "Quinta": qui.strip() or "-",
-                        "Sexta": sex.strip() or "-",
+                        "Segunda": (seg if not suporte_geral else "-").strip() or "-",
+                        "Terça": (ter if not suporte_geral else "-").strip() or "-",
+                        "Quarta": (qua if not suporte_geral else "-").strip() or "-",
+                        "Quinta": (qui if not suporte_geral else "-").strip() or "-",
+                        "Sexta": (sex.strip() or "-"),
                     }
                     try:
                         r = requests.post(
@@ -479,7 +521,13 @@ def render_escala(carregar_cronograma_custom=None):
                             timeout=20,
                         )
                         if r.status_code in (200, 201):
-                            st.success("✅ Linha adicionada!")
+                            msg = f"✅ {payload['Operador']} adicionado!"
+                            if suporte_geral:
+                                msg += (
+                                    " Modo suporte geral: no Lançar, use **Suporte** "
+                                    "para escolher qualquer cliente da escala."
+                                )
+                            st.success(msg)
                             st.cache_data.clear()
                             st.rerun()
                         else:
