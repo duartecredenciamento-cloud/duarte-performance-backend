@@ -157,7 +157,7 @@ class RegistroOut(BaseModel):
     cliente_nome: str
     status: str
     justificativa: Optional[str] = None
-    data_registro: datetime
+    data_registro: Optional[datetime] = None   # aceita null
     caminho_evidencia: Optional[str] = None
     aprovado_gestor: Optional[str] = "Pendente"
 
