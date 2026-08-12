@@ -672,16 +672,19 @@ def atualizar_registro(
     if "operador_nome" in payload and payload["operador_nome"]:
         r.operador_nome = str(payload["operador_nome"]).strip()
 
-    if "data_registro" in payload and payload["data_registro"] is not None:
-        dt = _parse_data_registro(payload["data_registro"])
-        if dt is None:
-            raise HTTPException(
-                400,
-                f"data_registro inválida: {payload['data_registro']!r}",
-            )
-        r.data_registro = dt
-        flag_modified(r, "data_registro")
-        print(f"[PUT] data_registro={dt}")
+    # ===== DATA: grava sempre que vier no payload =====
+    if "data_registro" in payload:
+        valor = payload["data_registro"]
+        if valor is not None:
+            dt = _parse_data_registro(valor)
+            if dt is None:
+                raise HTTPException(
+                    400,
+                    f"data_registro inválida: {valor!r}",
+                )
+            r.data_registro = dt
+            flag_modified(r, "data_registro")
+            print(f"[PUT] data_registro atualizada para {dt}")
 
     db.add(r)
     db.commit()
