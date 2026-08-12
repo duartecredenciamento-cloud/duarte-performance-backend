@@ -316,7 +316,6 @@ def render_lancamento(api_post, carregar_cronograma=None):
         border-color: rgba(16, 185, 129, 0.28);
     }
 
-    /* Justificativa com animação de entrada */
     .justificativa-box {
         border-left: 5px solid #FF9200;
         background: linear-gradient(135deg, #FFF9F0 0%, #FFF5E6 100%);
@@ -347,7 +346,6 @@ def render_lancamento(api_post, carregar_cronograma=None):
         box-shadow: 0 4px 14px rgba(0, 30, 87, 0.06);
     }
 
-    /* Botão principal */
     div.stButton > button[kind="primary"] {
         background: linear-gradient(135deg, #FF9200 0%, #E07A00 100%) !important;
         color: white !important;
@@ -369,7 +367,6 @@ def render_lancamento(api_post, carregar_cronograma=None):
         transform: translateY(-1px) !important;
     }
 
-    /* Inputs */
     div[data-testid="stSelectbox"] > div > div,
     div[data-testid="stTextInput"] > div > div,
     div[data-testid="stDateInput"] > div > div {
@@ -396,7 +393,6 @@ def render_lancamento(api_post, carregar_cronograma=None):
         box-shadow: 0 0 0 3px rgba(255, 146, 0, 0.15) !important;
     }
 
-    /* Feedback de sucesso */
     .success-box {
         background: linear-gradient(135deg, #ECFDF5 0%, #D1FAE5 100%);
         border: 1px solid #6EE7B7;
@@ -606,10 +602,9 @@ def render_lancamento(api_post, carregar_cronograma=None):
             "status": status,
             "justificativa": justificativa.strip(),
             "operador_nome": str(nome_para_gravar or nome_operador).strip(),
+            # SEMPRE envia a data selecionada
+            "data_registro": f"{data_lancamento.isoformat()}T12:00:00",
         }
-
-        if eh_admin_lancar:
-            payload["data_registro"] = f"{data_lancamento.isoformat()}T12:00:00"
 
         with st.spinner("Salvando lançamento..."):
             resposta = api_post("/registros/", payload)

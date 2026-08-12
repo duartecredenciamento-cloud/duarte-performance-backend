@@ -37,7 +37,7 @@ def _to_dt(v):
         dt = ts.to_pydatetime()
         if getattr(dt, "tzinfo", None) is not None:
             dt = dt.replace(tzinfo=None)
-        return dt.replace(microsecond=0)
+        return dt.replace(microsecond=0, second=0)
     except Exception:
         return None
 
@@ -232,7 +232,7 @@ def render_editor(api_get, api_put, api_delete):
     colunas_existentes = [c for c in colunas_mostrar if c in df_filtered.columns]
     df_edit = df_filtered[colunas_existentes].copy()
 
-    # Preenche datas vazias com agora (facilita edição)
+    # Preenche datas vazias com agora (facilita edição no data_editor)
     if "data_registro" in df_edit.columns:
         df_edit["data_registro"] = pd.to_datetime(
             df_edit["data_registro"], errors="coerce"
@@ -298,6 +298,7 @@ def render_editor(api_get, api_put, api_delete):
             data_nova_dt = _to_dt(row.get("data_registro"))
             data_antiga_dt = _to_dt(original.get("data_registro"))
 
+            # Detecta se a data mudou (incluindo None -> data)
             data_mudou = False
             if data_nova_dt is not None and data_antiga_dt is not None:
                 data_mudou = (
@@ -326,6 +327,7 @@ def render_editor(api_get, api_put, api_delete):
                 )
                 return
 
+            # SEMPRE monta o payload com a data quando existir
             payload = {
                 "cliente_nome": cliente_novo,
                 "status": status_novo,
@@ -333,6 +335,7 @@ def render_editor(api_get, api_put, api_delete):
             }
 
             if data_nova_dt is not None:
+                # Formato ISO limpo que o backend e o Pydantic aceitam
                 payload["data_registro"] = data_nova_dt.strftime("%Y-%m-%dT%H:%M:%S")
 
             resp = api_put(f"/registros/{registro_id}", payload)
