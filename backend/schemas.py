@@ -1,21 +1,15 @@
-from datetime import datetime
-from typing import Optional
+from datetime import datetime, date
+from typing import Optional, Union
 from pydantic import (
     BaseModel,
     ConfigDict,
     field_validator,
 )
 
-
-# =====================================================
-# UTILITÁRIOS
-# =====================================================
-
 def sanitizar_username(v: str):
     v = (v or "").strip().lower().replace(" ", "_")
     v = "".join(c for c in v if c.isalnum() or c == "_")
     return v
-
 
 def validar_email(v):
     if not v:
@@ -25,11 +19,7 @@ def validar_email(v):
         raise ValueError("Email inválido")
     return v
 
-
-# =====================================================
 # USUÁRIOS
-# =====================================================
-
 class UsuarioCreate(BaseModel):
     nome: str
     username: str
@@ -37,7 +27,6 @@ class UsuarioCreate(BaseModel):
     telefone: Optional[str] = None
     senha: str
     role: Optional[str] = "Operador"
-
 
 class UserSignupPublic(BaseModel):
     username: str
@@ -59,7 +48,6 @@ class UserSignupPublic(BaseModel):
     def email_valido(cls, v):
         return validar_email(v)
 
-
 class UserProfileComplete(BaseModel):
     nome: str
     email: Optional[str] = None
@@ -69,7 +57,6 @@ class UserProfileComplete(BaseModel):
     @classmethod
     def email_valido(cls, v):
         return validar_email(v)
-
 
 class UserOut(BaseModel):
     id: int
@@ -83,11 +70,7 @@ class UserOut(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-
-# =====================================================
 # CRONOGRAMA
-# =====================================================
-
 class CronogramaBase(BaseModel):
     operador: str
     dia_semana: str
@@ -97,10 +80,8 @@ class CronogramaBase(BaseModel):
     data_limite: Optional[str] = None
     status_prazo: str = "Pendente"
 
-
 class CronogramaCreate(CronogramaBase):
     pass
-
 
 class CronogramaUpdate(BaseModel):
     operador: Optional[str] = None
@@ -111,17 +92,12 @@ class CronogramaUpdate(BaseModel):
     data_limite: Optional[str] = None
     status_prazo: Optional[str] = None
 
-
 class CronogramaOut(CronogramaBase):
     id: int
 
     model_config = ConfigDict(from_attributes=True)
 
-
-# =====================================================
 # REGISTROS OPERACIONAIS
-# =====================================================
-
 class RegistroBase(BaseModel):
     cliente_nome: Optional[str] = None
     cliente: Optional[str] = None
@@ -136,20 +112,16 @@ class RegistroBase(BaseModel):
         dados = info.data
         return dados.get("cliente")
 
-
 class RegistroCreate(RegistroBase):
-    # Admin/Gestor: lançar em nome de outro + data
     operador_nome: Optional[str] = None
-    data_registro: Optional[datetime] = None
-
+    data_registro: Optional[Union[datetime, date, str]] = None
 
 class RegistroUpdate(BaseModel):
     cliente_nome: Optional[str] = None
     status: Optional[str] = None
     justificativa: Optional[str] = None
     operador_nome: Optional[str] = None
-    data_registro: Optional[datetime] = None
-
+    data_registro: Optional[Union[datetime, date, str]] = None
 
 class RegistroOut(BaseModel):
     id: int
@@ -157,17 +129,13 @@ class RegistroOut(BaseModel):
     cliente_nome: str
     status: str
     justificativa: Optional[str] = None
-    data_registro: Optional[datetime] = None   # aceita null
+    data_registro: Optional[datetime] = None
     caminho_evidencia: Optional[str] = None
     aprovado_gestor: Optional[str] = "Pendente"
 
     model_config = ConfigDict(from_attributes=True)
 
-
-# =====================================================
 # AUDITORIA
-# =====================================================
-
 class AuditoriaOut(BaseModel):
     id: int
     timestamp: datetime
@@ -179,16 +147,11 @@ class AuditoriaOut(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-
-# =====================================================
 # RECUPERAÇÃO DE SENHA
-# =====================================================
-
 class SolicitacaoSenhaCreate(BaseModel):
     username: str
     email: Optional[str] = None
     telefone: Optional[str] = None
-
 
 class SolicitacaoSenhaOut(BaseModel):
     id: int
@@ -203,7 +166,6 @@ class SolicitacaoSenhaOut(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-
 class RedefinirSenhaAutorizada(BaseModel):
     username: str
     nova_senha: str
@@ -216,11 +178,6 @@ class RedefinirSenhaAutorizada(BaseModel):
         if nova and v != nova:
             raise ValueError("As senhas não coincidem.")
         return v
-
-
-# =====================================================
-# NOMES DA ESCALA (CRIAR CONTA)
-# =====================================================
 
 class NomeDisponivelOut(BaseModel):
     nome: str

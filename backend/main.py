@@ -4,12 +4,10 @@ from fastapi import (
     HTTPException,
     Query,
 )
-
 from fastapi.security import (
     OAuth2PasswordRequestForm,
     OAuth2PasswordBearer,
 )
-
 from fastapi.middleware.cors import CORSMiddleware
 
 from sqlalchemy.orm import Session
@@ -17,15 +15,16 @@ from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.exc import IntegrityError
 
 from jose import JWTError, jwt
-
 from pydantic import BaseModel
-
 from datetime import datetime, timedelta, date, time
 import unicodedata
+
+from apscheduler.schedulers.background import BackgroundScheduler
 
 import models
 import schemas
 import auth
+from automacao import rodar_preenchimento_nao_informado
 
 from database import (
     get_db,
@@ -33,9 +32,9 @@ from database import (
     SessionLocal,
 )
 
-
 models.Base.metadata.create_all(bind=engine)
 
+scheduler = BackgroundScheduler()
 
 def criar_admin_inicial():
     db = SessionLocal()
@@ -66,18 +65,30 @@ def criar_admin_inicial():
     finally:
         db.close()
 
-
 app = FastAPI(
     title="Duarte Performance API",
     description="Gestão Operacional Duarte Gestão",
-    version="2.9.1",
+    version="2.9.2",
 )
-
 
 @app.on_event("startup")
 def startup_event():
     criar_admin_inicial()
+    # Executa a automação diariamente às 23:59
+    scheduler.add_job(
+        rodar_preenchimento_nao_informado,
+        "cron",
+        hour=23,
+        minute=59,
+        id="job_nao_informado",
+        replace_existing=True,
+    )
+    scheduler.start()
+    print("⏰ Agendador de tarefas iniciado (23:59 diariamente).")
 
+@app.on_event("shutdown")
+def shutdown_event():
+    scheduler.shutdown()
 
 app.add_middleware(
     CORSMiddleware,
@@ -87,9 +98,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/token")
-
 
 def usuario_logado(
     token: str = Depends(oauth2_scheme),
@@ -116,17 +125,14 @@ def usuario_logado(
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
     return usuario
 
-
 ROLES_GESTAO = ("Admin", "Gestor", "Admin Master", "Coordenador")
 ROLES_VALIDAS = ["Operador", "Visualizador", "Gestor", "Admin"]
-
 
 def _eh_gestao(role: str) -> bool:
     r = (role or "").strip()
     if r in ROLES_GESTAO:
         return True
     return r.lower() in {"admin", "admin master", "gestor", "coordenador"}
-
 
 def exigir_admin_ou_gestor(
     usuario: models.Usuario = Depends(usuario_logado),
@@ -137,7 +143,6 @@ def exigir_admin_ou_gestor(
             detail="Acesso restrito a Admin ou Gestor.",
         )
     return usuario
-
 
 def exigir_admin(
     usuario: models.Usuario = Depends(usuario_logado),
@@ -151,15 +156,13 @@ def exigir_admin(
         )
     return usuario
 
-
 @app.get("/")
 def home():
     return {
         "status": "online",
         "sistema": "Duarte Performance API",
-        "versao": "2.9.1",
+        "versao": "2.9.2",
     }
-
 
 @app.get("/setup-admin")
 def setup_admin_manual(db: Session = Depends(get_db)):
@@ -184,7 +187,6 @@ def setup_admin_manual(db: Session = Depends(get_db)):
     admin.password_hash = senha_hash
     db.commit()
     return {"status": "sucesso", "mensagem": "Senha admin resetada para 123456"}
-
 
 @app.post("/token")
 def login(
@@ -216,7 +218,6 @@ def login(
         "nome": usuario.nome,
         "role": usuario.role,
     }
-
 
 @app.post("/usuarios/", status_code=201)
 def criar_usuario(
@@ -250,10 +251,8 @@ def criar_usuario(
         "id": novo.id,
     }
 
-
 class RoleUpdate(BaseModel):
     role: str
-
 
 @app.get("/usuarios/todos")
 def listar_todos_usuarios(
@@ -271,7 +270,6 @@ def listar_todos_usuarios(
         }
         for u in usuarios
     ]
-
 
 @app.put("/usuarios/{usuario_id}/role")
 def atualizar_role_usuario(
@@ -298,7 +296,6 @@ def atualizar_role_usuario(
         "role": u.role,
     }
 
-
 @app.get("/usuarios/me")
 def meu_usuario(usuario: models.Usuario = Depends(usuario_logado)):
     return {
@@ -310,18 +307,15 @@ def meu_usuario(usuario: models.Usuario = Depends(usuario_logado)):
         "perfil_completo": usuario.perfil_completo,
     }
 
-
 def _remover_acentos(texto: str) -> str:
     if not texto:
         return ""
     nfkd = unicodedata.normalize("NFKD", texto)
     return "".join(c for c in nfkd if not unicodedata.combining(c))
 
-
 def _slug_nome(parte: str) -> str:
     parte = _remover_acentos(parte).lower().strip()
     return "".join(c for c in parte if c.isalnum())
-
 
 def _gerar_username_sugerido(nome_escala: str, sobrenome: str, db: Session) -> str:
     base = f"{_slug_nome(nome_escala)}.{_slug_nome(sobrenome)}"
@@ -331,7 +325,6 @@ def _gerar_username_sugerido(nome_escala: str, sobrenome: str, db: Session) -> s
         n += 1
         candidato = f"{base}{n}"
     return candidato
-
 
 @app.get("/nomes-escala-disponiveis")
 def listar_nomes_escala_disponiveis(db: Session = Depends(get_db)):
@@ -347,7 +340,6 @@ def listar_nomes_escala_disponiveis(db: Session = Depends(get_db)):
         if _slug_nome(n.split(" ")[0]) not in usados
     ]
 
-
 @app.get("/sugerir-username")
 def sugerir_username(
     nome_escala: str,
@@ -360,9 +352,7 @@ def sugerir_username(
         "username_sugerido": _gerar_username_sugerido(nome_escala, sobrenome, db)
     }
 
-
 JANELA_REDEFINICAO_MINUTOS = 10
-
 
 def _expirar_solicitacoes_vencidas(db: Session):
     agora = datetime.utcnow()
@@ -378,7 +368,6 @@ def _expirar_solicitacoes_vencidas(db: Session):
         s.status = "expirado"
     if vencidas:
         db.commit()
-
 
 @app.post("/recuperar-senha")
 def solicitar_recuperacao_senha(
@@ -440,7 +429,6 @@ def solicitar_recuperacao_senha(
         "id": nova.id,
     }
 
-
 @app.get("/admin/solicitacoes-senha")
 def listar_solicitacoes_senha(
     db: Session = Depends(get_db),
@@ -466,7 +454,6 @@ def listar_solicitacoes_senha(
         }
         for s in sols
     ]
-
 
 @app.post("/admin/solicitacoes-senha/{solicitacao_id}/autorizar")
 def autorizar_solicitacao_senha(
@@ -495,7 +482,6 @@ def autorizar_solicitacao_senha(
         "expira_em": s.expira_em,
     }
 
-
 @app.post("/admin/solicitacoes-senha/{solicitacao_id}/rejeitar")
 def rejeitar_solicitacao_senha(
     solicitacao_id: int,
@@ -512,7 +498,6 @@ def rejeitar_solicitacao_senha(
     s.status = "rejeitado"
     db.commit()
     return {"status": "sucesso", "mensagem": "Rejeitada."}
-
 
 @app.post("/redefinir-senha-autorizada")
 def redefinir_senha_autorizada(
@@ -549,16 +534,6 @@ def redefinir_senha_autorizada(
     db.commit()
     return {"status": "sucesso", "mensagem": "Senha redefinida!"}
 
-
-DIAS_COLUNA = {
-    0: "segunda",
-    1: "terca",
-    2: "quarta",
-    3: "quinta",
-    4: "sexta",
-}
-
-
 def _parse_data_registro(valor) -> datetime | None:
     if valor is None:
         return None
@@ -587,7 +562,6 @@ def _parse_data_registro(valor) -> datetime | None:
         print(f"⚠️ Falha data_registro={valor!r}: {e}")
         return None
 
-
 @app.post("/registros/", response_model=schemas.RegistroOut)
 def criar_registro(
     registro: schemas.RegistroCreate,
@@ -612,19 +586,19 @@ def criar_registro(
         justificativa=(registro.justificativa or ""),
     )
 
-    # SEMPRE aplica se veio no body
+    # CORREÇÃO DA DATA: Garante que nunca fique em branco (NULL no DB)
     dt = _parse_data_registro(getattr(registro, "data_registro", None))
     if dt is not None:
         novo.data_registro = dt
-        print(f"[CREATE] data_registro={dt} user={usuario.username} role={role}")
+        print(f"[CREATE] data_registro personalizada={dt} user={usuario.username}")
     else:
-        print(f"[CREATE] sem data custom user={usuario.username} role={role}")
+        novo.data_registro = datetime.now()
+        print(f"[CREATE] data_registro gerada automaticamente={novo.data_registro}")
 
     db.add(novo)
     db.commit()
     db.refresh(novo)
     return novo
-
 
 @app.get("/registros/", response_model=list[schemas.RegistroOut])
 def listar_registros(
@@ -636,7 +610,6 @@ def listar_registros(
         .order_by(models.RegistroModel.data_registro.desc())
         .all()
     )
-
 
 @app.put("/registros/{registro_id}")
 def atualizar_registro(
@@ -672,7 +645,6 @@ def atualizar_registro(
     if "operador_nome" in payload and payload["operador_nome"]:
         r.operador_nome = str(payload["operador_nome"]).strip()
 
-    # ===== DATA: grava sempre que vier no payload =====
     if "data_registro" in payload:
         valor = payload["data_registro"]
         if valor is not None:
@@ -699,7 +671,6 @@ def atualizar_registro(
         "status_atual": r.status,
     }
 
-
 @app.delete("/registros/{registro_id}")
 def deletar_registro(
     registro_id: int,
@@ -715,15 +686,13 @@ def deletar_registro(
         raise HTTPException(404, "Registro não encontrado")
     db.delete(r)
     db.commit()
-    return {"status": "Excluído"}
-
+    return {"status": "Excluido"}
 
 class PreencherNaoInformadoIn(BaseModel):
     data: str | None = None
 
-
 @app.post("/registros/preencher-nao-informado")
-def preencher_nao_informado(
+def preencher_nao_informado_endpoint(
     dados: PreencherNaoInformadoIn = None,
     data: str = Query(None),
     db: Session = Depends(get_db),
@@ -741,87 +710,8 @@ def preencher_nao_informado(
     except ValueError:
         raise HTTPException(400, "Data inválida. Use YYYY-MM-DD.")
 
-    weekday = data_alvo.weekday()
-    if weekday >= 5:
-        return {
-            "status": "ok",
-            "mensagem": "Fim de semana — nada a preencher.",
-            "data": data_str,
-            "criados": 0,
-            "ignorados_ja_existiam": 0,
-        }
-
-    coluna = DIAS_COLUNA[weekday]
-    linhas = db.query(models.CronogramaModel).all()
-    if not linhas:
-        return {
-            "status": "ok",
-            "mensagem": "Cronograma vazio.",
-            "data": data_str,
-            "criados": 0,
-            "ignorados_ja_existiam": 0,
-        }
-
-    esperados = []
-    for lin in linhas:
-        cliente = (getattr(lin, coluna, None) or "").strip()
-        operador = (lin.operador or "").strip()
-        if operador and cliente and cliente != "-":
-            esperados.append((operador, cliente))
-
-    inicio = datetime.combine(data_alvo, time.min)
-    fim = datetime.combine(data_alvo, time.max)
-    existentes = (
-        db.query(
-            models.RegistroModel.operador_nome,
-            models.RegistroModel.cliente_nome,
-        )
-        .filter(
-            models.RegistroModel.data_registro >= inicio,
-            models.RegistroModel.data_registro <= fim,
-        )
-        .all()
-    )
-    chave_existente = {
-        ((op or "").strip().upper(), (cli or "").strip().upper())
-        for op, cli in existentes
-    }
-
-    criados = 0
-    ignorados = 0
-    detalhes = []
-
-    for operador, cliente in esperados:
-        chave = (operador.upper(), cliente.upper())
-        if chave in chave_existente:
-            ignorados += 1
-            continue
-
-        dt = datetime.combine(data_alvo, time(23, 59, 0))
-        novo = models.RegistroModel(
-            operador_nome=operador,
-            cliente_nome=cliente,
-            status="Não Informado",
-            justificativa="Preenchido automaticamente — operador não lançou no dia.",
-            data_registro=dt,
-        )
-        db.add(novo)
-        chave_existente.add(chave)
-        criados += 1
-        detalhes.append({"operador": operador, "cliente": cliente})
-
-    if criados:
-        db.commit()
-
-    return {
-        "status": "sucesso",
-        "mensagem": f"{data_str}: {criados} criado(s), {ignorados} já existiam.",
-        "data": data_str,
-        "criados": criados,
-        "ignorados_ja_existiam": ignorados,
-        "detalhes": detalhes[:50],
-    }
-
+    resultado = rodar_preenchimento_nao_informado(data_alvo)
+    return resultado
 
 class CronogramaIn(BaseModel):
     operador: str = None
@@ -843,7 +733,6 @@ class CronogramaIn(BaseModel):
     class Config:
         extra = "ignore"
 
-
 def _normalizar_payload_cronograma(dados: CronogramaIn) -> dict:
     d = dados.dict(exclude_unset=True)
 
@@ -863,7 +752,6 @@ def _normalizar_payload_cronograma(dados: CronogramaIn) -> dict:
         "sexta": pegar("sexta", "Sexta"),
     }
 
-
 def _cronograma_out(item) -> dict:
     return {
         "id": item.id,
@@ -876,7 +764,6 @@ def _cronograma_out(item) -> dict:
         "Sexta": item.sexta,
     }
 
-
 @app.get("/cronograma/")
 def listar_cronograma(
     db: Session = Depends(get_db),
@@ -884,7 +771,6 @@ def listar_cronograma(
 ):
     dados = db.query(models.CronogramaModel).order_by(models.CronogramaModel.id).all()
     return [_cronograma_out(d) for d in dados]
-
 
 @app.post("/cronograma/", status_code=201)
 def criar_cronograma(
@@ -898,7 +784,6 @@ def criar_cronograma(
     db.commit()
     db.refresh(novo)
     return _cronograma_out(novo)
-
 
 @app.put("/cronograma/{item_id}")
 def atualizar_cronograma(
@@ -926,20 +811,19 @@ def atualizar_cronograma(
     db.refresh(item)
     return {**_cronograma_out(item), "status": "atualizado"}
 
-
 @app.delete("/cronograma/{item_id}")
 def excluir_cronograma(
     item_id: int,
-    db: Session = Depends(get_db),
+    dados: Session = Depends(get_db),
     _: models.Usuario = Depends(exigir_admin_ou_gestor),
 ):
     item = (
-        db.query(models.CronogramaModel)
+        dados.query(models.CronogramaModel)
         .filter(models.CronogramaModel.id == item_id)
         .first()
     )
     if not item:
         raise HTTPException(404, "Linha do cronograma não encontrada.")
-    db.delete(item)
-    db.commit()
+    dados.delete(item)
+    dados.commit()
     return {"status": "excluido", "id": item_id}
