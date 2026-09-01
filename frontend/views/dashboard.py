@@ -36,8 +36,6 @@ import plotly.graph_objects as go
 import streamlit as st
 import streamlit.components.v1 as components
 
-from utils import api_get
-
 try:
     from zoneinfo import ZoneInfo
     FUSO_BR = ZoneInfo("America/Sao_Paulo")
@@ -471,10 +469,10 @@ def _inject_count_up_script():
 
 
 # ===================== CARGA E FILTRAGEM DE DADOS =====================
-def _carregar_dataframe() -> Optional[pd.DataFrame]:
+def _carregar_dataframe(api_get_fn: Callable[[str], Any]) -> Optional[pd.DataFrame]:
     """Busca os registros na API e devolve um DataFrame já normalizado."""
     with st.spinner("Carregando indicadores..."):
-        dados = _fetch_registros(api_get)
+        dados = _fetch_registros(api_get_fn)
 
     if dados is None:
         return None
@@ -851,14 +849,23 @@ def _render_tabela(df_f: pd.DataFrame):
 
 
 # ===================== ENTRY POINT =====================
-def render_dashboard(api_get_fn: Optional[Callable[[str], Any]] = None):
+def render_dashboard(api_get_fn: Callable[[str], Any]):
     """Ponto de entrada único do Dashboard Gerencial.
 
-    `api_get_fn` é opcional apenas para permitir injeção em testes; em
-    produção o módulo usa o `api_get` importado de `utils`, mantendo
-    compatibilidade com o restante do app.
+    `api_get_fn` é a função de acesso à API (mesmo padrão do `api_post`
+    recebido por `render_lancamento` em lancamento.py) — o chamador em
+    `app.py` decide qual client/função usar, e este módulo não depende
+    mais de importar nada de `utils` no topo do arquivo (isso é o que
+    causava o ImportError se `utils.py` não expusesse exatamente um nome
+    `api_get`).
     """
-    _injetar = api_get_fn or api_get
+    if api_get_fn is None:
+        st.error(
+            "❌ Erro de configuração: `render_dashboard` foi chamado sem uma função "
+            "de acesso à API (`api_get_fn`). Ajuste a chamada em `app.py`, por exemplo: "
+            "`render_dashboard(api_get)`."
+        )
+        return
 
     _inject_css()
 
@@ -874,7 +881,7 @@ def render_dashboard(api_get_fn: Optional[Callable[[str], Any]] = None):
         unsafe_allow_html=True,
     )
 
-    df = _carregar_dataframe()
+    df = _carregar_dataframe(api_get_fn)
     if df is None:
         st.error("Erro ao carregar registros da API.")
         return
@@ -893,11 +900,3 @@ def render_dashboard(api_get_fn: Optional[Callable[[str], Any]] = None):
     _render_insights(df_f, kpis)
     _render_graficos(df_f, kpis["eficiencia"])
     _render_tabela(df_f)
-
-
-# Compatibilidade retroativa: caso algum ponto do app ainda importe e chame
-# `_inject_count_up` esperando que ela renderize a página inteira (como no
-# arquivo anterior, por causa do bug de indentação), redirecionamos para o
-# entry point correto em vez de quebrar silenciosamente.
-def _inject_count_up():
-    render_dashboard()
