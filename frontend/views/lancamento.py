@@ -1,5 +1,23 @@
+"""
+Módulo: lancamento.py
+Sistema: Duarte Performance — Duarte Gestão em Saúde
+Descrição: Tela de "Lançar Execução Diária" (apontamentos operacionais).
+
+Reescrita 2.0 — pontos-chave desta versão:
+  • Deck de Seleção dinâmico para clientes fora da escala ("Outros"),
+    com busca em tempo real sobre a base completa do cronograma.
+  • Campo de Justificativa 100% incondicional: visível sempre,
+    para qualquer status, sem nenhuma condicional escondendo-o.
+  • Validações centralizadas e explícitas antes do POST.
+  • Micro-interações e identidade visual corporativa
+    (Azul Marinho #001E57 / Laranja Vibrante #FF9200).
+  • Código modularizado em funções pequenas e comentadas,
+    facilitando manutenção e testes unitários futuros.
+"""
+
 import os
 import time
+from dataclasses import dataclass, field
 from datetime import datetime, date
 from zoneinfo import ZoneInfo
 
@@ -8,6 +26,9 @@ import streamlit as st
 from views.permissoes import pode_editar, aviso_somente_leitura
 from views.escala import get_cronograma_credenciamento
 
+# ────────────────────────────────────────────────────────────────────────────
+# Constantes de domínio
+# ────────────────────────────────────────────────────────────────────────────
 DIAS_SEMANA_PT = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
 FUSO_BR = ZoneInfo("America/Sao_Paulo")
 
@@ -16,26 +37,28 @@ API_URL = os.getenv(
     "https://duarte-performance-backend-production.up.railway.app",
 )
 
-PERFIS_VISAO_GERAL = {
-    "admin master",
-    "admin",
-    "gestor",
-    "coordenador",
-    "visualizador",
-}
-
-PERFIS_ADMIN_LANCAR = {
-    "admin master",
-    "admin",
-    "gestor",
-    "coordenador",
-}
-
+PERFIS_VISAO_GERAL = {"admin master", "admin", "gestor", "coordenador", "visualizador"}
+PERFIS_ADMIN_LANCAR = {"admin master", "admin", "gestor", "coordenador"}
 PERFIS_PODEM_LANCAR = PERFIS_VISAO_GERAL | {"operador"}
+
+STATUS_OPCOES = [
+    "Realizado Total",
+    "Realizado Parcial",
+    "Não Realizado",
+    "Não Se Aplica",
+]
+# Status que tornam a justificativa OBRIGATÓRIA (o campo em si é sempre visível)
+STATUS_EXIGE_JUSTIFICATIVA = {"Realizado Parcial", "Não Realizado", "Não Se Aplica"}
+
+OPCAO_VAZIA = "Selecione..."
+OPCAO_OUTROS = "Outros"
 
 DEBUG_DIAGNOSTICO = False
 
 
+# ────────────────────────────────────────────────────────────────────────────
+# Helpers de data / perfil
+# ────────────────────────────────────────────────────────────────────────────
 def _dia_semana_de_data(d: date) -> str:
     return DIAS_SEMANA_PT[d.weekday()]
 
@@ -52,6 +75,9 @@ def _perfil_usuario_atual() -> str:
     return str(perfil).strip().lower()
 
 
+# ────────────────────────────────────────────────────────────────────────────
+# Carregamento e manipulação da escala (cronograma)
+# ────────────────────────────────────────────────────────────────────────────
 def _carregar_escala(carregar_cronograma=None):
     token = st.session_state.get("token")
 
@@ -86,6 +112,8 @@ def _match_operador(serie_operador, nome_busca: str):
 
 
 def _nome_padrao_escala(df_escala, nome_busca: str) -> str:
+    """Normaliza o nome do operador para o padrão exato usado na escala,
+    evitando duplicidade de operadores no dashboard (ex.: 'Felipe' vs 'Felipe V.')."""
     if not nome_busca:
         return ""
     if df_escala is None or df_escala.empty or "Operador" not in df_escala.columns:
@@ -113,9 +141,7 @@ def _clientes_do_dia(
     perfil_usuario: str,
     forcar_todos: bool = False,
 ) -> list:
-    if df_escala is None or df_escala.empty:
-        return []
-    if dia_ref not in df_escala.columns:
+    if df_escala is None or df_escala.empty or dia_ref not in df_escala.columns:
         return []
 
     perfil_normalizado = (perfil_usuario or "").strip().lower()
@@ -133,27 +159,17 @@ def _clientes_do_dia(
     return sorted(clientes)
 
 
-def _todos_clientes_do_dia(df_escala, dia_ref: str) -> list:
-    if df_escala is None or df_escala.empty or dia_ref not in df_escala.columns:
-        return []
-    valores = df_escala[dia_ref].dropna().astype(str).str.strip()
-    clientes = [v for v in valores.unique().tolist() if v and v != "-"]
-    return sorted(clientes)
-
-
 def _todos_clientes_do_cronograma(df_escala) -> list:
+    """Retorna a base COMPLETA de clientes/serviços cadastrados no cronograma —
+    usada para alimentar o Deck de Seleção quando o usuário escolhe 'Outros'."""
     if df_escala is None or df_escala.empty:
         return []
 
-    dias = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
     clientes = set()
-
-    for dia in dias:
+    for dia in DIAS_SEMANA_PT:
         if dia in df_escala.columns:
             valores = df_escala[dia].dropna().astype(str).str.strip()
-            for v in valores:
-                if v and v != "-":
-                    clientes.add(v)
+            clientes.update(v for v in valores if v and v != "-")
 
     return sorted(clientes)
 
@@ -174,7 +190,27 @@ def _lista_operadores(df_escala) -> list:
     return sorted(ops)
 
 
-def render_lancamento(api_post, carregar_cronograma=None):
+# ────────────────────────────────────────────────────────────────────────────
+# Estado do formulário (encapsula tudo que é decidido antes do submit)
+# ────────────────────────────────────────────────────────────────────────────
+@dataclass
+class ContextoLancamento:
+    perfil_usuario: str
+    nome_logado: str
+    eh_admin_lancar: bool
+    df_escala: object
+    data_lancamento: date = field(default_factory=date.today)
+    nome_operador: str = ""
+    nome_para_gravar: str = ""
+    dia_ref: str = ""
+    clientes_hoje: list = field(default_factory=list)
+    todos_clientes: list = field(default_factory=list)
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# CSS — identidade visual + micro-interações
+# ────────────────────────────────────────────────────────────────────────────
+def _injetar_css():
     st.markdown(
         """
 <style>
@@ -199,8 +235,8 @@ def render_lancamento(api_post, carregar_cronograma=None):
         50%      { transform: translateY(-3px); }
     }
     @keyframes slideDown {
-        from { opacity: 0; transform: translateY(-12px); max-height: 0; }
-        to   { opacity: 1; transform: translateY(0); max-height: 300px; }
+        from { opacity: 0; transform: translateY(-12px); }
+        to   { opacity: 1; transform: translateY(0); }
     }
     @keyframes borderGlow {
         0%, 100% { border-color: rgba(255, 146, 0, 0.35); }
@@ -210,6 +246,14 @@ def render_lancamento(api_post, carregar_cronograma=None):
         0%   { transform: scale(0.8); opacity: 0; }
         50%  { transform: scale(1.05); }
         100% { transform: scale(1); opacity: 1; }
+    }
+    @keyframes shimmer {
+        0%   { background-position: -400px 0; }
+        100% { background-position: 400px 0; }
+    }
+    @keyframes deckOpen {
+        from { opacity: 0; transform: scaleY(0.96); }
+        to   { opacity: 1; transform: scaleY(1); }
     }
 
     .lanc-hero {
@@ -236,69 +280,42 @@ def render_lancamento(api_post, carregar_cronograma=None):
         animation: softFloat 6s ease-in-out infinite;
     }
     .lanc-hero h2 {
-        margin: 0;
-        font-weight: 900;
-        font-size: 1.9rem;
-        letter-spacing: -0.5px;
-        position: relative;
-        z-index: 1;
+        margin: 0; font-weight: 900; font-size: 1.9rem;
+        letter-spacing: -0.5px; position: relative; z-index: 1;
     }
     .lanc-hero p {
-        margin: 8px 0 0 0;
-        color: #94A3B8;
-        font-size: 0.96rem;
-        position: relative;
-        z-index: 1;
+        margin: 8px 0 0 0; color: #94A3B8; font-size: 0.96rem;
+        position: relative; z-index: 1;
     }
     .lanc-badge {
-        display: inline-block;
-        margin-top: 16px;
+        display: inline-block; margin-top: 16px;
         background: linear-gradient(135deg, #FF9200, #FFB84D);
-        color: #fff;
-        padding: 7px 16px;
-        border-radius: 99px;
-        font-weight: 800;
-        font-size: 0.73rem;
-        letter-spacing: 0.4px;
-        animation: pulseGlow 2.4s infinite;
-        position: relative;
-        z-index: 1;
+        color: #fff; padding: 7px 16px; border-radius: 99px;
+        font-weight: 800; font-size: 0.73rem; letter-spacing: 0.4px;
+        animation: pulseGlow 2.4s infinite; position: relative; z-index: 1;
         box-shadow: 0 4px 14px rgba(255, 146, 0, 0.35);
     }
 
     .lanc-shell {
         background: linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 100%);
-        padding: 28px 26px 22px 26px;
-        border-radius: 22px;
+        padding: 28px 26px 22px 26px; border-radius: 22px;
         box-shadow: 0 14px 40px rgba(0, 30, 87, 0.08);
-        border: 1px solid #E2E8F0;
-        border-top: 5px solid #FF9200;
-        animation: fadeInUp 0.65s ease-out;
-        margin-bottom: 16px;
+        border: 1px solid #E2E8F0; border-top: 5px solid #FF9200;
+        animation: fadeInUp 0.65s ease-out; margin-bottom: 16px;
         transition: box-shadow 0.3s ease;
     }
-    .lanc-shell:hover {
-        box-shadow: 0 18px 48px rgba(0, 30, 87, 0.12);
-    }
+    .lanc-shell:hover { box-shadow: 0 18px 48px rgba(0, 30, 87, 0.12); }
 
     .lanc-chip-row {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 10px;
-        margin-bottom: 20px;
-        animation: fadeInUp 0.55s ease-out;
+        display: flex; flex-wrap: wrap; gap: 10px;
+        margin-bottom: 20px; animation: fadeInUp 0.55s ease-out;
     }
     .lanc-chip {
-        display: inline-flex;
-        align-items: center;
-        gap: 7px;
-        background: rgba(0, 30, 87, 0.06);
-        color: #001E57;
+        display: inline-flex; align-items: center; gap: 7px;
+        background: rgba(0, 30, 87, 0.06); color: #001E57;
         border: 1px solid rgba(0, 30, 87, 0.1);
-        padding: 7px 14px;
-        border-radius: 99px;
-        font-size: 0.8rem;
-        font-weight: 700;
+        padding: 7px 14px; border-radius: 99px;
+        font-size: 0.8rem; font-weight: 700;
         transition: all 0.25s ease;
     }
     .lanc-chip:hover {
@@ -306,54 +323,63 @@ def render_lancamento(api_post, carregar_cronograma=None):
         box-shadow: 0 4px 12px rgba(0, 30, 87, 0.1);
     }
     .lanc-chip.orange {
-        background: rgba(255, 146, 0, 0.12);
-        color: #C2410C;
+        background: rgba(255, 146, 0, 0.12); color: #C2410C;
         border-color: rgba(255, 146, 0, 0.3);
     }
     .lanc-chip.green {
-        background: rgba(16, 185, 129, 0.12);
-        color: #047857;
+        background: rgba(16, 185, 129, 0.12); color: #047857;
         border-color: rgba(16, 185, 129, 0.28);
     }
 
+    /* Deck de Seleção — o "Outros" ganha um container elegante e destacável */
+    .deck-box {
+        border: 1px dashed rgba(0, 30, 87, 0.35);
+        background: linear-gradient(135deg, #F0F7FF 0%, #FBFDFF 100%);
+        border-radius: 16px;
+        padding: 16px 18px 6px 18px;
+        margin: 4px 0 16px 0;
+        animation: deckOpen 0.3s ease-out;
+    }
+    .deck-title {
+        color: #001E57; font-weight: 800; font-size: 0.92rem;
+        display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
+    }
+    .deck-count {
+        display: inline-block; background: #001E57; color: #fff;
+        font-size: 0.68rem; font-weight: 700; padding: 2px 9px;
+        border-radius: 99px; margin-left: 4px;
+    }
+
+    /* Justificativa — SEMPRE renderizada, incondicional em qualquer status */
     .justificativa-box {
         border-left: 5px solid #FF9200;
         background: linear-gradient(135deg, #FFF9F0 0%, #FFF5E6 100%);
-        padding: 18px 18px 8px 18px;
-        border-radius: 14px;
-        margin: 12px 0 16px 0;
-        border: 1px solid rgba(255, 146, 0, 0.25);
+        padding: 18px 18px 8px 18px; border-radius: 14px;
+        margin: 12px 0 16px 0; border: 1px solid rgba(255, 146, 0, 0.25);
         animation: slideDown 0.4s ease-out, borderGlow 3s ease-in-out infinite;
         box-shadow: 0 4px 16px rgba(255, 146, 0, 0.1);
-        overflow: hidden;
+    }
+    .justificativa-box.opcional {
+        border-left-color: #94A3B8;
+        background: linear-gradient(135deg, #F8FAFC 0%, #F1F5F9 100%);
+        animation: slideDown 0.4s ease-out;
     }
 
     .lanc-section-title {
-        color: #001E57;
-        font-weight: 800;
-        font-size: 1.05rem;
-        margin: 4px 0 14px 0;
+        color: #001E57; font-weight: 800; font-size: 1.05rem; margin: 4px 0 14px 0;
     }
 
     .admin-box {
         background: linear-gradient(135deg, #F0F7FF 0%, #E0F2FE 100%);
-        border: 1px solid #BFDBFE;
-        border-left: 5px solid #001E57;
-        border-radius: 14px;
-        padding: 16px 18px;
-        margin-bottom: 18px;
-        animation: fadeInUp 0.5s ease-out;
-        box-shadow: 0 4px 14px rgba(0, 30, 87, 0.06);
+        border: 1px solid #BFDBFE; border-left: 5px solid #001E57;
+        border-radius: 14px; padding: 16px 18px; margin-bottom: 18px;
+        animation: fadeInUp 0.5s ease-out; box-shadow: 0 4px 14px rgba(0, 30, 87, 0.06);
     }
 
     div.stButton > button[kind="primary"] {
         background: linear-gradient(135deg, #FF9200 0%, #E07A00 100%) !important;
-        color: white !important;
-        font-weight: 800 !important;
-        font-size: 1rem !important;
-        height: 54px !important;
-        border-radius: 16px !important;
-        border: none !important;
+        color: white !important; font-weight: 800 !important; font-size: 1rem !important;
+        height: 54px !important; border-radius: 16px !important; border: none !important;
         box-shadow: 0 8px 22px rgba(255, 146, 0, 0.35) !important;
         transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
         letter-spacing: 0.3px !important;
@@ -363,21 +389,16 @@ def render_lancamento(api_post, carregar_cronograma=None):
         box-shadow: 0 12px 28px rgba(255, 146, 0, 0.45) !important;
         background: linear-gradient(135deg, #FFA733 0%, #FF9200 100%) !important;
     }
-    div.stButton > button[kind="primary"]:active {
-        transform: translateY(-1px) !important;
-    }
+    div.stButton > button[kind="primary"]:active { transform: translateY(-1px) !important; }
 
     div[data-testid="stSelectbox"] > div > div,
     div[data-testid="stTextInput"] > div > div,
     div[data-testid="stDateInput"] > div > div {
-        border-radius: 12px !important;
-        border-color: #E2E8F0 !important;
+        border-radius: 12px !important; border-color: #E2E8F0 !important;
         transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
     }
     div[data-testid="stSelectbox"] > div > div:hover,
-    div[data-testid="stTextInput"] > div > div:hover {
-        border-color: #FF9200 !important;
-    }
+    div[data-testid="stTextInput"] > div > div:hover { border-color: #FF9200 !important; }
     div[data-baseweb="select"]:focus-within > div,
     div[data-testid="stTextInput"] input:focus {
         border-color: #FF9200 !important;
@@ -385,8 +406,7 @@ def render_lancamento(api_post, carregar_cronograma=None):
     }
 
     div[data-testid="stTextArea"] textarea {
-        border-radius: 12px !important;
-        border-color: #E2E8F0 !important;
+        border-radius: 12px !important; border-color: #E2E8F0 !important;
     }
     div[data-testid="stTextArea"] textarea:focus {
         border-color: #FF9200 !important;
@@ -395,14 +415,9 @@ def render_lancamento(api_post, carregar_cronograma=None):
 
     .success-box {
         background: linear-gradient(135deg, #ECFDF5 0%, #D1FAE5 100%);
-        border: 1px solid #6EE7B7;
-        border-left: 5px solid #10B981;
-        border-radius: 14px;
-        padding: 16px 18px;
-        margin: 16px 0;
-        animation: successPop 0.45s ease-out;
-        color: #065F46;
-        font-weight: 600;
+        border: 1px solid #6EE7B7; border-left: 5px solid #10B981;
+        border-radius: 14px; padding: 16px 18px; margin: 16px 0;
+        animation: successPop 0.45s ease-out; color: #065F46; font-weight: 600;
     }
 
     @media (max-width: 640px) {
@@ -416,6 +431,8 @@ def render_lancamento(api_post, carregar_cronograma=None):
         unsafe_allow_html=True,
     )
 
+
+def _render_hero():
     st.markdown(
         """
     <div class="lanc-hero">
@@ -427,6 +444,11 @@ def render_lancamento(api_post, carregar_cronograma=None):
         unsafe_allow_html=True,
     )
 
+
+# ────────────────────────────────────────────────────────────────────────────
+# Passo 1 — Resolve contexto (perfil, operador, data, escala do dia)
+# ────────────────────────────────────────────────────────────────────────────
+def _resolver_contexto(carregar_cronograma=None):
     perfil_usuario = _perfil_usuario_atual()
     nome_logado = (
         st.session_state.get("nome")
@@ -434,17 +456,16 @@ def render_lancamento(api_post, carregar_cronograma=None):
         or st.session_state.get("username")
         or ""
     )
-
-    pode_lancar = perfil_usuario in PERFIS_PODEM_LANCAR or pode_editar(perfil_usuario)
-    if not pode_lancar:
-        aviso_somente_leitura()
-        return
-
     eh_admin_lancar = perfil_usuario in PERFIS_ADMIN_LANCAR
     df_escala = _carregar_escala(carregar_cronograma)
 
-    data_lancamento = date.today()
-    nome_operador = nome_logado
+    ctx = ContextoLancamento(
+        perfil_usuario=perfil_usuario,
+        nome_logado=nome_logado,
+        eh_admin_lancar=eh_admin_lancar,
+        df_escala=df_escala,
+        nome_operador=nome_logado,
+    )
 
     if eh_admin_lancar:
         st.markdown(
@@ -461,171 +482,228 @@ def render_lancamento(api_post, carregar_cronograma=None):
             ops = _lista_operadores(df_escala)
             opcoes_op = ["Eu mesmo (logado)"] + ops
             escolha_op = st.selectbox(
-                "👤 Lançar como operador",
-                opcoes_op,
-                key="lanc_admin_operador",
+                "👤 Lançar como operador", opcoes_op, key="lanc_admin_operador"
             )
             if escolha_op != "Eu mesmo (logado)":
-                nome_operador = escolha_op
+                ctx.nome_operador = escolha_op
         with a2:
-            data_lancamento = st.date_input(
-                "📅 Data do lançamento",
-                value=date.today(),
-                key="lanc_admin_data",
+            ctx.data_lancamento = st.date_input(
+                "📅 Data do lançamento", value=date.today(), key="lanc_admin_data"
             )
 
-    nome_para_gravar = _nome_padrao_escala(df_escala, nome_operador)
-    dia_ref = _dia_semana_de_data(data_lancamento)
+    ctx.nome_para_gravar = _nome_padrao_escala(df_escala, ctx.nome_operador)
+    ctx.dia_ref = _dia_semana_de_data(ctx.data_lancamento)
+    ctx.clientes_hoje = _clientes_do_dia(
+        df_escala,
+        ctx.nome_operador,
+        ctx.dia_ref,
+        perfil_usuario,
+        forcar_todos=(eh_admin_lancar and not ctx.nome_operador),
+    )
+    ctx.todos_clientes = _todos_clientes_do_cronograma(df_escala)
+    return ctx
 
-    if eh_admin_lancar and nome_operador:
-        clientes_hoje = _clientes_do_dia(
-            df_escala, nome_operador, dia_ref, perfil_usuario, forcar_todos=False
-        )
-    else:
-        clientes_hoje = _clientes_do_dia(
-            df_escala, nome_operador, dia_ref, perfil_usuario
-        )
 
-    todos_clientes_cronograma = _todos_clientes_do_cronograma(df_escala)
-
+def _render_chips_contexto(ctx: ContextoLancamento):
     visao_txt = (
         "Visão geral"
-        if perfil_usuario in PERFIS_VISAO_GERAL and not eh_admin_lancar
+        if ctx.perfil_usuario in PERFIS_VISAO_GERAL and not ctx.eh_admin_lancar
         else "Escala do operador"
     )
     st.markdown(
         f"""
     <div class="lanc-chip-row">
-        <span class="lanc-chip">📅 {dia_ref} · {data_lancamento.strftime("%d/%m/%Y")}</span>
-        <span class="lanc-chip orange">👤 {nome_para_gravar or nome_operador or "Usuário"}</span>
-        <span class="lanc-chip green">🏷️ {perfil_usuario.title()}</span>
-        <span class="lanc-chip">📋 {len(clientes_hoje)} cliente(s) · {visao_txt}</span>
+        <span class="lanc-chip">📅 {ctx.dia_ref} · {ctx.data_lancamento.strftime("%d/%m/%Y")}</span>
+        <span class="lanc-chip orange">👤 {ctx.nome_para_gravar or ctx.nome_operador or "Usuário"}</span>
+        <span class="lanc-chip green">🏷️ {ctx.perfil_usuario.title()}</span>
+        <span class="lanc-chip">📋 {len(ctx.clientes_hoje)} cliente(s) · {visao_txt}</span>
     </div>
     """,
         unsafe_allow_html=True,
     )
 
-    st.markdown('<div class="lanc-shell">', unsafe_allow_html=True)
+
+# ────────────────────────────────────────────────────────────────────────────
+# Passo 2 — Seleção de Cliente/Serviço, com Deck dinâmico para "Outros"
+# ────────────────────────────────────────────────────────────────────────────
+def _render_selecao_cliente(ctx: ContextoLancamento) -> str:
+    """Renderiza o seletor principal de cliente. Quando 'Outros' é escolhido,
+    abre o Deck de Seleção com a base COMPLETA de clientes/serviços cadastrados,
+    com busca em tempo real — substituindo o antigo campo de texto livre."""
+    opcoes_cliente = [OPCAO_VAZIA] + ctx.clientes_hoje + [OPCAO_OUTROS]
+
+    if not ctx.clientes_hoje:
+        st.info(
+            "ℹ️ Nenhum cliente na escala para este operador/dia. "
+            f"Use **{OPCAO_OUTROS}** para localizar na base completa."
+        )
+
+    cliente_sel = st.selectbox(
+        "🏢 Cliente / Serviço *", opcoes_cliente, key="lanc_cliente_sel"
+    )
+
+    if cliente_sel != OPCAO_OUTROS:
+        return cliente_sel
+
+    # ── Deck de Seleção dinâmico ────────────────────────────────────────────
+    st.markdown('<div class="deck-box">', unsafe_allow_html=True)
     st.markdown(
-        '<p class="lanc-section-title">Novo apontamento</p>',
+        f"""<div class="deck-title">🗂️ Deck de Seleção — base completa
+        <span class="deck-count">{len(ctx.todos_clientes)} cadastrados</span></div>""",
         unsafe_allow_html=True,
     )
 
+    busca = st.text_input(
+        "🔍 Buscar cliente ou serviço",
+        placeholder="Digite parte do nome para filtrar o deck...",
+        key="lanc_deck_busca",
+    )
+    if busca.strip():
+        termo = busca.strip().casefold()
+        lista_filtrada = [c for c in ctx.todos_clientes if termo in c.casefold()]
+    else:
+        lista_filtrada = ctx.todos_clientes
+
+    deck_opcoes = [OPCAO_VAZIA] + lista_filtrada
+    cliente_deck = st.selectbox(
+        f"📋 Selecionar da base completa ({len(lista_filtrada)} resultado(s))",
+        deck_opcoes,
+        key="lanc_cliente_deck",
+    )
+
+    with st.expander("✍️ Não encontrou? Cadastrar nome manualmente", expanded=False):
+        cliente_manual = st.text_input(
+            "Nome do cliente/serviço",
+            placeholder="Ex: Vivest, Hospital Santa Casa...",
+            key="lanc_cliente_manual",
+        )
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    cliente_manual_val = st.session_state.get("lanc_cliente_manual", "").strip()
+    if cliente_manual_val:
+        return cliente_manual_val
+    if cliente_deck and cliente_deck != OPCAO_VAZIA:
+        return cliente_deck
+    return OPCAO_VAZIA
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Passo 3 — Justificativa INCONDICIONAL (sempre visível, qualquer status)
+# ────────────────────────────────────────────────────────────────────────────
+def _render_justificativa(status: str) -> str:
+    obrigatoria = status in STATUS_EXIGE_JUSTIFICATIVA
+    classe = "justificativa-box" if obrigatoria else "justificativa-box opcional"
+    rotulo = "⚠️ Motivo / Justificativa *" if obrigatoria else "📝 Motivo / Justificativa (opcional)"
+    placeholder = (
+        "Explique o motivo deste status (obrigatório)..."
+        if obrigatoria
+        else "Observações adicionais sobre este atendimento (opcional)..."
+    )
+
+    # Este bloco é renderizado sempre, para todo e qualquer status —
+    # não existe nenhuma condicional que oculte o campo em si.
+    st.markdown(f'<div class="{classe}">', unsafe_allow_html=True)
+    justificativa = st.text_area(
+        rotulo, placeholder=placeholder, height=110, key="lanc_justificativa"
+    )
+    st.markdown("</div>", unsafe_allow_html=True)
+    return justificativa
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Passo 4 — Validação e envio
+# ────────────────────────────────────────────────────────────────────────────
+def _validar_formulario(cliente_final: str, status: str, justificativa: str) -> str | None:
+    """Retorna a mensagem de erro (str) se algo for inválido, ou None se ok."""
+    if not cliente_final or cliente_final == OPCAO_VAZIA:
+        return "❌ Selecione (ou informe) o cliente/serviço antes de salvar."
+
+    if not status:
+        return "❌ Selecione o status da execução."
+
+    if status in STATUS_EXIGE_JUSTIFICATIVA and not justificativa.strip():
+        return "❌ Justificativa é obrigatória para este status!"
+
+    return None
+
+
+def _montar_payload(ctx: ContextoLancamento, cliente_final, status, justificativa) -> dict:
+    return {
+        "cliente_nome": str(cliente_final).strip(),
+        "status": status,
+        "justificativa": justificativa.strip(),
+        "operador_nome": str(ctx.nome_para_gravar or ctx.nome_operador).strip(),
+        # Sempre envia a data selecionada (hoje, por padrão, ou a definida pelo gestor)
+        "data_registro": f"{ctx.data_lancamento.isoformat()}T12:00:00",
+    }
+
+
+def _submeter_registro(api_post, payload: dict):
+    with st.spinner("Salvando lançamento..."):
+        resposta = api_post("/registros/", payload)
+
+    if resposta is not None and resposta.status_code in (200, 201):
+        st.markdown(
+            '<div class="success-box">✅ Lançamento registrado com sucesso!</div>',
+            unsafe_allow_html=True,
+        )
+        st.balloons()
+        time.sleep(1.2)
+        st.rerun()
+        return
+
+    if resposta is not None:
+        try:
+            detalhe = resposta.json().get("detail", resposta.text)
+        except Exception:
+            detalhe = resposta.text
+        st.error(f"❌ Erro ao salvar (status {resposta.status_code}): {detalhe}")
+    else:
+        st.error("❌ Erro ao salvar. Verifique a conexão com o backend.")
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Entry point
+# ────────────────────────────────────────────────────────────────────────────
+def render_lancamento(api_post, carregar_cronograma=None):
+    _injetar_css()
+    _render_hero()
+
+    perfil_usuario = _perfil_usuario_atual()
+    pode_lancar = perfil_usuario in PERFIS_PODEM_LANCAR or pode_editar(perfil_usuario)
+    if not pode_lancar:
+        aviso_somente_leitura()
+        return
+
+    ctx = _resolver_contexto(carregar_cronograma)
+    _render_chips_contexto(ctx)
+
+    st.markdown('<div class="lanc-shell">', unsafe_allow_html=True)
+    st.markdown('<p class="lanc-section-title">Novo apontamento</p>', unsafe_allow_html=True)
+
     col1, col2 = st.columns(2)
-
     with col1:
-        opcoes_cliente = (
-            ["Selecione..."]
-            + clientes_hoje
-            + ["Suporte", "Outro (fora da escala)"]
-        )
-        if not clientes_hoje:
-            st.info(
-                "ℹ️ Nenhum cliente na escala para este operador/dia. "
-                "Use **Outro** se precisar."
-            )
-
-        cliente_sel = st.selectbox(
-            "🏢 Cliente / Serviço *",
-            opcoes_cliente,
-            key="lanc_cliente_sel",
-        )
-
-        cliente_final = cliente_sel
-        if cliente_sel == "Suporte":
-            opcoes_suporte = ["Selecione..."] + [
-                f"Suporte - {c}" for c in todos_clientes_cronograma
-            ]
-            cliente_final = st.selectbox(
-                "🛠️ Suporte para qual cliente?",
-                opcoes_suporte,
-                key="lanc_cliente_suporte",
-            )
-        elif cliente_sel == "Outro (fora da escala)":
-            cliente_final = st.text_input(
-                "Digite o nome do cliente/serviço",
-                placeholder="Ex: Vivest, Hospital Santa Casa...",
-                key="lanc_cliente_outro",
-            )
-
+        cliente_final = _render_selecao_cliente(ctx)
     with col2:
-        status = st.selectbox(
-            "📌 Status da Execução *",
-            [
-                "Realizado Total",
-                "Realizado Parcial",
-                "Não Realizado",
-                "Não Se Aplica",
-            ],
-            key="lanc_status",
-        )
+        status = st.selectbox("📌 Status da Execução *", STATUS_OPCOES, key="lanc_status")
 
-    justificativa = ""
-    exige_justificativa = status != "Realizado Total"
-
-    if exige_justificativa:
-        st.markdown('<div class="justificativa-box">', unsafe_allow_html=True)
-        justificativa = st.text_area(
-            "⚠️ Motivo / Justificativa *",
-            placeholder="Explique o motivo deste status (obrigatório)...",
-            height=110,
-            key="lanc_justificativa",
-        )
-        st.markdown("</div>", unsafe_allow_html=True)
+    # Justificativa é renderizada SEMPRE, fora de qualquer condicional de status.
+    justificativa = _render_justificativa(status)
 
     st.markdown("<br>", unsafe_allow_html=True)
-
     salvar = st.button(
-        "💾 Salvar Lançamento",
-        use_container_width=True,
-        type="primary",
-        key="lanc_salvar",
+        "💾 Salvar Lançamento", use_container_width=True, type="primary", key="lanc_salvar"
     )
     st.markdown("</div>", unsafe_allow_html=True)
 
-    if salvar:
-        cliente_invalido = (
-            cliente_sel == "Selecione..."
-            or not cliente_final
-            or cliente_final in ("Selecione...", "")
-        )
-        if cliente_invalido:
-            st.error("❌ Selecione o cliente/serviço antes de salvar.")
-            return
+    if not salvar:
+        return
 
-        if exige_justificativa and not justificativa.strip():
-            st.error("❌ Justificativa é obrigatória para este status!")
-            return
+    erro = _validar_formulario(cliente_final, status, justificativa)
+    if erro:
+        st.error(erro)
+        return
 
-        payload = {
-            "cliente_nome": str(cliente_final).strip(),
-            "status": status,
-            "justificativa": justificativa.strip(),
-            "operador_nome": str(nome_para_gravar or nome_operador).strip(),
-            # SEMPRE envia a data selecionada
-            "data_registro": f"{data_lancamento.isoformat()}T12:00:00",
-        }
-
-        with st.spinner("Salvando lançamento..."):
-            resposta = api_post("/registros/", payload)
-
-        if resposta is not None and resposta.status_code in [200, 201]:
-            st.markdown(
-                """
-            <div class="success-box">
-                ✅ Lançamento registrado com sucesso!
-            </div>
-            """,
-                unsafe_allow_html=True,
-            )
-            st.balloons()
-            time.sleep(1.4)
-            st.rerun()
-        elif resposta is not None:
-            try:
-                detalhe = resposta.json().get("detail", resposta.text)
-            except Exception:
-                detalhe = resposta.text
-            st.error(f"❌ Erro ao salvar (status {resposta.status_code}): {detalhe}")
-        else:
-            st.error("❌ Erro ao salvar. Verifique a conexão com o backend.")
+    payload = _montar_payload(ctx, cliente_final, status, justificativa)
+    _submeter_registro(api_post, payload)

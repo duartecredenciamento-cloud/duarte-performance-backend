@@ -1,216 +1,56 @@
-from datetime import datetime
-
-from sqlalchemy import (
-    Column,
-    Integer,
-    String,
-    Text,
-    DateTime,
-    Boolean,
-    ForeignKey,
-)
-
-from sqlalchemy.orm import relationship
-
+from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, Index
+from sqlalchemy.sql import func
 from database import Base
 
-
-# =====================================================
-# DEPARTAMENTOS
-# =====================================================
-
-class DepartamentoModel(Base):
-
-    __tablename__ = "departamentos"
-
-    id = Column(Integer, primary_key=True, index=True)
-
-    nome = Column(
-        String(100),
-        unique=True,
-        nullable=False,
-        index=True,
-    )
-
-    usuarios = relationship(
-        "Usuario",
-        back_populates="departamento",
-    )
-
-
-# =====================================================
-# USUÁRIOS
-# =====================================================
-
 class Usuario(Base):
-
     __tablename__ = "usuarios"
 
     id = Column(Integer, primary_key=True, index=True)
-
-    username = Column(
-        String(50),
-        unique=True,
-        nullable=False,
-        index=True,
-    )
-
+    username = Column(String(120), unique=True, index=True, nullable=False)
+    email = Column(String(120), nullable=True)
+    nome = Column(String(150), nullable=False)
     password_hash = Column(String(255), nullable=False)
-
-    nome = Column(String(150), nullable=True, index=True)
-
-    email = Column(String(150), nullable=True)
-
-    telefone = Column(String(20), nullable=True)
-
-    perfil_completo = Column(Boolean, default=False, nullable=False)
-
     role = Column(String(50), default="Operador", nullable=False)
-
-    departamento_id = Column(
-        Integer,
-        ForeignKey("departamentos.id", ondelete="SET NULL"),
-        nullable=True,
-    )
-
-    departamento = relationship(
-        "DepartamentoModel",
-        back_populates="usuarios",
-    )
-
-
-# =====================================================
-# CLIENTES
-# =====================================================
-
-class ClienteModel(Base):
-
-    __tablename__ = "clientes"
-
-    id = Column(Integer, primary_key=True, index=True)
-
-    nome = Column(
-        String(150),
-        unique=True,
-        nullable=False,
-        index=True,
-    )
-
-
-# =====================================================
-# CRONOGRAMA (matriz semanal)
-# =====================================================
-
-class CronogramaModel(Base):
-
-    __tablename__ = "cronogramas"
-
-    id = Column(Integer, primary_key=True, index=True)
-
-    operador = Column(String(100), nullable=False, index=True)
-
-    periodo = Column(String(50), nullable=False, default="MANHÃ")
-
-    segunda = Column(String(255), nullable=True, default="-")
-    terca = Column(String(255), nullable=True, default="-")
-    quarta = Column(String(255), nullable=True, default="-")
-    quinta = Column(String(255), nullable=True, default="-")
-    sexta = Column(String(255), nullable=True, default="-")
-
-
-# =====================================================
-# REGISTROS DE EXECUÇÃO DIÁRIA
-# =====================================================
+    perfil_completo = Column(Boolean, default=True)
+    telefone = Column(String(30), nullable=True)
+    criado_em = Column(DateTime(timezone=True), server_default=func.now())
 
 class RegistroModel(Base):
-
     __tablename__ = "registros"
 
     id = Column(Integer, primary_key=True, index=True)
+    operador_nome = Column(String(150), index=True, nullable=False)
+    cliente_nome = Column(String(150), index=True, nullable=False)
+    status = Column(String(50), index=True, nullable=False)
+    justificativa = Column(Text, nullable=True)
+    data_registro = Column(DateTime, default=func.now(), index=True, nullable=False)
 
-    # IMPORTANTE: só default no INSERT.
-    # NÃO usar onupdate — senão a data volta para "agora" em todo save.
-    data_registro = Column(
-        DateTime,
-        default=datetime.utcnow,
-        nullable=False,
-        index=True,
+    __table_args__ = (
+        Index("idx_operador_data", "operador_nome", "data_registro"),
     )
 
-    operador_nome = Column(String(100), nullable=False, index=True)
-
-    cliente_nome = Column(String(150), nullable=False, index=True)
-
-    status = Column(String(50), nullable=False)
-
-    justificativa = Column(Text, nullable=True)
-
-    caminho_evidencia = Column(String(255), nullable=True)
-
-    aprovado_gestor = Column(String(20), default="Pendente")
-
-
-# =====================================================
-# AUDITORIA
-# =====================================================
-
-class AuditoriaModel(Base):
-
-    __tablename__ = "auditoria_logs"
+class CronogramaModel(Base):
+    __tablename__ = "cronograma"
 
     id = Column(Integer, primary_key=True, index=True)
-
-    timestamp = Column(
-        DateTime,
-        default=datetime.utcnow,
-        nullable=False,
-        index=True,
-    )
-
-    usuario_login = Column(String(50), nullable=True, index=True)
-
-    usuario_nome = Column(String(150), nullable=True)
-
-    ip_origem = Column(String(45), nullable=True)
-
-    acao = Column(String(100), nullable=False)
-
-    detalhes = Column(Text, nullable=True)
-
-
-# =====================================================
-# SOLICITAÇÕES DE RECUPERAÇÃO DE SENHA
-# =====================================================
+    operador = Column(String(150), index=True, nullable=False)
+    periodo = Column(String(50), default="MANHÃ", nullable=False)
+    segunda = Column(String(150), default="-")
+    terca = Column(String(150), default="-")
+    quarta = Column(String(150), default="-")
+    quinta = Column(String(150), default="-")
+    sexta = Column(String(150), default="-")
 
 class SolicitacaoSenhaModel(Base):
-
     __tablename__ = "solicitacoes_senha"
 
     id = Column(Integer, primary_key=True, index=True)
-
-    username = Column(String(50), nullable=False, index=True)
-
-    email = Column(String(150), nullable=True)
-
-    telefone = Column(String(20), nullable=True)
-
-    status = Column(
-        String(20),
-        default="pendente",
-        nullable=False,
-        index=True,
-    )
-
-    solicitado_em = Column(
-        DateTime,
-        default=datetime.utcnow,
-        nullable=False,
-    )
-
+    username = Column(String(120), index=True, nullable=False)
+    email = Column(String(120), nullable=True)
+    telefone = Column(String(30), nullable=True)
+    status = Column(String(30), default="pendente", index=True) # pendente, autorizado, rejeitado, usado, expirado
+    solicitado_em = Column(DateTime, default=func.now())
     autorizado_em = Column(DateTime, nullable=True)
-
     expira_em = Column(DateTime, nullable=True)
-
     usado_em = Column(DateTime, nullable=True)
-
-    autorizado_por = Column(String(50), nullable=True)
+    autorizado_por = Column(String(120), nullable=True)

@@ -17,6 +17,7 @@ from sqlalchemy.exc import IntegrityError
 from jose import JWTError, jwt
 from pydantic import BaseModel
 from datetime import datetime, timedelta, date, time
+from zoneinfo import ZoneInfo
 import unicodedata
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -35,6 +36,17 @@ from database import (
 models.Base.metadata.create_all(bind=engine)
 
 scheduler = BackgroundScheduler()
+
+def job_preenchimento_nao_informado_diario():
+    """Roda diariamente às 00:10 BRT verificando as pendências do dia anterior (ontem)."""
+    tz_br = ZoneInfo("America/Sao_Paulo")
+    ontem = (datetime.now(tz_br) - timedelta(days=1)).date()
+    print(f"⏰ Executando automação 'Não Informado' para o dia anterior: {ontem}")
+    try:
+        resultado = rodar_preenchimento_nao_informado(ontem)
+        print(f"✅ Automação concluída: {resultado}")
+    except Exception as e:
+        print(f"❌ Erro na automação 'Não Informado': {e}")
 
 def criar_admin_inicial():
     db = SessionLocal()
@@ -68,23 +80,24 @@ def criar_admin_inicial():
 app = FastAPI(
     title="Duarte Performance API",
     description="Gestão Operacional Duarte Gestão",
-    version="2.9.2",
+    version="2.9.3",
 )
 
 @app.on_event("startup")
 def startup_event():
     criar_admin_inicial()
-    # Executa a automação diariamente às 23:59
+    # Executa a automação diariamente às 00:10 BRT (referente ao dia anterior)
     scheduler.add_job(
-        rodar_preenchimento_nao_informado,
+        job_preenchimento_nao_informado_diario,
         "cron",
-        hour=23,
-        minute=59,
+        hour=0,
+        minute=10,
+        timezone="America/Sao_Paulo",
         id="job_nao_informado",
         replace_existing=True,
     )
     scheduler.start()
-    print("⏰ Agendador de tarefas iniciado (23:59 diariamente).")
+    print("⏰ Agendador de tarefas iniciado (00:10 BRT diariamente para dia anterior).")
 
 @app.on_event("shutdown")
 def shutdown_event():
@@ -161,7 +174,7 @@ def home():
     return {
         "status": "online",
         "sistema": "Duarte Performance API",
-        "versao": "2.9.2",
+        "versao": "2.9.3",
     }
 
 @app.get("/setup-admin")
@@ -586,7 +599,6 @@ def criar_registro(
         justificativa=(registro.justificativa or ""),
     )
 
-    # CORREÇÃO DA DATA: Garante que nunca fique em branco (NULL no DB)
     dt = _parse_data_registro(getattr(registro, "data_registro", None))
     if dt is not None:
         novo.data_registro = dt
@@ -814,16 +826,16 @@ def atualizar_cronograma(
 @app.delete("/cronograma/{item_id}")
 def excluir_cronograma(
     item_id: int,
-    dados: Session = Depends(get_db),
+    db: Session = Depends(get_db),
     _: models.Usuario = Depends(exigir_admin_ou_gestor),
 ):
     item = (
-        dados.query(models.CronogramaModel)
+        db.query(models.CronogramaModel)
         .filter(models.CronogramaModel.id == item_id)
         .first()
     )
     if not item:
         raise HTTPException(404, "Linha do cronograma não encontrada.")
-    dados.delete(item)
-    dados.commit()
+    db.delete(item)
+    db.commit()
     return {"status": "excluido", "id": item_id}
