@@ -13,13 +13,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from sqlalchemy import text, func
+from sqlalchemy import text
 import traceback
 
 from jose import JWTError, jwt
 from pydantic import BaseModel
 from datetime import datetime, timedelta, date, time
 from zoneinfo import ZoneInfo
+from typing import Optional, List
 import unicodedata
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -52,34 +53,45 @@ def job_preenchimento_nao_informado_diario():
 
 def _garantir_autoincremento_users():
     """
-    Garante a sequence e default de id na tabela users no PostgreSQL.
+    Corrige a causa raiz mais comum quando o ORM passa a apontar para uma
+    tabela Postgres que já existia em produção (criada fora do SQLAlchemy):
+    a coluna `id` sem DEFAULT/sequence associada.
+
+    Sem isso, todo INSERT na tabela `users` falha com
+    'null value in column "id" violates not-null constraint', porque o
+    SQLAlchemy não envia valor de id (espera que o banco gere sozinho).
+
+    Idempotente: seguro rodar em todo startup, em qualquer ambiente.
+    Se o banco não for Postgres (ex.: SQLite local), falha silenciosamente
+    e não afeta o funcionamento normal.
     """
     try:
         with engine.begin() as conn:
-            if conn.dialect.name == "postgresql":
-                conn.execute(text("""
-                    DO $$
-                    BEGIN
-                        IF NOT EXISTS (
-                            SELECT 1 FROM pg_class c
-                            JOIN pg_namespace n ON n.oid = c.relnamespace
-                            WHERE c.relname = 'users_id_seq'
-                        ) THEN
-                            CREATE SEQUENCE users_id_seq;
-                        END IF;
+            conn.execute(text("""
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_class c
+                        JOIN pg_namespace n ON n.oid = c.relnamespace
+                        WHERE c.relname = 'users_id_seq'
+                    ) THEN
+                        CREATE SEQUENCE users_id_seq;
+                    END IF;
 
-                        PERFORM setval(
-                            'users_id_seq',
-                            COALESCE((SELECT MAX(id) FROM users), 0) + 1,
-                            false
-                        );
+                    PERFORM setval(
+                        'users_id_seq',
+                        COALESCE((SELECT MAX(id) FROM users), 0) + 1,
+                        false
+                    );
 
-                        ALTER TABLE users ALTER COLUMN id SET DEFAULT nextval('users_id_seq');
-                        ALTER SEQUENCE users_id_seq OWNED BY users.id;
-                    END $$;
-                """))
+                    ALTER TABLE users ALTER COLUMN id SET DEFAULT nextval('users_id_seq');
+                    ALTER SEQUENCE users_id_seq OWNED BY users.id;
+                END $$;
+            """))
         print("✅ Sequence/DEFAULT da coluna id (users) verificada/corrigida.")
     except Exception as e:
+        # Não é Postgres, ou usuário do banco sem permissão de ALTER TABLE.
+        # Não derruba a API por causa disso — só avisa no log.
         print(f"⚠️ Não foi possível garantir autoincremento em users.id: {e}")
 
 
@@ -88,7 +100,7 @@ def criar_admin_inicial():
     try:
         admin_existente = (
             db.query(models.Usuario)
-            .filter(func.lower(models.Usuario.username) == "admin@duarte.com")
+            .filter(models.Usuario.username == "admin@duarte.com")
             .first()
         )
         if not admin_existente:
@@ -105,17 +117,20 @@ def criar_admin_inicial():
             print("ℹ️ Admin já existe — nenhuma ação necessária no startup.")
     except IntegrityError as e:
         db.rollback()
+        # Antes este erro sumia em silêncio. Agora fica visível no log,
+        # com a causa real (ex.: violação de NOT NULL, unique, etc.).
         print(f"❌ IntegrityError ao criar admin inicial: {e}")
     except Exception as e:
         db.rollback()
         print(f"❌ Erro admin inicial: {e}")
+        traceback.print_exc()
     finally:
         db.close()
 
 app = FastAPI(
     title="Duarte Performance API",
     description="Gestão Operacional Duarte Gestão",
-    version="2.9.4",
+    version="2.9.3",
 )
 
 @app.on_event("startup")
@@ -166,7 +181,7 @@ def usuario_logado(
 
     usuario = (
         db.query(models.Usuario)
-        .filter(func.lower(models.Usuario.username) == username.strip().lower())
+        .filter(models.Usuario.username == username)
         .first()
     )
     if not usuario:
@@ -204,33 +219,20 @@ def exigir_admin(
         )
     return usuario
 
-def _remover_acentos(texto: str) -> str:
-    if not texto:
-        return ""
-    nfkd = unicodedata.normalize("NFKD", texto)
-    return "".join(c for c in nfkd if not unicodedata.combining(c))
-
 @app.get("/")
 def home():
     return {
         "status": "online",
         "sistema": "Duarte Performance API",
-        "versao": "2.9.4",
+        "versao": "2.9.3",
     }
-
-# =====================================================
-# ROTAS DE EMERGÊNCIA / SETUP ADMIN
-# =====================================================
 
 @app.get("/setup-admin")
 def setup_admin_manual(db: Session = Depends(get_db)):
     try:
         admin = (
             db.query(models.Usuario)
-            .filter(
-                (func.lower(models.Usuario.username) == "admin@duarte.com") |
-                (func.lower(models.Usuario.username) == "admin")
-            )
+            .filter(models.Usuario.username == "admin@duarte.com")
             .first()
         )
         senha_hash = auth.obter_hash_senha("123456")
@@ -252,6 +254,7 @@ def setup_admin_manual(db: Session = Depends(get_db)):
     except SQLAlchemyError as e:
         db.rollback()
         traceback.print_exc()
+        # Expõe o erro real do banco em vez de um 500 mudo, para diagnóstico rápido.
         raise HTTPException(
             status_code=500,
             detail=f"Erro de banco de dados ao configurar admin: {str(e.__cause__ or e)}",
@@ -264,95 +267,25 @@ def setup_admin_manual(db: Session = Depends(get_db)):
             detail=f"Erro inesperado ao configurar admin: {str(e)}",
         )
 
-@app.get("/admin/sincronizar-operadores")
-def sincronizar_operadores_cronograma(db: Session = Depends(get_db)):
-    """Lê os operadores do cronograma e cria o login na tabela users com a senha 123456."""
-    try:
-        operadores_cronograma = db.query(models.CronogramaModel.operador).distinct().all()
-        criados = []
-
-        for row in operadores_cronograma:
-            nome_op = row[0]
-            if not nome_op or nome_op.strip() in ["-", "", "SEM NOME"]:
-                continue
-            
-            # Gera username limpo sem acento (ex: "JULIA SILVA" -> "julia.silva")
-            username_limpo = _remover_acentos(nome_op).strip().lower().replace(" ", ".")
-            
-            existe = db.query(models.Usuario).filter(
-                func.lower(models.Usuario.username) == username_limpo
-            ).first()
-
-            if not existe:
-                novo_user = models.Usuario(
-                    username=username_limpo,
-                    password_hash=auth.obter_hash_senha("123456"),
-                    role="Operador"
-                )
-                db.add(novo_user)
-                criados.append(username_limpo)
-
-        db.commit()
-        return {
-            "status": "sucesso",
-            "quantidade_criados": len(criados),
-            "usuarios_criados": criados,
-            "senha_padrao": "123456"
-        }
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"Erro ao sincronizar: {str(e)}")
-
-class ResetSenhaAdminIn(BaseModel):
-    username: str
-    nova_senha: str = "123456"
-
-@app.post("/admin/resetar-senha-direto")
-def resetar_senha_direto(
-    dados: ResetSenhaAdminIn,
-    db: Session = Depends(get_db),
-    _: models.Usuario = Depends(exigir_admin),
-):
-    usuario = (
-        db.query(models.Usuario)
-        .filter(func.lower(models.Usuario.username) == dados.username.strip().lower())
-        .first()
-    )
-    if not usuario:
-        raise HTTPException(status_code=404, detail="Usuário não encontrado.")
-
-    usuario.password_hash = auth.obter_hash_senha(dados.nova_senha)
-    db.commit()
-    return {
-        "status": "sucesso",
-        "mensagem": f"Senha do usuário {usuario.username} redefinida para {dados.nova_senha}",
-    }
-
-
-# =====================================================
-# AUTENTICAÇÃO E USUÁRIOS
-# =====================================================
-
 @app.post("/token")
 def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
 ):
-    login_input = form_data.username.strip().lower()
-    
     usuario = (
         db.query(models.Usuario)
-        .filter(func.lower(models.Usuario.username) == login_input)
+        .filter(models.Usuario.username == form_data.username)
         .first()
     )
-    
-    if not usuario or not auth.verificar_senha(form_data.password, usuario.password_hash):
+    if not usuario:
+        raise HTTPException(status_code=401, detail="Usuário ou senha inválidos")
+    if not auth.verificar_senha(form_data.password, usuario.password_hash):
         raise HTTPException(status_code=401, detail="Usuário ou senha inválidos")
 
     token = auth.criar_token_acesso(
         {
             "sub": usuario.username,
-            "nome": usuario.username,
+            "nome": usuario.username,  # usa username como nome
             "role": usuario.role,
             "id": usuario.id,
         }
@@ -372,7 +305,7 @@ def criar_usuario(
 ):
     if (
         db.query(models.Usuario)
-        .filter(func.lower(models.Usuario.username) == dados.username.strip().lower())
+        .filter(models.Usuario.username == dados.username)
         .first()
     ):
         raise HTTPException(
@@ -450,6 +383,12 @@ def meu_usuario(usuario: models.Usuario = Depends(usuario_logado)):
         "perfil_completo": True,
     }
 
+def _remover_acentos(texto: str) -> str:
+    if not texto:
+        return ""
+    nfkd = unicodedata.normalize("NFKD", texto)
+    return "".join(c for c in nfkd if not unicodedata.combining(c))
+
 def _slug_nome(parte: str) -> str:
     parte = _remover_acentos(parte).lower().strip()
     return "".join(c for c in parte if c.isalnum())
@@ -458,7 +397,7 @@ def _gerar_username_sugerido(nome_escala: str, sobrenome: str, db: Session) -> s
     base = f"{_slug_nome(nome_escala)}.{_slug_nome(sobrenome)}"
     candidato = base
     n = 1
-    while db.query(models.Usuario).filter(func.lower(models.Usuario.username) == candidato).first():
+    while db.query(models.Usuario).filter(models.Usuario.username == candidato).first():
         n += 1
         candidato = f"{base}{n}"
     return candidato
@@ -489,9 +428,188 @@ def sugerir_username(
         "username_sugerido": _gerar_username_sugerido(nome_escala, sobrenome, db)
     }
 
+
 # =====================================================
-# RECUPERAÇÃO DE SENHA
+# SINCRONIZAÇÃO EM LOTE DE OPERADORES (CronogramaModel -> users)
 # =====================================================
+class SincronizarOperadoresIn(BaseModel):
+    # Lista opcional para reforçar/cobrir nomes que ainda não apareceram
+    # em nenhuma escala lançada no banco (ex.: operador novo, cronograma
+    # de produção desatualizado/vazio).
+    nomes_extra: Optional[List[str]] = None
+    senha_padrao: Optional[str] = "123456"
+
+
+def _gerar_username_completo(nome_completo: str, db: Session) -> str:
+    """Gera um username no formato primeironome.ultimonome (sem acento,
+    minúsculo). Se colidir com um já existente, sufixa com número (2, 3...).
+    Reutiliza a mesma lógica de _slug_nome já usada em /sugerir-username,
+    para manter os dois fluxos (manual e em lote) consistentes."""
+    partes = [p for p in nome_completo.strip().split() if p]
+    if not partes:
+        raise ValueError("Nome vazio.")
+
+    primeiro = _slug_nome(partes[0])
+    ultimo = _slug_nome(partes[-1]) if len(partes) > 1 else ""
+    base = f"{primeiro}.{ultimo}" if ultimo else primeiro
+
+    candidato = base
+    n = 1
+    while db.query(models.Usuario).filter(models.Usuario.username == candidato).first():
+        n += 1
+        candidato = f"{base}{n}"
+    return candidato
+
+
+@app.post("/admin/sincronizar-operadores")
+def sincronizar_operadores(
+    payload: SincronizarOperadoresIn = SincronizarOperadoresIn(),
+    db: Session = Depends(get_db),
+    _admin: models.Usuario = Depends(exigir_admin),
+):
+    """
+    Cria automaticamente uma conta de acesso (role=Operador, senha padrão
+    123456) para cada nome de operador que ainda não tem usuário em `users`.
+
+    Fontes de nomes (somadas, sem duplicar):
+      1. Todos os valores distintos de CronogramaModel.operador já no banco.
+      2. `nomes_extra` enviado no corpo da requisição — cobre operadores que
+         ainda não apareceram em nenhuma escala lançada.
+
+    Idempotente: rodar de novo não duplica ninguém. A checagem de "já existe"
+    é feita pelo PRIMEIRO NOME normalizado (sem acento/maiúscula), tanto
+    comparando com o username completo quanto com o primeiro token antes do
+    ponto — assim, um operador cadastrado manualmente como "larissa" ou como
+    "larissa.adriene" é reconhecido do mesmo jeito e não gera duplicata.
+    """
+    nomes_cronograma = {
+        n[0].strip()
+        for n in db.query(models.CronogramaModel.operador).distinct().all()
+        if n[0] and n[0].strip() and n[0].strip() != "-"
+    }
+    nomes_extra = {n.strip() for n in (payload.nomes_extra or []) if n and n.strip()}
+    todos_nomes = sorted(nomes_cronograma | nomes_extra)
+
+    if not todos_nomes:
+        return {
+            "quantidade_criados": 0,
+            "criados": [],
+            "ja_existentes": [],
+            "erros": [],
+            "aviso": (
+                "Nenhum nome encontrado nem no cronograma nem em 'nomes_extra'. "
+                "Envie a lista de operadores em 'nomes_extra' no corpo da requisição, "
+                "ex.: {\"nomes_extra\": [\"Larissa Adriene\", \"Julia Bono\"]}"
+            ),
+        }
+
+    usernames_existentes = {
+        (u[0] or "").strip() for u in db.query(models.Usuario.username).all() if u[0]
+    }
+    primeiros_nomes_ja_cadastrados = set()
+    for username in usernames_existentes:
+        primeiro_token = username.split(".")[0].split("@")[0]
+        primeiros_nomes_ja_cadastrados.add(_slug_nome(primeiro_token))
+
+    senha_padrao = payload.senha_padrao or "123456"
+    senha_hash = auth.obter_hash_senha(senha_padrao)
+
+    criados: List[dict] = []
+    ja_existentes: List[str] = []
+    erros: List[dict] = []
+
+    for nome in todos_nomes:
+        partes = [p for p in nome.split() if p]
+        if not partes:
+            continue
+
+        primeiro_nome_slug = _slug_nome(partes[0])
+        if primeiro_nome_slug in primeiros_nomes_ja_cadastrados:
+            ja_existentes.append(nome)
+            continue
+
+        try:
+            username = _gerar_username_completo(nome, db)
+            novo_usuario = models.Usuario(
+                username=username,
+                password_hash=senha_hash,
+                role="Operador",
+            )
+            db.add(novo_usuario)
+            db.commit()
+            criados.append({"nome": nome, "username": username})
+            primeiros_nomes_ja_cadastrados.add(primeiro_nome_slug)
+        except IntegrityError as e:
+            db.rollback()
+            erros.append({"nome": nome, "erro": str(e.__cause__ or e)})
+        except Exception as e:
+            db.rollback()
+            erros.append({"nome": nome, "erro": str(e)})
+
+    return {
+        "quantidade_criados": len(criados),
+        "criados": criados,
+        "ja_existentes": ja_existentes,
+        "erros": erros,
+        "senha_padrao_usada": senha_padrao,
+    }
+
+
+# =====================================================
+# RESET DE SENHA EM LOTE (para contas já existentes)
+# =====================================================
+class ResetarSenhaLoteIn(BaseModel):
+    usernames: List[str]
+    nova_senha: Optional[str] = "12345"
+
+
+@app.post("/admin/resetar-senha-lote")
+def resetar_senha_lote(
+    payload: ResetarSenhaLoteIn,
+    db: Session = Depends(get_db),
+    _admin: models.Usuario = Depends(exigir_admin),
+):
+    """
+    Reseta a senha de uma lista de usernames já existentes em `users`.
+    Diferente de /admin/sincronizar-operadores (que só CRIA quem não existe),
+    esta rota SOBRESCREVE a senha de contas que já estão cadastradas —
+    útil para destravar login em massa sem precisar saber a senha atual.
+    """
+    nova_senha = payload.nova_senha or "12345"
+    senha_hash = auth.obter_hash_senha(nova_senha)
+
+    atualizados: List[str] = []
+    nao_encontrados: List[str] = []
+    erros: List[dict] = []
+
+    for username_bruto in payload.usernames:
+        username = (username_bruto or "").strip()
+        if not username:
+            continue
+        try:
+            usuario = (
+                db.query(models.Usuario)
+                .filter(models.Usuario.username == username)
+                .first()
+            )
+            if not usuario:
+                nao_encontrados.append(username)
+                continue
+
+            usuario.password_hash = senha_hash
+            db.commit()
+            atualizados.append(username)
+        except Exception as e:
+            db.rollback()
+            erros.append({"username": username, "erro": str(e)})
+
+    return {
+        "quantidade_atualizados": len(atualizados),
+        "atualizados": atualizados,
+        "nao_encontrados": nao_encontrados,
+        "erros": erros,
+        "senha_definida": nova_senha,
+    }
 
 JANELA_REDEFINICAO_MINUTOS = 10
 
@@ -517,7 +635,7 @@ def solicitar_recuperacao_senha(
 ):
     usuario = (
         db.query(models.Usuario)
-        .filter(func.lower(models.Usuario.username) == dados.username.strip().lower())
+        .filter(models.Usuario.username == dados.username.strip())
         .first()
     )
     if not usuario:
@@ -528,7 +646,7 @@ def solicitar_recuperacao_senha(
     ativa = (
         db.query(models.SolicitacaoSenhaModel)
         .filter(
-            func.lower(models.SolicitacaoSenhaModel.username) == usuario.username.lower(),
+            models.SolicitacaoSenhaModel.username == usuario.username,
             models.SolicitacaoSenhaModel.status.in_(["pendente", "autorizado"]),
         )
         .order_by(models.SolicitacaoSenhaModel.solicitado_em.desc())
@@ -635,7 +753,7 @@ def redefinir_senha_autorizada(
     s = (
         db.query(models.SolicitacaoSenhaModel)
         .filter(
-            func.lower(models.SolicitacaoSenhaModel.username) == dados.username.strip().lower(),
+            models.SolicitacaoSenhaModel.username == dados.username.strip(),
             models.SolicitacaoSenhaModel.status == "autorizado",
         )
         .order_by(models.SolicitacaoSenhaModel.autorizado_em.desc())
@@ -650,7 +768,7 @@ def redefinir_senha_autorizada(
 
     u = (
         db.query(models.Usuario)
-        .filter(func.lower(models.Usuario.username) == dados.username.strip().lower())
+        .filter(models.Usuario.username == dados.username.strip())
         .first()
     )
     if not u:
@@ -660,10 +778,6 @@ def redefinir_senha_autorizada(
     s.usado_em = datetime.utcnow()
     db.commit()
     return {"status": "sucesso", "mensagem": "Senha redefinida!"}
-
-# =====================================================
-# REGISTROS E APONTAMENTOS
-# =====================================================
 
 def _parse_data_registro(valor) -> datetime | None:
     if valor is None:
@@ -842,11 +956,6 @@ def preencher_nao_informado_endpoint(
 
     resultado = rodar_preenchimento_nao_informado(data_alvo)
     return resultado
-
-
-# =====================================================
-# CRONOGRAMA DE ESCALAS
-# =====================================================
 
 class CronogramaIn(BaseModel):
     operador: str = None
