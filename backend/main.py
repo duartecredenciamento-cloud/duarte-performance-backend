@@ -60,11 +60,8 @@ def criar_admin_inicial():
             senha_criptografada = auth.obter_hash_senha("123456")
             novo_admin = models.Usuario(
                 username="admin@duarte.com",
-                email="admin@duarte.com",
-                nome="Administrador",
                 password_hash=senha_criptografada,
                 role="Admin",
-                perfil_completo=True,
             )
             db.add(novo_admin)
             db.commit()
@@ -86,7 +83,6 @@ app = FastAPI(
 @app.on_event("startup")
 def startup_event():
     criar_admin_inicial()
-    # Executa a automação diariamente às 00:10 BRT (referente ao dia anterior)
     scheduler.add_job(
         job_preenchimento_nao_informado_diario,
         "cron",
@@ -188,11 +184,8 @@ def setup_admin_manual(db: Session = Depends(get_db)):
     if not admin:
         admin = models.Usuario(
             username="admin@duarte.com",
-            email="admin@duarte.com",
-            nome="Administrador",
             password_hash=senha_hash,
             role="Admin",
-            perfil_completo=True,
         )
         db.add(admin)
         db.commit()
@@ -219,7 +212,7 @@ def login(
     token = auth.criar_token_acesso(
         {
             "sub": usuario.username,
-            "nome": usuario.nome,
+            "nome": usuario.username,  # usa username como nome
             "role": usuario.role,
             "id": usuario.id,
         }
@@ -228,7 +221,7 @@ def login(
         "access_token": token,
         "token_type": "bearer",
         "username": usuario.username,
-        "nome": usuario.nome,
+        "nome": usuario.username,
         "role": usuario.role,
     }
 
@@ -249,18 +242,15 @@ def criar_usuario(
     senha_hash = auth.obter_hash_senha(dados.senha)
     novo = models.Usuario(
         username=dados.username,
-        email=getattr(dados, "email", None) or dados.username,
-        nome=dados.nome,
         password_hash=senha_hash,
         role=getattr(dados, "role", None) or "Operador",
-        perfil_completo=True,
     )
     db.add(novo)
     db.commit()
     db.refresh(novo)
     return {
         "status": "sucesso",
-        "mensagem": f"Usuário {novo.nome} criado com sucesso!",
+        "mensagem": f"Usuário {novo.username} criado com sucesso!",
         "id": novo.id,
     }
 
@@ -272,13 +262,13 @@ def listar_todos_usuarios(
     db: Session = Depends(get_db),
     _: models.Usuario = Depends(exigir_admin_ou_gestor),
 ):
-    usuarios = db.query(models.Usuario).order_by(models.Usuario.nome).all()
+    usuarios = db.query(models.Usuario).order_by(models.Usuario.username).all()
     return [
         {
             "id": u.id,
-            "nome": u.nome,
+            "nome": u.username,
             "username": u.username,
-            "email": u.email,
+            "email": None,
             "role": u.role,
         }
         for u in usuarios
@@ -304,7 +294,7 @@ def atualizar_role_usuario(
     db.refresh(u)
     return {
         "status": "sucesso",
-        "mensagem": f"Função de {u.nome} atualizada para {u.role}.",
+        "mensagem": f"Função de {u.username} atualizada para {u.role}.",
         "id": u.id,
         "role": u.role,
     }
@@ -314,10 +304,10 @@ def meu_usuario(usuario: models.Usuario = Depends(usuario_logado)):
     return {
         "id": usuario.id,
         "username": usuario.username,
-        "nome": usuario.nome,
-        "email": usuario.email,
+        "nome": usuario.username,
+        "email": None,
         "role": usuario.role,
-        "perfil_completo": usuario.perfil_completo,
+        "perfil_completo": True,
     }
 
 def _remover_acentos(texto: str) -> str:
@@ -345,7 +335,7 @@ def listar_nomes_escala_disponiveis(db: Session = Depends(get_db)):
     nomes = sorted({n[0].strip() for n in nomes if n[0]})
     usados = {
         _slug_nome((u[0] or "").split(" ")[0])
-        for u in db.query(models.Usuario.nome).all()
+        for u in db.query(models.Usuario.username).all()
         if u[0]
     }
     return [
@@ -394,20 +384,6 @@ def solicitar_recuperacao_senha(
     )
     if not usuario:
         raise HTTPException(status_code=404, detail="Usuário não encontrado.")
-
-    if (
-        usuario.email
-        and dados.email
-        and usuario.email.strip().lower() != dados.email.strip().lower()
-    ):
-        raise HTTPException(status_code=400, detail="Dados não conferem.")
-
-    if (
-        usuario.telefone
-        and dados.telefone
-        and usuario.telefone.strip() != dados.telefone.strip()
-    ):
-        raise HTTPException(status_code=400, detail="Dados não conferem.")
 
     _expirar_solicitacoes_vencidas(db)
 
@@ -581,7 +557,7 @@ def criar_registro(
     db: Session = Depends(get_db),
     usuario: models.Usuario = Depends(usuario_logado),
 ):
-    nome_operador = usuario.nome or usuario.username or "Operador"
+    nome_operador = usuario.username or "Operador"
     role = (usuario.role or "").strip()
     gestao = _eh_gestao(role)
 
