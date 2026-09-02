@@ -12,7 +12,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from sqlalchemy import text
+import traceback
 
 from jose import JWTError, jwt
 from pydantic import BaseModel
@@ -48,6 +50,50 @@ def job_preenchimento_nao_informado_diario():
     except Exception as e:
         print(f"❌ Erro na automação 'Não Informado': {e}")
 
+def _garantir_autoincremento_users():
+    """
+    Corrige a causa raiz mais comum quando o ORM passa a apontar para uma
+    tabela Postgres que já existia em produção (criada fora do SQLAlchemy):
+    a coluna `id` sem DEFAULT/sequence associada.
+
+    Sem isso, todo INSERT na tabela `users` falha com
+    'null value in column "id" violates not-null constraint', porque o
+    SQLAlchemy não envia valor de id (espera que o banco gere sozinho).
+
+    Idempotente: seguro rodar em todo startup, em qualquer ambiente.
+    Se o banco não for Postgres (ex.: SQLite local), falha silenciosamente
+    e não afeta o funcionamento normal.
+    """
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("""
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_class c
+                        JOIN pg_namespace n ON n.oid = c.relnamespace
+                        WHERE c.relname = 'users_id_seq'
+                    ) THEN
+                        CREATE SEQUENCE users_id_seq;
+                    END IF;
+
+                    PERFORM setval(
+                        'users_id_seq',
+                        COALESCE((SELECT MAX(id) FROM users), 0) + 1,
+                        false
+                    );
+
+                    ALTER TABLE users ALTER COLUMN id SET DEFAULT nextval('users_id_seq');
+                    ALTER SEQUENCE users_id_seq OWNED BY users.id;
+                END $$;
+            """))
+        print("✅ Sequence/DEFAULT da coluna id (users) verificada/corrigida.")
+    except Exception as e:
+        # Não é Postgres, ou usuário do banco sem permissão de ALTER TABLE.
+        # Não derruba a API por causa disso — só avisa no log.
+        print(f"⚠️ Não foi possível garantir autoincremento em users.id: {e}")
+
+
 def criar_admin_inicial():
     db = SessionLocal()
     try:
@@ -66,11 +112,17 @@ def criar_admin_inicial():
             db.add(novo_admin)
             db.commit()
             print("✅ Admin criado.")
-    except IntegrityError:
+        else:
+            print("ℹ️ Admin já existe — nenhuma ação necessária no startup.")
+    except IntegrityError as e:
         db.rollback()
+        # Antes este erro sumia em silêncio. Agora fica visível no log,
+        # com a causa real (ex.: violação de NOT NULL, unique, etc.).
+        print(f"❌ IntegrityError ao criar admin inicial: {e}")
     except Exception as e:
         db.rollback()
         print(f"❌ Erro admin inicial: {e}")
+        traceback.print_exc()
     finally:
         db.close()
 
@@ -82,6 +134,7 @@ app = FastAPI(
 
 @app.on_event("startup")
 def startup_event():
+    _garantir_autoincremento_users()
     criar_admin_inicial()
     scheduler.add_job(
         job_preenchimento_nao_informado_diario,
@@ -175,24 +228,43 @@ def home():
 
 @app.get("/setup-admin")
 def setup_admin_manual(db: Session = Depends(get_db)):
-    admin = (
-        db.query(models.Usuario)
-        .filter(models.Usuario.username == "admin@duarte.com")
-        .first()
-    )
-    senha_hash = auth.obter_hash_senha("123456")
-    if not admin:
-        admin = models.Usuario(
-            username="admin@duarte.com",
-            password_hash=senha_hash,
-            role="Admin",
+    try:
+        admin = (
+            db.query(models.Usuario)
+            .filter(models.Usuario.username == "admin@duarte.com")
+            .first()
         )
-        db.add(admin)
+        senha_hash = auth.obter_hash_senha("123456")
+
+        if not admin:
+            admin = models.Usuario(
+                username="admin@duarte.com",
+                password_hash=senha_hash,
+                role="Admin",
+            )
+            db.add(admin)
+            db.commit()
+            return {"status": "sucesso", "mensagem": "Admin criado. Senha: 123456"}
+
+        admin.password_hash = senha_hash
         db.commit()
-        return {"status": "sucesso", "mensagem": "Admin criado. Senha: 123456"}
-    admin.password_hash = senha_hash
-    db.commit()
-    return {"status": "sucesso", "mensagem": "Senha admin resetada para 123456"}
+        return {"status": "sucesso", "mensagem": "Senha admin resetada para 123456"}
+
+    except SQLAlchemyError as e:
+        db.rollback()
+        traceback.print_exc()
+        # Expõe o erro real do banco em vez de um 500 mudo, para diagnóstico rápido.
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro de banco de dados ao configurar admin: {str(e.__cause__ or e)}",
+        )
+    except Exception as e:
+        db.rollback()
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro inesperado ao configurar admin: {str(e)}",
+        )
 
 @app.post("/token")
 def login(
