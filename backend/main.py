@@ -204,6 +204,12 @@ def exigir_admin(
         )
     return usuario
 
+def _remover_acentos(texto: str) -> str:
+    if not texto:
+        return ""
+    nfkd = unicodedata.normalize("NFKD", texto)
+    return "".join(c for c in nfkd if not unicodedata.combining(c))
+
 @app.get("/")
 def home():
     return {
@@ -211,6 +217,10 @@ def home():
         "sistema": "Duarte Performance API",
         "versao": "2.9.4",
     }
+
+# =====================================================
+# ROTAS DE EMERGÊNCIA / SETUP ADMIN
+# =====================================================
 
 @app.get("/setup-admin")
 def setup_admin_manual(db: Session = Depends(get_db)):
@@ -253,6 +263,75 @@ def setup_admin_manual(db: Session = Depends(get_db)):
             status_code=500,
             detail=f"Erro inesperado ao configurar admin: {str(e)}",
         )
+
+@app.get("/admin/sincronizar-operadores")
+def sincronizar_operadores_cronograma(db: Session = Depends(get_db)):
+    """Lê os operadores do cronograma e cria o login na tabela users com a senha 123456."""
+    try:
+        operadores_cronograma = db.query(models.CronogramaModel.operador).distinct().all()
+        criados = []
+
+        for row in operadores_cronograma:
+            nome_op = row[0]
+            if not nome_op or nome_op.strip() in ["-", "", "SEM NOME"]:
+                continue
+            
+            # Gera username limpo sem acento (ex: "JULIA SILVA" -> "julia.silva")
+            username_limpo = _remover_acentos(nome_op).strip().lower().replace(" ", ".")
+            
+            existe = db.query(models.Usuario).filter(
+                func.lower(models.Usuario.username) == username_limpo
+            ).first()
+
+            if not existe:
+                novo_user = models.Usuario(
+                    username=username_limpo,
+                    password_hash=auth.obter_hash_senha("123456"),
+                    role="Operador"
+                )
+                db.add(novo_user)
+                criados.append(username_limpo)
+
+        db.commit()
+        return {
+            "status": "sucesso",
+            "quantidade_criados": len(criados),
+            "usuarios_criados": criados,
+            "senha_padrao": "123456"
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Erro ao sincronizar: {str(e)}")
+
+class ResetSenhaAdminIn(BaseModel):
+    username: str
+    nova_senha: str = "123456"
+
+@app.post("/admin/resetar-senha-direto")
+def resetar_senha_direto(
+    dados: ResetSenhaAdminIn,
+    db: Session = Depends(get_db),
+    _: models.Usuario = Depends(exigir_admin),
+):
+    usuario = (
+        db.query(models.Usuario)
+        .filter(func.lower(models.Usuario.username) == dados.username.strip().lower())
+        .first()
+    )
+    if not usuario:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado.")
+
+    usuario.password_hash = auth.obter_hash_senha(dados.nova_senha)
+    db.commit()
+    return {
+        "status": "sucesso",
+        "mensagem": f"Senha do usuário {usuario.username} redefinida para {dados.nova_senha}",
+    }
+
+
+# =====================================================
+# AUTENTICAÇÃO E USUÁRIOS
+# =====================================================
 
 @app.post("/token")
 def login(
@@ -371,12 +450,6 @@ def meu_usuario(usuario: models.Usuario = Depends(usuario_logado)):
         "perfil_completo": True,
     }
 
-def _remover_acentos(texto: str) -> str:
-    if not texto:
-        return ""
-    nfkd = unicodedata.normalize("NFKD", texto)
-    return "".join(c for c in nfkd if not unicodedata.combining(c))
-
 def _slug_nome(parte: str) -> str:
     parte = _remover_acentos(parte).lower().strip()
     return "".join(c for c in parte if c.isalnum())
@@ -415,6 +488,10 @@ def sugerir_username(
     return {
         "username_sugerido": _gerar_username_sugerido(nome_escala, sobrenome, db)
     }
+
+# =====================================================
+# RECUPERAÇÃO DE SENHA
+# =====================================================
 
 JANELA_REDEFINICAO_MINUTOS = 10
 
@@ -583,6 +660,10 @@ def redefinir_senha_autorizada(
     s.usado_em = datetime.utcnow()
     db.commit()
     return {"status": "sucesso", "mensagem": "Senha redefinida!"}
+
+# =====================================================
+# REGISTROS E APONTAMENTOS
+# =====================================================
 
 def _parse_data_registro(valor) -> datetime | None:
     if valor is None:
@@ -761,6 +842,11 @@ def preencher_nao_informado_endpoint(
 
     resultado = rodar_preenchimento_nao_informado(data_alvo)
     return resultado
+
+
+# =====================================================
+# CRONOGRAMA DE ESCALAS
+# =====================================================
 
 class CronogramaIn(BaseModel):
     operador: str = None
