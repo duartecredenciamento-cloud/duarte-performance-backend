@@ -238,13 +238,13 @@ def setup_admin_manual(db: Session = Depends(get_db)):
         senha_hash = auth.obter_hash_senha("123456")
 
         if not admin:
-            admin = models.Usuario(
+            _criar_usuario_robusto(
+                db,
                 username="admin@duarte.com",
                 password_hash=senha_hash,
                 role="Admin",
+                nome_completo="Administrador",
             )
-            db.add(admin)
-            db.commit()
             return {"status": "sucesso", "mensagem": "Admin criado. Senha: 123456"}
 
         admin.password_hash = senha_hash
@@ -461,6 +461,88 @@ def _gerar_username_completo(nome_completo: str, db: Session) -> str:
     return candidato
 
 
+def _obter_colunas_extras_obrigatorias(db: Session) -> list:
+    """
+    Descobre, na tabela `users` REAL de produção, colunas que:
+      - NÃO fazem parte do nosso models.Usuario (username, password_hash, role, departamento);
+      - são NOT NULL no banco e não têm DEFAULT.
+
+    Isso existe porque a tabela de produção tem colunas legadas (ex.: `nome`)
+    que o modelo Python não conhece mais — sem isso, todo INSERT feito pelo
+    ORM quebra com 'null value in column ... violates not-null constraint'.
+    """
+    colunas_conhecidas = {"id", "username", "password_hash", "role", "departamento"}
+    linhas = db.execute(text("""
+        SELECT column_name, data_type, is_nullable, column_default
+        FROM information_schema.columns
+        WHERE table_name = 'users'
+    """)).fetchall()
+
+    extras = []
+    for nome_coluna, tipo, aceita_null, default in linhas:
+        if nome_coluna in colunas_conhecidas:
+            continue
+        if aceita_null == "NO" and default is None:
+            extras.append({"coluna": nome_coluna, "tipo": tipo})
+    return extras
+
+
+def _criar_usuario_robusto(
+    db: Session,
+    username: str,
+    password_hash: str,
+    role: str,
+    nome_completo: Optional[str] = None,
+    departamento: Optional[str] = None,
+) -> int:
+    """
+    Insere um novo usuário via SQL bruto, preenchendo automaticamente
+    qualquer coluna extra NOT NULL que exista fisicamente na tabela
+    (legado de produção) mas que o models.Usuario não mapeia — evitando
+    quebrar a cada coluna oculta diferente encontrada.
+    """
+    colunas = ["username", "password_hash", "role"]
+    valores = {"username": username, "password_hash": password_hash, "role": role}
+
+    if departamento is not None:
+        colunas.append("departamento")
+        valores["departamento"] = departamento
+
+    for extra in _obter_colunas_extras_obrigatorias(db):
+        col = extra["coluna"]
+        tipo = (extra["tipo"] or "").lower()
+        if col in valores:
+            continue
+
+        if "timestamp" in tipo or "date" in tipo:
+            colunas.append(col)
+            valores[col] = datetime.utcnow()
+        elif "nome" in col or "name" in col:
+            colunas.append(col)
+            valores[col] = nome_completo or username
+        elif "email" in col:
+            colunas.append(col)
+            valores[col] = f"{username}@duarte.local"
+        elif "bool" in tipo:
+            colunas.append(col)
+            valores[col] = False
+        elif "int" in tipo or "numeric" in tipo:
+            colunas.append(col)
+            valores[col] = 0
+        else:
+            colunas.append(col)
+            valores[col] = ""
+
+    colunas_sql = ", ".join(colunas)
+    placeholders = ", ".join(f":{c}" for c in colunas)
+    sql = text(f"INSERT INTO users ({colunas_sql}) VALUES ({placeholders}) RETURNING id")
+
+    resultado = db.execute(sql, valores)
+    novo_id = resultado.scalar()
+    db.commit()
+    return novo_id
+
+
 @app.post("/admin/sincronizar-operadores")
 def sincronizar_operadores(
     payload: SincronizarOperadoresIn = SincronizarOperadoresIn(),
@@ -530,13 +612,13 @@ def sincronizar_operadores(
 
         try:
             username = _gerar_username_completo(nome, db)
-            novo_usuario = models.Usuario(
+            _criar_usuario_robusto(
+                db,
                 username=username,
                 password_hash=senha_hash,
                 role="Operador",
+                nome_completo=nome,
             )
-            db.add(novo_usuario)
-            db.commit()
             criados.append({"nome": nome, "username": username})
             primeiros_nomes_ja_cadastrados.add(primeiro_nome_slug)
         except IntegrityError as e:
