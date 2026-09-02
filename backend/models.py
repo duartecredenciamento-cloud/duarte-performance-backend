@@ -13,7 +13,6 @@ class Usuario(Base):
     username = Column(String(120), unique=True, index=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
     role = Column(String(50), default="Operador", nullable=False)
-    departamento = Column(String(100), nullable=True)
 
 
 # =====================================================
