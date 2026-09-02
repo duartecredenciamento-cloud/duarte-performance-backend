@@ -7,13 +7,9 @@ class Usuario(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String(120), unique=True, index=True, nullable=False)
-    email = Column(String(120), nullable=True)
-    nome = Column(String(150), nullable=False)
     password_hash = Column(String(255), nullable=False)
     role = Column(String(50), default="Operador", nullable=False)
-    perfil_completo = Column(Boolean, default=True)
-    telefone = Column(String(30), nullable=True)
-    criado_em = Column(DateTime(timezone=True), server_default=func.now())
+    departamento = Column(String(100), nullable=True)
 
 class RegistroModel(Base):
     __tablename__ = "registros"
@@ -48,7 +44,7 @@ class SolicitacaoSenhaModel(Base):
     username = Column(String(120), index=True, nullable=False)
     email = Column(String(120), nullable=True)
     telefone = Column(String(30), nullable=True)
-    status = Column(String(30), default="pendente", index=True) # pendente, autorizado, rejeitado, usado, expirado
+    status = Column(String(30), default="pendente", index=True)  # pendente, autorizado, rejeitado, usado, expirado
     solicitado_em = Column(DateTime, default=func.now())
     autorizado_em = Column(DateTime, nullable=True)
     expira_em = Column(DateTime, nullable=True)
