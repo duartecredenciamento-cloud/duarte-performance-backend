@@ -645,6 +645,78 @@ class ResetarSenhaLoteIn(BaseModel):
     nova_senha: Optional[str] = "12345"
 
 
+@app.get("/admin/diagnostico-cronograma")
+def diagnostico_cronograma(
+    db: Session = Depends(get_db),
+    _admin: models.Usuario = Depends(exigir_admin),
+):
+    """
+    Diagnóstico read-only da tabela `cronograma`, pra confirmar com dado real
+    (sem adivinhar) se ela está vazia/incompleta, e desde quando — sem precisar
+    de acesso direto ao pgAdmin.
+    """
+    total = db.query(models.CronogramaModel).count()
+
+    operadores_distintos = sorted({
+        n[0].strip()
+        for n in db.query(models.CronogramaModel.operador).distinct().all()
+        if n[0] and n[0].strip()
+    })
+
+    # Conta quantos registros existem por dia da semana (coluna != "-" e != vazio)
+    dias = ["segunda", "terca", "quarta", "quinta", "sexta"]
+    contagem_por_dia = {}
+    for dia in dias:
+        coluna = getattr(models.CronogramaModel, dia)
+        contagem_por_dia[dia] = (
+            db.query(models.CronogramaModel)
+            .filter(coluna.isnot(None), coluna != "-", coluna != "")
+            .count()
+        )
+
+    amostra = (
+        db.query(models.CronogramaModel)
+        .order_by(models.CronogramaModel.id.desc())
+        .limit(10)
+        .all()
+    )
+    amostra_json = [
+        {
+            "id": a.id,
+            "operador": a.operador,
+            "periodo": a.periodo,
+            "segunda": a.segunda,
+            "terca": a.terca,
+            "quarta": a.quarta,
+            "quinta": a.quinta,
+            "sexta": a.sexta,
+        }
+        for a in amostra
+    ]
+
+    return {
+        "total_registros_cronograma": total,
+        "operadores_distintos": operadores_distintos,
+        "quantidade_operadores_distintos": len(operadores_distintos),
+        "registros_preenchidos_por_dia": contagem_por_dia,
+        "ultimos_10_registros": amostra_json,
+    }
+
+
+@app.get("/admin/listar-usuarios")
+def listar_usuarios(
+    db: Session = Depends(get_db),
+    _admin: models.Usuario = Depends(exigir_admin),
+):
+    """Lista todos os usernames reais cadastrados em `users`, para não
+    precisar mais adivinhar o formato exato (ponto, hífen, maiúscula etc.)."""
+    usuarios = db.query(models.Usuario.id, models.Usuario.username, models.Usuario.role).order_by(models.Usuario.id).all()
+    return [
+        {"id": u[0], "username": u[1], "role": u[2]}
+        for u in usuarios
+    ]
+
+
 @app.post("/admin/resetar-senha-lote")
 def resetar_senha_lote(
     payload: ResetarSenhaLoteIn,
