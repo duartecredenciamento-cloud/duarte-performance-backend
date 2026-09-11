@@ -3,7 +3,7 @@ from sqlalchemy.sql import func
 from database import Base
 
 # =====================================================
-# MODELO DE USUÁRIOS (MAPEADO PARA A TABELA REAL 'users')
+# MODELO DE USUÁRIOS (TABELA 'users')
 # =====================================================
 
 class Usuario(Base):
@@ -27,6 +27,7 @@ class RegistroModel(Base):
     cliente_nome = Column(String(150), index=True, nullable=False)
     status = Column(String(50), index=True, nullable=False)
     justificativa = Column(Text, nullable=True)
+    periodo = Column(String(50), nullable=True, default="MANHA")
     data_registro = Column(DateTime, default=func.now(), index=True, nullable=False)
 
     __table_args__ = (
@@ -62,7 +63,7 @@ class SolicitacaoSenhaModel(Base):
     username = Column(String(120), index=True, nullable=False)
     email = Column(String(120), nullable=True)
     telefone = Column(String(30), nullable=True)
-    status = Column(String(30), default="pendente", index=True)  # pendente, autorizado, rejeitado, usado, expirado
+    status = Column(String(30), default="pendente", index=True)
     solicitado_em = Column(DateTime, default=func.now())
     autorizado_em = Column(DateTime, nullable=True)
     expira_em = Column(DateTime, nullable=True)

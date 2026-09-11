@@ -50,7 +50,6 @@ def verificar_senha(senha_plana: str, senha_hash: str) -> bool:
     try:
         hash_limpo = str(senha_hash).strip()
 
-        # Converte prefixo $2y$ para $2b$ se necessário
         if hash_limpo.startswith("$2y$"):
             hash_limpo = "$2b$" + hash_limpo[4:]
 

@@ -8,14 +8,35 @@ from typing import Optional
 
 class UsuarioCreate(BaseModel):
     username: str
-    senha: str
+    senha: Optional[str] = "123456"
     nome: Optional[str] = None
     email: Optional[str] = None
     role: Optional[str] = "Operador"
 
 
+class UsuarioUpdate(BaseModel):
+    username: Optional[str] = None
+    senha: Optional[str] = None
+    nome: Optional[str] = None
+    email: Optional[str] = None
+    role: Optional[str] = None
+    ativo: Optional[bool] = None
+
+
+class UsuarioOut(BaseModel):
+    id: int
+    username: str
+    nome: Optional[str] = None
+    email: Optional[str] = None
+    role: Optional[str] = "Operador"
+    ativo: Optional[bool] = True
+    created_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 # =====================================================
-# SCHEMAS DE REGISTRO
+# SCHEMAS DE REGISTRO / PERFORMANCE
 # =====================================================
 
 class RegistroCreate(BaseModel):
@@ -25,6 +46,7 @@ class RegistroCreate(BaseModel):
     justificativa: Optional[str] = ""
     operador_nome: Optional[str] = None
     data_registro: Optional[str] = None
+    periodo: Optional[str] = "MANHA"
 
 
 class RegistroUpdate(BaseModel):
@@ -33,6 +55,7 @@ class RegistroUpdate(BaseModel):
     justificativa: Optional[str] = None
     operador_nome: Optional[str] = None
     data_registro: Optional[str] = None
+    periodo: Optional[str] = None
 
 
 class RegistroOut(BaseModel):
@@ -42,6 +65,28 @@ class RegistroOut(BaseModel):
     status: str
     justificativa: Optional[str] = None
     data_registro: datetime
+    periodo: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# =====================================================
+# SCHEMAS DE ESCALA / CRONOGRAMA
+# =====================================================
+
+class EscalaCreate(BaseModel):
+    operador: str
+    periodo: str
+    dia_semana: str
+    cliente: str
+
+
+class EscalaOut(BaseModel):
+    id: int
+    operador: str
+    periodo: str
+    dia_semana: str
+    cliente: str
 
     model_config = ConfigDict(from_attributes=True)
 

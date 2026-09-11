@@ -52,19 +52,6 @@ def job_preenchimento_nao_informado_diario():
         print(f"❌ Erro na automação 'Não Informado': {e}")
 
 def _garantir_autoincremento_users():
-    """
-    Corrige a causa raiz mais comum quando o ORM passa a apontar para uma
-    tabela Postgres que já existia em produção (criada fora do SQLAlchemy):
-    a coluna `id` sem DEFAULT/sequence associada.
-
-    Sem isso, todo INSERT na tabela `users` falha com
-    'null value in column "id" violates not-null constraint', porque o
-    SQLAlchemy não envia valor de id (espera que o banco gere sozinho).
-
-    Idempotente: seguro rodar em todo startup, em qualquer ambiente.
-    Se o banco não for Postgres (ex.: SQLite local), falha silenciosamente
-    e não afeta o funcionamento normal.
-    """
     try:
         with engine.begin() as conn:
             conn.execute(text("""
@@ -90,10 +77,72 @@ def _garantir_autoincremento_users():
             """))
         print("✅ Sequence/DEFAULT da coluna id (users) verificada/corrigida.")
     except Exception as e:
-        # Não é Postgres, ou usuário do banco sem permissão de ALTER TABLE.
-        # Não derruba a API por causa disso — só avisa no log.
         print(f"⚠️ Não foi possível garantir autoincremento em users.id: {e}")
 
+def _obter_colunas_extras_obrigatorias(db: Session) -> list:
+    colunas_conhecidas = {"id", "username", "password_hash", "role", "departamento"}
+    linhas = db.execute(text("""
+        SELECT column_name, data_type, is_nullable, column_default
+        FROM information_schema.columns
+        WHERE table_name = 'users'
+    """)).fetchall()
+
+    extras = []
+    for nome_coluna, tipo, aceita_null, default in linhas:
+        if nome_coluna in colunas_conhecidas:
+            continue
+        if aceita_null == "NO" and default is None:
+            extras.append({"coluna": nome_coluna, "tipo": tipo})
+    return extras
+
+def _criar_usuario_robusto(
+    db: Session,
+    username: str,
+    password_hash: str,
+    role: str,
+    nome_completo: Optional[str] = None,
+    departamento: Optional[str] = None,
+) -> int:
+    colunas = ["username", "password_hash", "role"]
+    valores = {"username": username, "password_hash": password_hash, "role": role}
+
+    if departamento is not None:
+        colunas.append("departamento")
+        valores["departamento"] = departamento
+
+    for extra in _obter_colunas_extras_obrigatorias(db):
+        col = extra["coluna"]
+        tipo = (extra["tipo"] or "").lower()
+        if col in valores:
+            continue
+
+        if "timestamp" in tipo or "date" in tipo:
+            colunas.append(col)
+            valores[col] = datetime.utcnow()
+        elif "nome" in col or "name" in col:
+            colunas.append(col)
+            valores[col] = nome_completo or username
+        elif "email" in col:
+            colunas.append(col)
+            valores[col] = f"{username}@duarte.local"
+        elif "bool" in tipo:
+            colunas.append(col)
+            valores[col] = False
+        elif "int" in tipo or "numeric" in tipo:
+            colunas.append(col)
+            valores[col] = 0
+        else:
+            colunas.append(col)
+            valores[col] = ""
+
+    colunas_sql = ", ".join(colunas)
+    placeholders = ", ".join(f":{c}" for c in colunas)
+    sql = text(f"INSERT INTO users ({colunas_sql}) VALUES ({placeholders}) RETURNING id")
+
+    resultado = db.execute(sql, valores)
+    novo_id = resultado.scalar()
+    db.commit()
+    return novo_id
 
 def criar_admin_inicial():
     db = SessionLocal()
@@ -117,8 +166,6 @@ def criar_admin_inicial():
             print("ℹ️ Admin já existe — nenhuma ação necessária no startup.")
     except IntegrityError as e:
         db.rollback()
-        # Antes este erro sumia em silêncio. Agora fica visível no log,
-        # com a causa real (ex.: violação de NOT NULL, unique, etc.).
         print(f"❌ IntegrityError ao criar admin inicial: {e}")
     except Exception as e:
         db.rollback()
@@ -254,7 +301,6 @@ def setup_admin_manual(db: Session = Depends(get_db)):
     except SQLAlchemyError as e:
         db.rollback()
         traceback.print_exc()
-        # Expõe o erro real do banco em vez de um 500 mudo, para diagnóstico rápido.
         raise HTTPException(
             status_code=500,
             detail=f"Erro de banco de dados ao configurar admin: {str(e.__cause__ or e)}",
@@ -285,7 +331,7 @@ def login(
     token = auth.criar_token_acesso(
         {
             "sub": usuario.username,
-            "nome": usuario.username,  # usa username como nome
+            "nome": usuario.username,
             "role": usuario.role,
             "id": usuario.id,
         }
@@ -312,20 +358,28 @@ def criar_usuario(
             status_code=400, detail="Este nome de usuário/e-mail já existe."
         )
 
-    senha_hash = auth.obter_hash_senha(dados.senha)
-    novo = models.Usuario(
-        username=dados.username,
-        password_hash=senha_hash,
-        role=getattr(dados, "role", None) or "Operador",
-    )
-    db.add(novo)
-    db.commit()
-    db.refresh(novo)
-    return {
-        "status": "sucesso",
-        "mensagem": f"Usuário {novo.username} criado com sucesso!",
-        "id": novo.id,
-    }
+    senha_efetiva = dados.senha if (dados.senha and dados.senha.strip()) else "123456"
+    senha_hash = auth.obter_hash_senha(senha_efetiva)
+
+    try:
+        novo_id = _criar_usuario_robusto(
+            db,
+            username=dados.username,
+            password_hash=senha_hash,
+            role=dados.role or "Operador",
+            nome_completo=dados.nome or dados.username,
+        )
+        return {
+            "status": "sucesso",
+            "mensagem": f"Usuário {dados.username} criado com sucesso!",
+            "id": novo_id,
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao criar usuário no banco: {str(e.__cause__ or e)}",
+        )
 
 class RoleUpdate(BaseModel):
     role: str
@@ -341,7 +395,7 @@ def listar_todos_usuarios(
             "id": u.id,
             "nome": u.username,
             "username": u.username,
-            "email": None,
+            "email": getattr(u, "email", None),
             "role": u.role,
         }
         for u in usuarios
@@ -378,7 +432,7 @@ def meu_usuario(usuario: models.Usuario = Depends(usuario_logado)):
         "id": usuario.id,
         "username": usuario.username,
         "nome": usuario.username,
-        "email": None,
+        "email": getattr(usuario, "email", None),
         "role": usuario.role,
         "perfil_completo": True,
     }
@@ -428,23 +482,11 @@ def sugerir_username(
         "username_sugerido": _gerar_username_sugerido(nome_escala, sobrenome, db)
     }
 
-
-# =====================================================
-# SINCRONIZAÇÃO EM LOTE DE OPERADORES (CronogramaModel -> users)
-# =====================================================
 class SincronizarOperadoresIn(BaseModel):
-    # Lista opcional para reforçar/cobrir nomes que ainda não apareceram
-    # em nenhuma escala lançada no banco (ex.: operador novo, cronograma
-    # de produção desatualizado/vazio).
     nomes_extra: Optional[List[str]] = None
     senha_padrao: Optional[str] = "123456"
 
-
 def _gerar_username_completo(nome_completo: str, db: Session) -> str:
-    """Gera um username no formato primeironome.ultimonome (sem acento,
-    minúsculo). Se colidir com um já existente, sufixa com número (2, 3...).
-    Reutiliza a mesma lógica de _slug_nome já usada em /sugerir-username,
-    para manter os dois fluxos (manual e em lote) consistentes."""
     partes = [p for p in nome_completo.strip().split() if p]
     if not partes:
         raise ValueError("Nome vazio.")
@@ -460,110 +502,12 @@ def _gerar_username_completo(nome_completo: str, db: Session) -> str:
         candidato = f"{base}{n}"
     return candidato
 
-
-def _obter_colunas_extras_obrigatorias(db: Session) -> list:
-    """
-    Descobre, na tabela `users` REAL de produção, colunas que:
-      - NÃO fazem parte do nosso models.Usuario (username, password_hash, role, departamento);
-      - são NOT NULL no banco e não têm DEFAULT.
-
-    Isso existe porque a tabela de produção tem colunas legadas (ex.: `nome`)
-    que o modelo Python não conhece mais — sem isso, todo INSERT feito pelo
-    ORM quebra com 'null value in column ... violates not-null constraint'.
-    """
-    colunas_conhecidas = {"id", "username", "password_hash", "role", "departamento"}
-    linhas = db.execute(text("""
-        SELECT column_name, data_type, is_nullable, column_default
-        FROM information_schema.columns
-        WHERE table_name = 'users'
-    """)).fetchall()
-
-    extras = []
-    for nome_coluna, tipo, aceita_null, default in linhas:
-        if nome_coluna in colunas_conhecidas:
-            continue
-        if aceita_null == "NO" and default is None:
-            extras.append({"coluna": nome_coluna, "tipo": tipo})
-    return extras
-
-
-def _criar_usuario_robusto(
-    db: Session,
-    username: str,
-    password_hash: str,
-    role: str,
-    nome_completo: Optional[str] = None,
-    departamento: Optional[str] = None,
-) -> int:
-    """
-    Insere um novo usuário via SQL bruto, preenchendo automaticamente
-    qualquer coluna extra NOT NULL que exista fisicamente na tabela
-    (legado de produção) mas que o models.Usuario não mapeia — evitando
-    quebrar a cada coluna oculta diferente encontrada.
-    """
-    colunas = ["username", "password_hash", "role"]
-    valores = {"username": username, "password_hash": password_hash, "role": role}
-
-    if departamento is not None:
-        colunas.append("departamento")
-        valores["departamento"] = departamento
-
-    for extra in _obter_colunas_extras_obrigatorias(db):
-        col = extra["coluna"]
-        tipo = (extra["tipo"] or "").lower()
-        if col in valores:
-            continue
-
-        if "timestamp" in tipo or "date" in tipo:
-            colunas.append(col)
-            valores[col] = datetime.utcnow()
-        elif "nome" in col or "name" in col:
-            colunas.append(col)
-            valores[col] = nome_completo or username
-        elif "email" in col:
-            colunas.append(col)
-            valores[col] = f"{username}@duarte.local"
-        elif "bool" in tipo:
-            colunas.append(col)
-            valores[col] = False
-        elif "int" in tipo or "numeric" in tipo:
-            colunas.append(col)
-            valores[col] = 0
-        else:
-            colunas.append(col)
-            valores[col] = ""
-
-    colunas_sql = ", ".join(colunas)
-    placeholders = ", ".join(f":{c}" for c in colunas)
-    sql = text(f"INSERT INTO users ({colunas_sql}) VALUES ({placeholders}) RETURNING id")
-
-    resultado = db.execute(sql, valores)
-    novo_id = resultado.scalar()
-    db.commit()
-    return novo_id
-
-
 @app.post("/admin/sincronizar-operadores")
 def sincronizar_operadores(
     payload: SincronizarOperadoresIn = SincronizarOperadoresIn(),
     db: Session = Depends(get_db),
     _admin: models.Usuario = Depends(exigir_admin),
 ):
-    """
-    Cria automaticamente uma conta de acesso (role=Operador, senha padrão
-    123456) para cada nome de operador que ainda não tem usuário em `users`.
-
-    Fontes de nomes (somadas, sem duplicar):
-      1. Todos os valores distintos de CronogramaModel.operador já no banco.
-      2. `nomes_extra` enviado no corpo da requisição — cobre operadores que
-         ainda não apareceram em nenhuma escala lançada.
-
-    Idempotente: rodar de novo não duplica ninguém. A checagem de "já existe"
-    é feita pelo PRIMEIRO NOME normalizado (sem acento/maiúscula), tanto
-    comparando com o username completo quanto com o primeiro token antes do
-    ponto — assim, um operador cadastrado manualmente como "larissa" ou como
-    "larissa.adriene" é reconhecido do mesmo jeito e não gera duplicata.
-    """
     nomes_cronograma = {
         n[0].strip()
         for n in db.query(models.CronogramaModel.operador).distinct().all()
@@ -579,9 +523,7 @@ def sincronizar_operadores(
             "ja_existentes": [],
             "erros": [],
             "aviso": (
-                "Nenhum nome encontrado nem no cronograma nem em 'nomes_extra'. "
-                "Envie a lista de operadores em 'nomes_extra' no corpo da requisição, "
-                "ex.: {\"nomes_extra\": [\"Larissa Adriene\", \"Julia Bono\"]}"
+                "Nenhum nome encontrado nem no cronograma nem em 'nomes_extra'."
             ),
         }
 
@@ -636,25 +578,15 @@ def sincronizar_operadores(
         "senha_padrao_usada": senha_padrao,
     }
 
-
-# =====================================================
-# RESET DE SENHA EM LOTE (para contas já existentes)
-# =====================================================
 class ResetarSenhaLoteIn(BaseModel):
     usernames: List[str]
     nova_senha: Optional[str] = "12345"
-
 
 @app.get("/admin/diagnostico-cronograma")
 def diagnostico_cronograma(
     db: Session = Depends(get_db),
     _admin: models.Usuario = Depends(exigir_admin),
 ):
-    """
-    Diagnóstico read-only da tabela `cronograma`, pra confirmar com dado real
-    (sem adivinhar) se ela está vazia/incompleta, e desde quando — sem precisar
-    de acesso direto ao pgAdmin.
-    """
     total = db.query(models.CronogramaModel).count()
 
     operadores_distintos = sorted({
@@ -663,7 +595,6 @@ def diagnostico_cronograma(
         if n[0] and n[0].strip()
     })
 
-    # Conta quantos registros existem por dia da semana (coluna != "-" e != vazio)
     dias = ["segunda", "terca", "quarta", "quinta", "sexta"]
     contagem_por_dia = {}
     for dia in dias:
@@ -702,20 +633,16 @@ def diagnostico_cronograma(
         "ultimos_10_registros": amostra_json,
     }
 
-
 @app.get("/admin/listar-usuarios")
 def listar_usuarios(
     db: Session = Depends(get_db),
     _admin: models.Usuario = Depends(exigir_admin),
 ):
-    """Lista todos os usernames reais cadastrados em `users`, para não
-    precisar mais adivinhar o formato exato (ponto, hífen, maiúscula etc.)."""
     usuarios = db.query(models.Usuario.id, models.Usuario.username, models.Usuario.role).order_by(models.Usuario.id).all()
     return [
         {"id": u[0], "username": u[1], "role": u[2]}
         for u in usuarios
     ]
-
 
 @app.post("/admin/resetar-senha-lote")
 def resetar_senha_lote(
@@ -723,12 +650,6 @@ def resetar_senha_lote(
     db: Session = Depends(get_db),
     _admin: models.Usuario = Depends(exigir_admin),
 ):
-    """
-    Reseta a senha de uma lista de usernames já existentes em `users`.
-    Diferente de /admin/sincronizar-operadores (que só CRIA quem não existe),
-    esta rota SOBRESCREVE a senha de contas que já estão cadastradas —
-    útil para destravar login em massa sem precisar saber a senha atual.
-    """
     nova_senha = payload.nova_senha or "12345"
     senha_hash = auth.obter_hash_senha(nova_senha)
 
