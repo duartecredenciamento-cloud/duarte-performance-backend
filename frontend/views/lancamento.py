@@ -41,6 +41,15 @@ PERFIS_VISAO_GERAL = {"admin master", "admin", "gestor", "coordenador", "visuali
 PERFIS_ADMIN_LANCAR = {"admin master", "admin", "gestor", "coordenador"}
 PERFIS_PODEM_LANCAR = PERFIS_VISAO_GERAL | {"operador"}
 
+# Atividades/Serviços padrão que devem estar sempre acessíveis
+SERVICOS_PADRAO = [
+    "Suporte",
+    "Suporte Operacional",
+    "Treinamento / Reunião",
+    "Atividades Administrativas",
+    "Antecipação"
+]
+
 STATUS_OPCOES = [
     "Realizado Total",
     "Realizado Parcial",
@@ -157,6 +166,19 @@ def _clientes_do_dia(
 
     clientes = [v for v in valores.unique().tolist() if v and v != "-"]
     return sorted(clientes)
+
+
+def _todos_clientes_do_cronograma(df_escala) -> list:
+    """Retorna a base COMPLETA de clientes/serviços do cronograma + serviços padrão."""
+    clientes = set(SERVICOS_PADRAO)
+    
+    if df_escala is not None and not df_escala.empty:
+        for dia in DIAS_SEMANA_PT:
+            if dia in df_escala.columns:
+                valores = df_escala[dia].dropna().astype(str).str.strip()
+                clientes.update(v for v in valores if v and v != "-")
+
+    return sorted(list(clientes))
 
 
 def _todos_clientes_do_cronograma(df_escala) -> list:
@@ -444,7 +466,6 @@ def _render_hero():
         unsafe_allow_html=True,
     )
 
-
 # ────────────────────────────────────────────────────────────────────────────
 # Passo 1 — Resolve contexto (perfil, operador, data, escala do dia)
 # ────────────────────────────────────────────────────────────────────────────
@@ -523,19 +544,18 @@ def _render_chips_contexto(ctx: ContextoLancamento):
     )
 
 
-# ────────────────────────────────────────────────────────────────────────────
-# Passo 2 — Seleção de Cliente/Serviço, com Deck dinâmico para "Outros"
-# ────────────────────────────────────────────────────────────────────────────
 def _render_selecao_cliente(ctx: ContextoLancamento) -> str:
     """Renderiza o seletor principal de cliente. Quando 'Outros' é escolhido,
     abre o Deck de Seleção com a base COMPLETA de clientes/serviços cadastrados,
     com busca em tempo real — substituindo o antigo campo de texto livre."""
-    opcoes_cliente = [OPCAO_VAZIA] + ctx.clientes_hoje + [OPCAO_OUTROS]
+    # Combina os clientes do dia com os serviços padrão mantendo a ordem e sem duplicar
+    opcoes_base = list(dict.fromkeys(ctx.clientes_hoje + SERVICOS_PADRAO))
+    opcoes_cliente = [OPCAO_VAZIA] + opcoes_base + [OPCAO_OUTROS]
 
     if not ctx.clientes_hoje:
         st.info(
-            "ℹ️ Nenhum cliente na escala para este operador/dia. "
-            f"Use **{OPCAO_OUTROS}** para localizar na base completa."
+            "ℹ️ Nenhum cliente específico na escala para hoje. "
+            f"Selecione **Suporte** acima ou consulte a base em **{OPCAO_OUTROS}**."
         )
 
     cliente_sel = st.selectbox(
