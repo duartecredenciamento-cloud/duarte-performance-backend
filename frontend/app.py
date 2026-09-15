@@ -183,8 +183,12 @@ def _tratar_sessao_expirada(resp: requests.Response) -> None:
 
 def api_get(endpoint: str):
     try:
+        url = f"{API_URL.rstrip('/')}/{endpoint.lstrip('/')}"
         resp = requests.get(
-            f"{API_URL}{endpoint}", headers=get_headers(), timeout=30
+            url, 
+            headers=get_headers(), 
+            timeout=30,
+            allow_redirects=True
         )
         _tratar_sessao_expirada(resp)
         return resp
@@ -201,12 +205,14 @@ def api_get(endpoint: str):
 
 def api_post_form(endpoint: str, data: dict = None, files: dict = None):
     try:
+        url = f"{API_URL.rstrip('/')}/{endpoint.lstrip('/')}"
         resp = requests.post(
-            f"{API_URL}{endpoint}",
+            url,
             data=data,
             files=files,
             headers=get_headers(),
             timeout=30,
+            allow_redirects=True,
         )
         _tratar_sessao_expirada(resp)
         return resp
@@ -223,10 +229,11 @@ def api_post_form(endpoint: str, data: dict = None, files: dict = None):
 
 def api_post_json(endpoint: str, payload: dict):
     try:
+        url = f"{API_URL.rstrip('/')}/{endpoint.lstrip('/')}"
         headers = get_headers()
         headers["Content-Type"] = "application/json"
         resp = requests.post(
-            f"{API_URL}{endpoint}", json=payload, headers=headers, timeout=30
+            url, json=payload, headers=headers, timeout=30, allow_redirects=True
         )
         _tratar_sessao_expirada(resp)
         return resp
@@ -243,10 +250,11 @@ def api_post_json(endpoint: str, payload: dict):
 
 def api_put_json(endpoint: str, payload: dict):
     try:
+        url = f"{API_URL.rstrip('/')}/{endpoint.lstrip('/')}"
         headers = get_headers()
         headers["Content-Type"] = "application/json"
         resp = requests.put(
-            f"{API_URL}{endpoint}", json=payload, headers=headers, timeout=30
+            url, json=payload, headers=headers, timeout=30, allow_redirects=True
         )
         _tratar_sessao_expirada(resp)
         return resp
@@ -263,8 +271,9 @@ def api_put_json(endpoint: str, payload: dict):
 
 def api_delete(endpoint: str):
     try:
+        url = f"{API_URL.rstrip('/')}/{endpoint.lstrip('/')}"
         resp = requests.delete(
-            f"{API_URL}{endpoint}", headers=get_headers(), timeout=30
+            url, headers=get_headers(), timeout=30, allow_redirects=True
         )
         _tratar_sessao_expirada(resp)
         return resp
@@ -284,10 +293,12 @@ def carregar_cronograma_cache(_token: str):
     if not _token:
         return None
     try:
+        url = f"{API_URL.rstrip('/')}/cronograma/"
         resp = requests.get(
-            f"{API_URL}/cronograma/",
+            url,
             headers={"Authorization": f"Bearer {_token}"},
             timeout=30,
+            allow_redirects=True,
         )
         if resp.status_code == 200:
             dados = resp.json()

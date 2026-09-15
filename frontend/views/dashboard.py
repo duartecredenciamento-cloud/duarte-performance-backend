@@ -2,26 +2,6 @@
 Módulo: dashboard.py
 Sistema: Duarte Performance — Duarte Gestão em Saúde
 Descrição: Dashboard Gerencial — visão consolidada das execuções operacionais.
-
-Reescrita 2.0 — o que foi corrigido nesta versão:
-  • BUG CRÍTICO DE ESTRUTURA: no arquivo original, TODO o corpo da página
-    (header, fetch de dados, filtros, KPIs, insights, gráficos e tabela)
-    estava indentado dentro de `_inject_count_up()`, que ainda se
-    autochamava recursivamente no meio do próprio corpo (linha 524 do
-    arquivo original). Isso foi separado em funções coesas, com um único
-    ponto de entrada `render_dashboard(api_get)`.
-  • BUG DOS KPIs "CONGELADOS": o script de animação (count-up) usava
-    `if (el.dataset.animated === "true") return;` — ou seja, uma vez
-    animado, o número NUNCA MAIS era atualizado no DOM, mesmo trocando
-    o filtro e o `data-target` mudando por trás. A trava agora compara
-    o VALOR-ALVO (`data-target`) anterior com o atual: só pula a
-    re-animação se o valor realmente não mudou. Isso resolve o "166 fica
-    parado quando eu filtro por operador".
-  • Pequeno bug de escopo no bloco de insights (`rank = df_temp.groupby(...)`
-    ficava fora do `if "operador_exibicao" in df_f.columns:` que criava
-    `df_temp` — corrigido para não estourar `NameError` em bases sem essa
-    coluna).
-  • Imports duplicados removidos.
 """
 
 import functools
@@ -200,11 +180,7 @@ def _kpi_html(
     suffix: str = "",
     prefix: str = "",
 ) -> str:
-    """Gera o HTML higienizado e acessível de um card de métrica (KPI).
-
-    `data-target` carrega o valor ATUAL — é ele que o JS de count-up lê a cada
-    rerun para decidir se precisa reanimar o número (ver `_inject_count_up_script`).
-    """
+    """Gera o HTML higienizado e acessível de um card de métrica (KPI)."""
     val_clean = float(valor) if isinstance(valor, (int, float)) else 0.0
     return f"""
     <div class="metric-card">
@@ -221,8 +197,7 @@ def _kpi_html(
 
 
 def _inject_css():
-    """Injeta o CSS do Design System (Azul Marinho + Laranja Duarte). Chamar UMA vez,
-    no início da renderização — antes do header."""
+    """Injeta o CSS do Design System (Azul Marinho + Laranja Duarte)."""
     st.markdown(
         """
     <style>
@@ -244,6 +219,12 @@ def _inject_css():
             0%   { transform: scale(0.9); opacity: 0.4; }
             60%  { transform: scale(1.04); opacity: 1; }
             100% { transform: scale(1); opacity: 1; }
+        }
+
+        .dash-header, .metric-card {
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            backface-visibility: hidden;
         }
 
         .dash-header {
@@ -394,16 +375,7 @@ def _inject_css():
 
 
 def _inject_count_up_script():
-    """Injeta o JavaScript de animação (count-up) dos KPIs.
-
-    CORREÇÃO DO BUG PRINCIPAL: a versão anterior usava uma trava
-    `if (dataset.animated === "true") return`, ou seja, uma vez animado o
-    número NUNCA mais era atualizado — mesmo trocando o filtro. Agora a
-    trava compara o valor-alvo atual (`data-target`) com o último valor
-    exibido (`dataset.lastTarget`): só pula a animação quando o valor
-    realmente não mudou. Assim, ao trocar operador/status/cliente/período,
-    os cards sempre refletem o novo `data-target` calculado em Python.
-    """
+    """Injeta o JavaScript de animação (count-up) dos KPIs."""
     components.html(
         """
         <script>
@@ -413,11 +385,11 @@ def _inject_count_up_script():
             function animar(el) {
                 const alvoStr = el.getAttribute('data-target') || "0";
                 if (el.dataset.lastTarget === alvoStr) {
-                    return; // valor não mudou desde o último render: não reanima
+                    return;
                 }
                 el.dataset.lastTarget = alvoStr;
                 el.classList.remove('updated');
-                void el.offsetWidth; // reflow para reiniciar a animação CSS
+                void el.offsetWidth;
                 el.classList.add('updated');
 
                 const alvo = parseFloat(alvoStr) || 0;
@@ -430,7 +402,7 @@ def _inject_count_up_script():
 
                 function passo(agora) {
                     const p = Math.min((agora - inicio) / duracao, 1);
-                    const suave = 1 - Math.pow(1 - p, 3); // easing outCubic
+                    const suave = 1 - Math.pow(1 - p, 3);
                     const valor = partiuDe + (alvo - partiuDe) * suave;
                     const formatado = casas ? valor.toFixed(casas) : Math.round(valor);
                     el.textContent = prefixo + formatado.toLocaleString('pt-BR') + sufixo;
@@ -447,11 +419,8 @@ def _inject_count_up_script():
                 doc.querySelectorAll('.kpi-number').forEach(animar);
             }
 
-            // Primeira varredura logo após montar
             setTimeout(varrer, 50);
 
-            // Observa mudanças no DOM (novo filtro = Streamlit re-renderiza os cards)
-            // e revarre sempre que o conteúdo dos KPIs mudar.
             const alvoObservado = doc.body;
             if (alvoObservado && !alvoObservado.dataset.duarteKpiObserverAtivo) {
                 alvoObservado.dataset.duarteKpiObserverAtivo = "true";
@@ -488,13 +457,7 @@ def _carregar_dataframe(api_get_fn: Callable[[str], Any]) -> Optional[pd.DataFra
 
 
 def _render_filtros(df: pd.DataFrame) -> pd.DataFrame:
-    """Renderiza os controles de filtro e retorna o DataFrame já filtrado.
-
-    Importante: os `selectbox` abaixo são lidos a cada rerun do Streamlit —
-    a variável `df_f` retornada por esta função é SEMPRE recalculada a
-    partir da seleção atual, então os KPIs, insights, gráficos e tabela que
-    consomem esse retorno já nascem coerentes com o filtro escolhido.
-    """
+    """Renderiza os controles de filtro e retorna o DataFrame já filtrado."""
     st.markdown("##### 🎛️ Filtros de Pesquisa")
     f1, f2, f3, f4 = st.columns([1.4, 1.3, 1.3, 1.5])
 
@@ -589,23 +552,22 @@ def _render_kpis(kpis: dict):
     k1, k2, k3, k4, k5 = st.columns(5)
 
     with k1:
-        st.markdown(_kpi_html(total, "Total", "lançamentos"), unsafe_allow_html=True)
+        st.markdown(_kpi_html(int(total), "Total", "lançamentos"), unsafe_allow_html=True)
     with k2:
-        pct = round(realizados / total * 100, 1) if total else 0
-        st.markdown(_kpi_html(realizados, "Realizados", f"{pct}%", "green"), unsafe_allow_html=True)
+        pct = round(realizados / total * 100, 1) if total else 0.0
+        st.markdown(_kpi_html(int(realizados), "Realizados", f"{pct}%", "green"), unsafe_allow_html=True)
     with k3:
-        pct = round(parciais / total * 100, 1) if total else 0
-        st.markdown(_kpi_html(parciais, "Parciais", f"{pct}%", "yellow"), unsafe_allow_html=True)
+        pct = round(parciais / total * 100, 1) if total else 0.0
+        st.markdown(_kpi_html(int(parciais), "Parciais", f"{pct}%", "yellow"), unsafe_allow_html=True)
     with k4:
-        pct = round(nao / total * 100, 1) if total else 0
-        st.markdown(_kpi_html(nao, "Não realizados", f"{pct}%", "red"), unsafe_allow_html=True)
+        pct = round(nao / total * 100, 1) if total else 0.0
+        st.markdown(_kpi_html(int(nao), "Não realizados", f"{pct}%", "red"), unsafe_allow_html=True)
     with k5:
         st.markdown(
-            _kpi_html(eficiencia, "Eficiência", "Realizado Total", "accent", suffix="%"),
+            _kpi_html(float(eficiencia), "Eficiência", "Realizado Total", "accent", suffix="%"),
             unsafe_allow_html=True,
         )
 
-    # Injetado DEPOIS dos cards, para que o JS já encontre os elementos no DOM.
     _inject_count_up_script()
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -701,7 +663,7 @@ def _render_graficos(df_f: pd.DataFrame, eficiencia: float):
                     .reset_index()
                 )
                 rank_plot["eficiencia"] = (rank_plot["realizados"] / rank_plot["total"] * 100).round(1)
-                rank_plot = rank_plot.sort_values("eficiencia", ascending=True)
+                rank_plot = rank_plot.sort_values(by=["eficiencia", "total"], ascending=[True, True])
 
                 if not rank_plot.empty:
                     fig2 = px.bar(
@@ -850,15 +812,7 @@ def _render_tabela(df_f: pd.DataFrame):
 
 # ===================== ENTRY POINT =====================
 def render_dashboard(api_get_fn: Callable[[str], Any]):
-    """Ponto de entrada único do Dashboard Gerencial.
-
-    `api_get_fn` é a função de acesso à API (mesmo padrão do `api_post`
-    recebido por `render_lancamento` em lancamento.py) — o chamador em
-    `app.py` decide qual client/função usar, e este módulo não depende
-    mais de importar nada de `utils` no topo do arquivo (isso é o que
-    causava o ImportError se `utils.py` não expusesse exatamente um nome
-    `api_get`).
-    """
+    """Ponto de entrada único do Dashboard Gerencial."""
     if api_get_fn is None:
         st.error(
             "❌ Erro de configuração: `render_dashboard` foi chamado sem uma função "
