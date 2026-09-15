@@ -1,40 +1,31 @@
-from fastapi import (
-    FastAPI,
-    Depends,
-    HTTPException,
-    Query,
-)
-from fastapi.security import (
-    OAuth2PasswordRequestForm,
-    OAuth2PasswordBearer,
-)
-from fastapi.middleware.cors import CORSMiddleware
-
-from sqlalchemy.orm import Session
-from sqlalchemy.orm.attributes import flag_modified
-from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from sqlalchemy import text
 import traceback
-
-from jose import JWTError, jwt
-from pydantic import BaseModel
-from datetime import datetime, timedelta, date, time
-from zoneinfo import ZoneInfo
-from typing import Optional, List
 import unicodedata
+from datetime import date, datetime, time, timedelta
+from typing import List, Optional
+from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.background import BackgroundScheduler
+from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from jose import JWTError, jwt
+from pydantic import BaseModel
+from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
+# Importações diretas do mesmo diretório (backend)
+import auth
 import models
 import schemas
-import auth
-from automacao import rodar_preenchimento_nao_informado
+from database import SessionLocal, engine, get_db
 
-from database import (
-    get_db,
-    engine,
-    SessionLocal,
-)
+try:
+    from automacao import rodar_preenchimento_nao_informado  # type: ignore
+except ImportError:
+    def rodar_preenchimento_nao_informado(data_alvo):
+        return {"status": "aviso", "mensagem": "Módulo de automação não encontrado."}
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -51,7 +42,21 @@ def job_preenchimento_nao_informado_diario():
     except Exception as e:
         print(f"❌ Erro na automação 'Não Informado': {e}")
 
+def _garantir_migracao_colunas():
+    """Garante a existência da coluna 'periodo' nas tabelas necessárias no startup."""
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("""
+                ALTER TABLE registros ADD COLUMN IF NOT EXISTS periodo VARCHAR(255);
+            """))
+        print("✅ Migration: Coluna 'periodo' verificada/criada com sucesso na tabela registros!")
+    except Exception as e:
+        print(f"⚠️ Erro ao executar migration da coluna 'periodo': {e}")
+
 def _garantir_autoincremento_users():
+    """Aplica o autoincremento do id do Postgres apenas se o banco for PostgreSQL."""
+    if engine.dialect.name != "postgresql":
+        return
     try:
         with engine.begin() as conn:
             conn.execute(text("""
@@ -81,11 +86,14 @@ def _garantir_autoincremento_users():
 
 def _obter_colunas_extras_obrigatorias(db: Session) -> list:
     colunas_conhecidas = {"id", "username", "password_hash", "role", "departamento"}
-    linhas = db.execute(text("""
-        SELECT column_name, data_type, is_nullable, column_default
-        FROM information_schema.columns
-        WHERE table_name = 'users'
-    """)).fetchall()
+    try:
+        linhas = db.execute(text("""
+            SELECT column_name, data_type, is_nullable, column_default
+            FROM information_schema.columns
+            WHERE table_name = 'users'
+        """)).fetchall()
+    except Exception:
+        return []
 
     extras = []
     for nome_coluna, tipo, aceita_null, default in linhas:
@@ -137,10 +145,23 @@ def _criar_usuario_robusto(
 
     colunas_sql = ", ".join(colunas)
     placeholders = ", ".join(f":{c}" for c in colunas)
-    sql = text(f"INSERT INTO users ({colunas_sql}) VALUES ({placeholders}) RETURNING id")
+    
+    if engine.dialect.name == "postgresql":
+        sql = text(f"INSERT INTO users ({colunas_sql}) VALUES ({placeholders}) RETURNING id")
+        resultado = db.execute(sql, valores)
+        novo_id = resultado.scalar()
+    else:
+        # Fallback ORM para SQLite local
+        novo_usuario = models.Usuario(
+            username=username,
+            password_hash=password_hash,
+            role=role
+        )
+        db.add(novo_usuario)
+        db.commit()
+        db.refresh(novo_usuario)
+        return novo_usuario.id
 
-    resultado = db.execute(sql, valores)
-    novo_id = resultado.scalar()
     db.commit()
     return novo_id
 
@@ -177,28 +198,33 @@ def criar_admin_inicial():
 app = FastAPI(
     title="Duarte Performance API",
     description="Gestão Operacional Duarte Gestão",
-    version="2.9.3",
+    version="2.9.4",
 )
 
 @app.on_event("startup")
 def startup_event():
+    _garantir_migracao_colunas()
     _garantir_autoincremento_users()
     criar_admin_inicial()
-    scheduler.add_job(
-        job_preenchimento_nao_informado_diario,
-        "cron",
-        hour=0,
-        minute=10,
-        timezone="America/Sao_Paulo",
-        id="job_nao_informado",
-        replace_existing=True,
-    )
-    scheduler.start()
-    print("⏰ Agendador de tarefas iniciado (00:10 BRT diariamente para dia anterior).")
+    try:
+        scheduler.add_job(
+            job_preenchimento_nao_informado_diario,
+            "cron",
+            hour=0,
+            minute=10,
+            timezone="America/Sao_Paulo",
+            id="job_nao_informado",
+            replace_existing=True,
+        )
+        scheduler.start()
+        print("⏰ Agendador de tarefas iniciado (00:10 BRT diariamente para dia anterior).")
+    except Exception as e:
+        print(f"⚠️ Erro ao iniciar agendador: {e}")
 
 @app.on_event("shutdown")
 def shutdown_event():
-    scheduler.shutdown()
+    if scheduler.running:
+        scheduler.shutdown()
 
 app.add_middleware(
     CORSMiddleware,
@@ -271,7 +297,7 @@ def home():
     return {
         "status": "online",
         "sistema": "Duarte Performance API",
-        "versao": "2.9.3",
+        "versao": "2.9.4",
     }
 
 @app.get("/setup-admin")
