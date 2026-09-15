@@ -1,8 +1,6 @@
 """
 Script de inicialização: cria/atualiza o Admin Master padrão.
-Roda automaticamente antes do uvicorn subir (veja o Start Command no Render:
-"python criar_admin.py && uvicorn main:app ..."), então toda vez que o backend
-reinicia, esse script garante que o admin existe com a senha certa.
+Garante que o administrador exista no banco de dados com os atributos corretos.
 """
 import database
 import models
@@ -10,34 +8,28 @@ import auth
 
 db = next(database.get_db())
 
-# Departamento base
-depto_cred = db.query(models.DepartamentoModel).filter(models.DepartamentoModel.nome == "Credenciamento").first()
-if not depto_cred:
-    depto_cred = models.DepartamentoModel(nome="Credenciamento")
-    db.add(depto_cred)
-    db.commit()
-    db.refresh(depto_cred)
-
-ADMIN_USERNAME = "admin"
-ADMIN_SENHA = "Duarte1234#"
+ADMIN_USERNAME = "admin@duarte.com"
+ADMIN_SENHA = "123456"
 
 try:
-    admin_existente = db.query(models.Usuario).filter(models.Usuario.username == ADMIN_USERNAME).first()
+    admin_existente = (
+        db.query(models.Usuario)
+        .filter(models.Usuario.username == ADMIN_USERNAME)
+        .first()
+    )
 
     if admin_existente:
-        print("Admin Master já existe. Atualizando a senha por garantia...")
+        print("Admin Master já existe. Atualizando credenciais...")
         admin_existente.password_hash = auth.obter_hash_senha(ADMIN_SENHA)
-        admin_existente.role = "Admin Master"
-        admin_existente.perfil_completo = True
+        admin_existente.role = "Admin"
     else:
         print("Criando o Admin Master inicial...")
         novo_admin = models.Usuario(
             username=ADMIN_USERNAME,
             password_hash=auth.obter_hash_senha(ADMIN_SENHA),
+            role="Admin",
             nome="Admin Master",
-            role="Admin Master",
-            perfil_completo=True,
-            departamento_id=depto_cred.id
+            email="admin@duarte.com"
         )
         db.add(novo_admin)
 
