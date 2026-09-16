@@ -1,8 +1,7 @@
 """
 Definições dos Modelos SQLAlchemy do Banco de Dados.
 """
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Boolean
-from sqlalchemy.orm import relationship
+from sqlalchemy import Column, Integer, String, Text, DateTime
 from database import Base
 import datetime
 
@@ -15,6 +14,43 @@ class Usuario(Base):
     role = Column(String(50), default="Operador")
     nome = Column(String(120), nullable=True)
     email = Column(String(120), nullable=True)
+
+
+class RegistroModel(Base):
+    __tablename__ = "registros"
+
+    id = Column(Integer, primary_key=True, index=True)
+    operador_nome = Column(String(120), nullable=True)
+    cliente_nome = Column(String(120), nullable=True)
+    status = Column(String(120), nullable=True)
+    justificativa = Column(Text, nullable=True)
+    periodo = Column(String(50), nullable=True)
+    data_registro = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class CronogramaModel(Base):
+    __tablename__ = "cronograma"
+
+    id = Column(Integer, primary_key=True, index=True)
+    operador = Column(String(120), nullable=True)
+    periodo = Column(String(50), nullable=True)
+    segunda = Column(String(120), nullable=True)
+    terca = Column(String(120), nullable=True)
+    quarta = Column(String(120), nullable=True)
+    quinta = Column(String(120), nullable=True)
+    sexta = Column(String(120), nullable=True)
+
+
+class SolicitacaoSenhaModel(Base):
+    __tablename__ = "solicitacoes_senha"
+
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String(120), nullable=True)
+    email = Column(String(120), nullable=True)
+    telefone = Column(String(50), nullable=True)
+    status = Column(String(50), default="pendente")
+    solicitado_em = Column(DateTime, default=datetime.datetime.utcnow)
+
 
 class LogAtividade(Base):
     __tablename__ = "logs"
