@@ -1,10 +1,11 @@
 """
-Aplicação Principal FastAPI com Autenticação JWT e Rotas Operacionais.
+Aplicação Principal FastAPI com Autenticação JWT, Suporte CORS e Rotas Operacionais.
 """
 import datetime
 from datetime import timedelta
 from typing import List, Optional
 from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -19,8 +20,19 @@ models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Sistema de Gestão Operacional", version="2.0.0")
 
+# ==============================================================================
+# CONFIGURAÇÃO DE CORS (Essencial para comunicação Frontend <-> Backend)
+# ==============================================================================
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Permite requisições de qualquer origem
+    allow_credentials=True,
+    allow_methods=["*"],  # Permite todos os métodos (GET, POST, OPTIONS, etc.)
+    allow_headers=["*"],
+)
+
 # Configurações do JWT e Criptografia
-SECRET_KEY = "SUA_CHAVE_SECRETA_SUPER_SEGURA_AQUI"  # Altere para uma chave ambiente em produção
+SECRET_KEY = "SUA_CHAVE_SECRETA_SUPER_SEGURA_AQUI"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 480  # 8 horas de sessão
 
@@ -76,7 +88,7 @@ class UsuarioBase(BaseModel):
     username: str
     nome: Optional[str] = None
     email: Optional[str] = None
-    role: Optional[str] = "Operador"
+    role: Optional[str] = "ADMIN"
 
 class UsuarioCreate(UsuarioBase):
     password: str
@@ -201,26 +213,47 @@ def cadastrar_usuario(usuario: UsuarioCreate, db: Session = Depends(get_db)):
 
 
 # ==============================================================================
-# SETUP INICIAL DO ADMINISTRADOR
+# SETUP INICIAL DO ADMINISTRADOR E CARGA DE DADOS
 # ==============================================================================
 
 @app.get("/setup-admin")
 def setup_admin_manual(db: Session = Depends(get_db)):
-    admin = db.query(models.Usuario).filter(models.Usuario.username == "erick").first()
-    if admin:
-        return {"status": "info", "message": "Usuário admin já está cadastrado!"}
-    
-    novo_admin = models.Usuario(
-        username="erick",
-        password_hash=gerar_hash_senha("admin123"),
-        nome="Erick",
-        email="admin@duartegestao.com.br",
-        role="ADMIN/TI"
-    )
-    db.add(novo_admin)
+    # 1. Garante que o usuário erick exista e tenha permissão de ADMIN
+    usuario = db.query(models.Usuario).filter(models.Usuario.username == "erick").first()
+    if usuario:
+        usuario.role = "ADMIN"
+    else:
+        usuario = models.Usuario(
+            username="erick",
+            password_hash=gerar_hash_senha("admin123"),
+            nome="Erick",
+            email="admin@duartegestao.com.br",
+            role="ADMIN"
+        )
+        db.add(usuario)
     db.commit()
-    db.refresh(novo_admin)
-    return {"status": "success", "message": "Usuário admin criado com sucesso!"}
+
+    # 2. Popula o banco com clientes padrão no cronograma se estiver vazio
+    total_cronograma = db.query(models.CronogramaModel).count()
+    if total_cronograma == 0:
+        clientes_padrao = [
+            "Suporte", "Suporte Operacional", "Antecipação", "Amil", 
+            "Qualicorp", "Porto Seguro", "Bradesco", "Convenios"
+        ]
+        for cliente in clientes_padrao:
+            novo_item = models.CronogramaModel(
+                operador="GERAL",
+                periodo="MANHÃ",
+                segunda=cliente,
+                terca=cliente,
+                quarta=cliente,
+                quinta=cliente,
+                sexta=cliente
+            )
+            db.add(novo_item)
+        db.commit()
+
+    return {"status": "success", "message": "Admin configurado como ADMIN e carga inicial de clientes concluída!"}
 
 
 # ==============================================================================
