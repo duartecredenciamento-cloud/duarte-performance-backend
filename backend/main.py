@@ -21,13 +21,13 @@ models.Base.metadata.create_all(bind=engine)
 app = FastAPI(title="Sistema de Gestão Operacional", version="2.0.0")
 
 # ==============================================================================
-# CONFIGURAÇÃO DE CORS (Essencial para comunicação Frontend <-> Backend)
+# CONFIGURAÇÃO DE CORS
 # ==============================================================================
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Permite requisições de qualquer origem
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["*"],  # Permite todos os métodos (GET, POST, OPTIONS, etc.)
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
@@ -212,10 +212,13 @@ def cadastrar_usuario(usuario: UsuarioCreate, db: Session = Depends(get_db)):
     return novo_usuario
 
 
+# ==============================================================================
+# SETUP INICIAL DO ADMINISTRADOR (SIMPLIFICADO E SEGURO)
+# ==============================================================================
+
 @app.get("/setup-admin")
 def setup_admin_manual(db: Session = Depends(get_db)):
     try:
-        # Busca o usuário erick
         usuario = db.query(models.Usuario).filter(models.Usuario.username == "erick").first()
         
         if usuario:
@@ -223,7 +226,6 @@ def setup_admin_manual(db: Session = Depends(get_db)):
             db.commit()
             return {"status": "success", "message": "Usuário erick atualizado para ADMIN com sucesso!"}
         
-        # Se não existir, cria o usuário do zero
         novo_admin = models.Usuario(
             username="erick",
             password_hash=gerar_hash_senha("admin123"),
