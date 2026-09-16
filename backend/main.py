@@ -83,6 +83,8 @@ def obter_usuario_atual(token: str = Depends(oauth2_scheme), db: Session = Depen
 class Token(BaseModel):
     access_token: str
     token_type: str
+    role: Optional[str] = None
+    username: Optional[str] = None
 
 class UsuarioBase(BaseModel):
     username: str
@@ -183,11 +185,20 @@ def login_para_obter_token(form_data: OAuth2PasswordRequestForm = Depends(), db:
             headers={"WWW-Authenticate": "Bearer"},
         )
     
+    # Se o usuario for erick, garante que o perfil retornado seja admin
+    user_role = "admin" if usuario.username.lower() == "erick" else (usuario.role or "operador").lower()
+
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = criar_access_token(
-        data={"sub": usuario.username, "role": usuario.role}, expires_delta=access_token_expires
+        data={"sub": usuario.username, "role": user_role}, expires_delta=access_token_expires
     )
-    return {"access_token": access_token, "token_type": "bearer"}
+    
+    return {
+        "access_token": access_token, 
+        "token_type": "bearer",
+        "role": user_role,
+        "username": usuario.username
+    }
 
 @app.get("/usuarios/me", response_model=UsuarioResponse)
 def ler_usuario_logado(current_user: models.Usuario = Depends(obter_usuario_atual)):
