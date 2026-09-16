@@ -212,48 +212,32 @@ def cadastrar_usuario(usuario: UsuarioCreate, db: Session = Depends(get_db)):
     return novo_usuario
 
 
-# ==============================================================================
-# SETUP INICIAL DO ADMINISTRADOR E CARGA DE DADOS
-# ==============================================================================
-
 @app.get("/setup-admin")
 def setup_admin_manual(db: Session = Depends(get_db)):
-    # 1. Garante que o usuário erick exista e tenha permissão de ADMIN
-    usuario = db.query(models.Usuario).filter(models.Usuario.username == "erick").first()
-    if usuario:
-        usuario.role = "ADMIN"
-    else:
-        usuario = models.Usuario(
+    try:
+        # Busca o usuário erick
+        usuario = db.query(models.Usuario).filter(models.Usuario.username == "erick").first()
+        
+        if usuario:
+            usuario.role = "ADMIN"
+            db.commit()
+            return {"status": "success", "message": "Usuário erick atualizado para ADMIN com sucesso!"}
+        
+        # Se não existir, cria o usuário do zero
+        novo_admin = models.Usuario(
             username="erick",
             password_hash=gerar_hash_senha("admin123"),
             nome="Erick",
             email="admin@duartegestao.com.br",
             role="ADMIN"
         )
-        db.add(usuario)
-    db.commit()
-
-    # 2. Popula o banco com clientes padrão no cronograma se estiver vazio
-    total_cronograma = db.query(models.CronogramaModel).count()
-    if total_cronograma == 0:
-        clientes_padrao = [
-            "Suporte", "Suporte Operacional", "Antecipação", "Amil", 
-            "Qualicorp", "Porto Seguro", "Bradesco", "Convenios"
-        ]
-        for cliente in clientes_padrao:
-            novo_item = models.CronogramaModel(
-                operador="GERAL",
-                periodo="MANHÃ",
-                segunda=cliente,
-                terca=cliente,
-                quarta=cliente,
-                quinta=cliente,
-                sexta=cliente
-            )
-            db.add(novo_item)
+        db.add(novo_admin)
         db.commit()
-
-    return {"status": "success", "message": "Admin configurado como ADMIN e carga inicial de clientes concluída!"}
+        return {"status": "success", "message": "Usuário erick criado como ADMIN!"}
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Erro ao configurar admin: {str(e)}")
 
 
 # ==============================================================================
