@@ -272,13 +272,35 @@ def setup_admin_manual(db: Session = Depends(get_db)):
 
 @app.post("/registros/", response_model=RegistroResponse, status_code=status.HTTP_201_CREATED)
 def criar_registro(registro: RegistroCreate, db: Session = Depends(get_db)):
-    db_registro = models.RegistroModel(**registro.model_dump(exclude_unset=True))
-    db.add(db_registro)
-    db.commit()
-    db.refresh(db_registro)
-    
-    registrar_log(db, usuario=registro.operador_nome or "Sistema", acao="Criou Registro", detalhes=f"Cliente: {registro.cliente_nome}")
-    return db_registro
+    try:
+        dados = registro.model_dump(exclude_unset=True)
+        
+        db_registro = models.RegistroModel(
+            operador_nome=dados.get("operador_nome") or "Operador",
+            cliente_nome=dados.get("cliente_nome") or "Atendimento Geral",
+            status=dados.get("status") or "Concluído",
+            justificativa=dados.get("justificativa") or "",
+            periodo=dados.get("periodo") or "Geral"
+        )
+        
+        db.add(db_registro)
+        db.commit()
+        db.refresh(db_registro)
+        
+        registrar_log(
+            db, 
+            usuario=db_registro.operador_nome, 
+            acao="Criou Registro", 
+            detalhes=f"Cliente: {db_registro.cliente_nome}"
+        )
+        return db_registro
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Erro ao salvar registro: {str(e)}"
+        )
 
 @app.get("/registros/", response_model=List[RegistroResponse])
 def listar_registros(skip: int = 0, limit: int = 500, db: Session = Depends(get_db)):
