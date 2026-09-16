@@ -219,23 +219,27 @@ def cadastrar_usuario(usuario: UsuarioCreate, db: Session = Depends(get_db)):
 @app.get("/setup-admin")
 def setup_admin_manual(db: Session = Depends(get_db)):
     try:
-        usuario = db.query(models.Usuario).filter(models.Usuario.username == "erick").first()
+        # 1. Atualiza QUALQUER usuario erick para admin (testa minúsculo e maiúsculo)
+        usuarios = db.query(models.Usuario).filter(models.Usuario.username.ilike("erick")).all()
         
-        if usuario:
-            usuario.role = "ADMIN"
+        if usuarios:
+            for u in usuarios:
+                u.role = "admin"
+                u.password_hash = gerar_hash_senha("admin123")
             db.commit()
-            return {"status": "success", "message": "Usuário erick atualizado para ADMIN com sucesso!"}
+            return {"status": "success", "message": "Role do Erick alterada para admin (minúsculo) e senha definida como admin123!"}
         
+        # 2. Se nao existir nenhum, cria direto como admin
         novo_admin = models.Usuario(
             username="erick",
             password_hash=gerar_hash_senha("admin123"),
             nome="Erick",
             email="admin@duartegestao.com.br",
-            role="ADMIN"
+            role="admin"
         )
         db.add(novo_admin)
         db.commit()
-        return {"status": "success", "message": "Usuário erick criado como ADMIN!"}
+        return {"status": "success", "message": "Usuario erick criado com role admin!"}
         
     except Exception as e:
         db.rollback()
