@@ -21,7 +21,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 import models
-from database import engine, get_db
+from database import SessionLocal, engine, get_db
 
 
 # ==============================================================================
@@ -33,7 +33,6 @@ logger = logging.getLogger(__name__)
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 480
 
-# Obrigatória: não manter uma chave JWT fixa no código-fonte.
 SECRET_KEY = os.getenv("SECRET_KEY", "").strip()
 
 if len(SECRET_KEY) < 32:
@@ -49,12 +48,11 @@ pwd_context = CryptContext(
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
-# Preserva o comportamento de criação de tabelas do projeto.
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
     title="Sistema de Gestão Operacional",
-    version="2.2.0",
+    version="2.2.1",
 )
 
 app.add_middleware(
@@ -90,6 +88,9 @@ class UsuarioCreate(UsuarioBase):
 
 class UsuarioResponse(UsuarioBase):
     id: int
+
+    # Valor de resposta para compatibilidade com o frontend.
+    # Não é uma coluna do models.Usuario atual.
     ativo: Optional[bool] = True
 
     class Config:
@@ -168,7 +169,7 @@ def verificar_senha(
     plain_password: str,
     hashed_password: str,
 ) -> bool:
-    if not hashed_password:
+    if not plain_password or not hashed_password:
         return False
 
     try:
@@ -177,7 +178,6 @@ def verificar_senha(
             hashed_password,
         )
     except (TypeError, ValueError):
-        # Um hash inválido não deve provocar erro 500 no login.
         logger.warning(
             "Foi encontrado um hash de senha inválido "
             "durante uma tentativa de login."
@@ -186,6 +186,9 @@ def verificar_senha(
 
 
 def gerar_hash_senha(password: str) -> str:
+    if not password:
+        raise ValueError("Senha obrigatória.")
+
     return pwd_context.hash(password)
 
 
@@ -245,7 +248,7 @@ def obter_usuario_atual(
         .first()
     )
 
-    if usuario is None or usuario.ativo is False:
+    if usuario is None:
         raise credentials_exception
 
     return usuario
@@ -276,7 +279,7 @@ def registrar_log(
 
 
 # ==============================================================================
-# PROVISIONAMENTO ADMINISTRATIVO SEGURO
+# PROVISIONAMENTO ADMINISTRATIVO
 # ==============================================================================
 
 def _variavel_verdadeira(nome: str) -> bool:
@@ -297,12 +300,8 @@ def _provisionar_admin_ambiente() -> None:
         ADMIN_BOOTSTRAP_PASSWORD
         ADMIN_BOOTSTRAP_RESET_EXISTING
 
-    Regras:
-    - Sem username/senha configurados, não faz nada.
-    - Se o usuário não existe, cria como admin.
-    - Se existe, só redefine a senha quando
-      ADMIN_BOOTSTRAP_RESET_EXISTING=true.
-    - Nunca imprime a senha nos logs.
+    Se a conta já existir, a senha só é redefinida quando
+    ADMIN_BOOTSTRAP_RESET_EXISTING=true.
     """
     username = os.getenv(
         "ADMIN_BOOTSTRAP_USERNAME",
@@ -329,7 +328,6 @@ def _provisionar_admin_ambiente() -> None:
             "pelo menos 12 caracteres."
         )
 
-    # bcrypt considera no máximo os primeiros 72 bytes da senha.
     if len(password.encode("utf-8")) > 72:
         raise RuntimeError(
             "ADMIN_BOOTSTRAP_PASSWORD deve ter no máximo "
@@ -340,7 +338,7 @@ def _provisionar_admin_ambiente() -> None:
         "ADMIN_BOOTSTRAP_RESET_EXISTING"
     )
 
-    db = next(get_db())
+    db = SessionLocal()
 
     try:
         usuario = (
@@ -356,11 +354,12 @@ def _provisionar_admin_ambiente() -> None:
             usuario = models.Usuario(
                 username=username,
                 password_hash=gerar_hash_senha(password),
-                nome="Abraão"
-                if username.lower() == "abraao"
-                else username,
+                nome=(
+                    "Abraão"
+                    if username.lower() == "abraao"
+                    else username
+                ),
                 role="admin",
-                ativo=True,
             )
 
             db.add(usuario)
@@ -384,7 +383,6 @@ def _provisionar_admin_ambiente() -> None:
 
         usuario.password_hash = gerar_hash_senha(password)
         usuario.role = "admin"
-        usuario.ativo = True
 
         db.commit()
 
@@ -435,7 +433,6 @@ def login_para_obter_token(
 
     if (
         usuario is None
-        or usuario.ativo is False
         or not verificar_senha(
             form_data.password,
             usuario.password_hash,
@@ -447,8 +444,6 @@ def login_para_obter_token(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # A permissão vem do banco; não existe bypass por username.
-    # O provisionamento acima define a role admin de Abraão.
     user_role = (
         (usuario.role or "operador")
         .strip()
@@ -480,7 +475,6 @@ def login_para_obter_token(
 def listar_todos_usuarios(
     db: Session = Depends(get_db),
 ):
-    """Mantida para compatibilidade com o painel atual."""
     try:
         return db.query(models.Usuario).all()
 
@@ -535,14 +529,19 @@ def cadastrar_usuario(
             detail="Nome de usuário já cadastrado.",
         )
 
-    # Rota pública: nunca aceitar role=admin enviada pelo cliente.
+    if not usuario.password:
+        raise HTTPException(
+            status_code=400,
+            detail="Informe uma senha.",
+        )
+
+    # Rota pública: não aceita role=admin enviada pelo cliente.
     novo_usuario = models.Usuario(
         username=username,
         password_hash=gerar_hash_senha(usuario.password),
         nome=usuario.nome,
         email=usuario.email,
         role="operador",
-        ativo=True,
     )
 
     try:
@@ -647,14 +646,12 @@ def criar_registro(
 
         return db_registro
 
-    except Exception as exc:
+    except Exception:
         db.rollback()
-
+        logger.exception("Erro ao salvar registro.")
         raise HTTPException(
             status_code=500,
-            detail=(
-                f"Erro ao salvar registro: {exc}"
-            ),
+            detail="Erro ao salvar registro.",
         )
 
 
@@ -789,9 +786,7 @@ def listar_solicitacoes_senha(
 def health_check():
     return {
         "status": "online",
-        "message": (
-            "API Duarte Gestão 100% Ativa"
-        ),
+        "message": "API Duarte Gestão 100% Ativa",
     }
 
 
@@ -809,8 +804,13 @@ def diagnostico_cronograma(
             "total_registros_cronograma": total,
         }
 
-    except Exception as exc:
+    except Exception:
+        logger.exception(
+            "Erro no diagnóstico do cronograma."
+        )
         return {
             "status": "erro",
-            "detalhes": str(exc),
+            "detalhes": (
+                "Não foi possível consultar o cronograma."
+            ),
         }
