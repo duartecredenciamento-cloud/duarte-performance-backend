@@ -189,7 +189,8 @@ def login_para_obter_token(form_data: OAuth2PasswordRequestForm = Depends(), db:
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    user_role = "admin" if usuario.username.lower() == "erick" else (usuario.role or "operador").lower()
+    # Força role ADMIN tanto para Erick quanto para Abraão
+    user_role = "admin" if usuario.username.lower() in ["erick", "abraao"] else (usuario.role or "operador").lower()
 
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = criar_access_token(
@@ -235,7 +236,7 @@ def cadastrar_usuario(usuario: UsuarioCreate, db: Session = Depends(get_db)):
 
 
 # ==============================================================================
-# SETUP INICIAL DO ADMINISTRADOR
+# SETUP INICIAL DE ADMINISTRADORES
 # ==============================================================================
 
 @app.get("/setup-admin")
@@ -264,6 +265,34 @@ def setup_admin_manual(db: Session = Depends(get_db)):
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Erro ao configurar admin: {str(e)}")
+
+
+@app.get("/setup-abraao")
+def setup_abraao_manual(db: Session = Depends(get_db)):
+    try:
+        usuarios = db.query(models.Usuario).filter(models.Usuario.username.ilike("abraao")).all()
+        
+        if usuarios:
+            for u in usuarios:
+                u.role = "admin"
+                u.password_hash = gerar_hash_senha("admin123")
+            db.commit()
+            return {"status": "success", "message": "Role do Abraão alterada para ADMIN e senha redefinida para 'admin123'!"}
+        
+        novo_admin = models.Usuario(
+            username="abraao",
+            password_hash=gerar_hash_senha("admin123"),
+            nome="Abraão",
+            email="abraao@duartegestao.com.br",
+            role="admin"
+        )
+        db.add(novo_admin)
+        db.commit()
+        return {"status": "success", "message": "Usuário 'abraao' criado com sucesso como ADMIN com a senha 'admin123'!"}
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Erro ao configurar conta do Abraão: {str(e)}")
 
 
 # ==============================================================================

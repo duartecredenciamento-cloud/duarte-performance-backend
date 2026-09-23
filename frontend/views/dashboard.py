@@ -1,856 +1,1671 @@
 """
 Módulo: dashboard.py
 Sistema: Duarte Performance — Duarte Gestão em Saúde
-Descrição: Dashboard Gerencial — visão consolidada das execuções operacionais.
+
+Dashboard gerencial de execuções operacionais.
+
+Integração:
+    from views.dashboard import render_dashboard
+    render_dashboard(api_get)
+
+A função api_get deve aceitar o caminho da rota e retornar um objeto
+compatível com requests.Response.
 """
 
-import functools
+from __future__ import annotations
+
 import html
+import unicodedata
 from contextlib import contextmanager
 from datetime import datetime, timedelta
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Optional
 
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
-import streamlit.components.v1 as components
 
 try:
     from zoneinfo import ZoneInfo
+
     FUSO_BR = ZoneInfo("America/Sao_Paulo")
 except Exception:
     FUSO_BR = None
 
-# ===================== PALETA DUARTE =====================
 
-# Cores da Marca (Brand Identity)
-COR_AZUL = "#001E57"          # Navy Institucional
-COR_AZUL_CLARO = "#0B296B"    # Azul Secundário / Gradientes
-COR_AZUL_ESCURO = "#030A1A"   # Fundo para Headers / Glassmorphism
-COR_LARANJA = "#FF9200"       # Accent Principal (Duarte Orange)
-COR_LARANJA_SOFT = "#FFB84D"  # Hover / Accents Suaves
+# ============================================================
+# IDENTIDADE VISUAL DUARTE
+# ============================================================
 
-# Cores Semânticas de Status
-COR_VERDE = "#10B981"          # Realizado Total (Emerald)
-COR_AMARELO = "#F59E0B"        # Realizado Parcial (Amber)
-COR_VERMELHO = "#EF4444"       # Não Realizado (Rose Red)
-COR_CINZA = "#94A3B8"          # Não Se Aplica (Slate)
-COR_GRAFITE = "#64748B"        # Não Informado (Muted)
+AZUL = "#001E57"
+AZUL_MEDIO = "#0B296B"
+AZUL_ESCURO = "#030A1A"
+LARANJA = "#FF9200"
+LARANJA_CLARO = "#FFB84D"
 
-# Cores de Interface e Superfície
-COR_BG_CARD = "#FFFFFF"
-COR_BORDER = "#E2E8F0"
-COR_TEXT_MAIN = "#0F172A"
-COR_TEXT_MUTED = "#64748B"
+VERDE = "#10B981"
+AMARELO = "#F59E0B"
+VERMELHO = "#EF4444"
+CINZA = "#94A3B8"
+GRAFITE = "#64748B"
 
-# Mapeamento estático por status (Plotly & Streamlit)
+TEXTO = "#0F172A"
+TEXTO_SECUNDARIO = "#64748B"
+BORDA = "#E2E8F0"
+FUNDO_SUAVE = "#F8FAFC"
+
+STATUS_ORDEM = [
+    "Realizado Total",
+    "Realizado Parcial",
+    "Não Realizado",
+    "Não Se Aplica",
+    "Não Informado",
+]
+
 CORES_STATUS = {
-    "Realizado Total": COR_VERDE,
-    "Realizado Parcial": COR_AMARELO,
-    "Não Realizado": COR_VERMELHO,
-    "Não Se Aplica": COR_CINZA,
-    "Não Informado": COR_GRAFITE,
+    "Realizado Total": VERDE,
+    "Realizado Parcial": AMARELO,
+    "Não Realizado": VERMELHO,
+    "Não Se Aplica": CINZA,
+    "Não Informado": GRAFITE,
 }
 
-# Escala contínua para rankings e medidores de eficiência
-ESCALA_EFICIENCIA = [COR_VERMELHO, COR_AMARELO, COR_VERDE]
+ESCALA_EFICIENCIA = [
+    [0.00, VERMELHO],
+    [0.50, AMARELO],
+    [1.00, VERDE],
+]
 
-# Checagem de compatibilidade com bordas arredondadas no Plotly
-try:
-    _fig_teste = go.Figure(go.Bar(x=[1], y=[1], marker=dict(cornerradius=6)))
-    _fig_teste.to_dict()
-    SUPORTA_CORNER_RADIUS = True
-except Exception:
-    SUPORTA_CORNER_RADIUS = False
-
-# Tabela de remoção de acentos criada uma única vez (evita realocação a cada chamada)
-_ACCENT_MAP = str.maketrans(
-    "áàâãäéèêëíìîïóòôõöúùûüçÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇ",
-    "aaaaaeeeeiiiiooooouuuucAAAAAEEEEIIIIOOOOOUUUUC",
-)
+CONFIG_GRAFICO = {
+    "displayModeBar": False,
+    "responsive": True,
+}
 
 
-# ===================== TRATAMENTO E NORMALIZAÇÃO DE DADOS =====================
-@functools.lru_cache(maxsize=2048)
-def _chave_operador(nome: Any) -> str:
-    """Gera chave normalizada (sem acento, minúscula, 1º nome) com cache de memória."""
-    if nome is None or pd.isna(nome):
+# ============================================================
+# NORMALIZAÇÃO E ACESSO A DADOS
+# ============================================================
+
+def _texto(valor: Any) -> str:
+    """Converte valores opcionais em texto limpo para exibição."""
+    if valor is None:
         return ""
-    s = str(nome).strip()
-    if not s or s.lower() in ("nan", "none", "null"):
-        return ""
-    primeiro_nome = s.split()[0]
-    return primeiro_nome.translate(_ACCENT_MAP).casefold()
 
-
-def _rotulo_operador(series_nomes: pd.Series) -> str:
-    """Retorna o nome de exibição mais completo (mais longo) de um grupo de operador."""
-    nomes_validos = [
-        s for n in series_nomes if (s := str(n).strip()) and s.lower() not in ("nan", "none", "")
-    ]
-    return max(nomes_validos, key=len, default="Sem nome")
-
-
-def _normalizar_operadores(df: pd.DataFrame) -> pd.DataFrame:
-    """Vectoriza e padroniza a identificação dos operadores em todo o DataFrame."""
-    if df.empty or "operador_nome" not in df.columns:
-        return df.assign(op_key="", operador_exibicao="Sem nome")
-
-    df = df.copy()
-    df["op_key"] = df["operador_nome"].apply(_chave_operador)
-
-    mapa_rotulos = df.groupby("op_key")["operador_nome"].apply(_rotulo_operador).to_dict()
-    df["operador_exibicao"] = df["op_key"].map(mapa_rotulos).fillna(df["operador_nome"].astype(str))
-
-    return df
-
-
-# ===================== ACESSO A DADOS E FUSO HORÁRIO =====================
-@st.cache_data(ttl=15, show_spinner=False)
-def _fetch_registros(_api_get: Callable[[str], Any]) -> Optional[Union[List[Dict], Dict]]:
-    """Busca registros da API, resiliente a falhas, com cache curto do Streamlit."""
     try:
-        resp = _api_get("/registros/")
-        if not resp or getattr(resp, "status_code", None) != 200:
+        if pd.isna(valor):
+            return ""
+    except (TypeError, ValueError):
+        pass
+
+    texto = str(valor).strip()
+
+    if texto.casefold() in {"nan", "none", "null", "nat"}:
+        return ""
+
+    return texto
+
+
+def _sem_acentos(valor: str) -> str:
+    normalizado = unicodedata.normalize("NFKD", valor)
+    return "".join(
+        caractere
+        for caractere in normalizado
+        if not unicodedata.combining(caractere)
+    )
+
+
+def _chave_nome(nome: Any) -> str:
+    """
+    Normaliza o nome completo para agrupamento.
+
+    Nomes distintos com o mesmo primeiro nome NÃO são unidos
+    automaticamente, evitando misturar operadores diferentes.
+    """
+    texto = " ".join(_texto(nome).split())
+    return _sem_acentos(texto).casefold()
+
+
+def _rotulo_operador(nomes: pd.Series) -> str:
+    validos = [_texto(nome) for nome in nomes]
+    validos = [nome for nome in validos if nome]
+
+    if not validos:
+        return "Não informado"
+
+    return max(validos, key=lambda nome: (len(nome), nome))
+
+
+def _normalizar_status(status: Any) -> str:
+    texto = _texto(status)
+
+    if not texto:
+        return "Não Informado"
+
+    chave = _sem_acentos(texto).casefold()
+
+    equivalencias = {
+        "realizado": "Realizado Total",
+        "realizado total": "Realizado Total",
+        "realizado parcial": "Realizado Parcial",
+        "nao realizado": "Não Realizado",
+        "nao se aplica": "Não Se Aplica",
+        "n/a": "Não Se Aplica",
+        "nao informado": "Não Informado",
+    }
+
+    return equivalencias.get(chave, texto)
+
+
+def _agora_br() -> datetime:
+    return datetime.now(FUSO_BR) if FUSO_BR else datetime.now()
+
+
+def _converter_data_br(valor: Any) -> pd.Timestamp:
+    """
+    Converte datas individuais preservando datas locais sem fuso.
+
+    Datas que chegam com offset/fuso são convertidas para São Paulo
+    antes da remoção do timezone, para filtros e gráficos consistentes.
+    """
+    if valor is None or _texto(valor) == "":
+        return pd.NaT
+
+    try:
+        data = pd.Timestamp(valor)
+
+        if pd.isna(data):
+            return pd.NaT
+
+        if data.tzinfo is not None:
+            if FUSO_BR is not None:
+                data = data.tz_convert(FUSO_BR)
+            data = data.tz_localize(None)
+
+        return data
+    except (TypeError, ValueError, OverflowError):
+        return pd.NaT
+
+
+def _buscar_registros(api_get_fn: Callable[[str], Any]) -> Optional[list[dict]]:
+    """
+    Busca registros sem cache compartilhado entre sessões autenticadas.
+
+    Retorna None para erro de comunicação/formato e lista vazia
+    para uma resposta válida sem registros.
+    """
+    try:
+        resposta = api_get_fn("/registros/")
+
+        if resposta is None or getattr(resposta, "status_code", None) != 200:
             return None
-        dados = resp.json()
+
+        dados = resposta.json()
+
         if isinstance(dados, dict):
-            return dados.get("data", [])
-        return dados if isinstance(dados, list) else []
+            dados = dados.get("data", [])
+
+        if not isinstance(dados, list):
+            return None
+
+        return [item for item in dados if isinstance(item, dict)]
+
     except Exception:
         return None
 
 
-def _agora_br() -> datetime:
-    """Retorna o horário atual ajustado ao fuso horário brasileiro, se configurado."""
-    return datetime.now(FUSO_BR) if FUSO_BR else datetime.now()
-
-
-# ===================== COMPONENTES VISUAIS REUTILIZÁVEIS =====================
-def _layout_padrao(fig, altura: int = 340, margem_b: int = 40):
-    """Aplica o Design System visual e tipografia padronizada em gráficos Plotly."""
-    fig.update_layout(
-        height=altura,
-        margin=dict(l=15, r=15, t=30, b=margem_b),
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(family="Inter, system-ui, -apple-system, sans-serif", color="#334155", size=12),
-        hoverlabel=dict(
-            bgcolor="#001E57",
-            font_color="#FFFFFF",
-            font_size=12,
-            font_family="Inter, sans-serif",
-            bordercolor="#FF9200",
-        ),
-        legend=dict(
-            orientation="h", yanchor="bottom", y=-0.35, xanchor="center", x=0.5,
-            font=dict(size=11, color="#64748B"),
-        ),
-        xaxis=dict(showgrid=False, zeroline=False, tickfont=dict(color="#64748B")),
-        yaxis=dict(gridcolor="#F1F5F9", zeroline=False, tickfont=dict(color="#64748B")),
-    )
-    return fig
-
-
-@contextmanager
-def chart_card(icon: str, titulo: str, badge: Optional[str] = None):
-    """Context manager para encapsular gráficos em cards modernos, com suporte a badge."""
-    card = st.container(border=True)
-    with card:
-        badge_html = f'<span class="card-badge">{html.escape(badge)}</span>' if badge else ""
-        st.markdown(
-            f"""
-            <div class="card-head" style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">
-                <span class="card-icon">{html.escape(icon)}</span>
-                <h4 style="margin:0; font-weight:600; font-size:1.05rem; color:#0F172A;">{html.escape(titulo)}</h4>
-                {badge_html}
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        yield card
-
-
-def _kpi_html(
-    valor: Union[int, float],
-    label: str,
-    sub: str,
-    css_class: str = "",
-    suffix: str = "",
-    prefix: str = "",
-) -> str:
-    """Gera o HTML higienizado e acessível de um card de métrica (KPI)."""
-    val_clean = float(valor) if isinstance(valor, (int, float)) else 0.0
-    return f"""
-    <div class="metric-card">
-        <h3 class="{html.escape(css_class)} kpi-number"
-            data-target="{val_clean}"
-            data-prefix="{html.escape(prefix)}"
-            data-suffix="{html.escape(suffix)}">
-            {html.escape(prefix)}0{html.escape(suffix)}
-        </h3>
-        <p>{html.escape(label)}</p>
-        <div class="sub">{html.escape(sub)}</div>
-    </div>
-    """
-
-
-def _inject_css():
-    """Injeta o CSS do Design System (Azul Marinho + Laranja Duarte)."""
-    st.markdown(
-        """
-    <style>
-        @keyframes fadeInUp {
-            from { opacity: 0; transform: translateY(12px); }
-            to   { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes floatGradient {
-            0%   { background-position: 0% 50%; }
-            50%  { background-position: 100% 50%; }
-            100% { background-position: 0% 50%; }
-        }
-        @keyframes pulseGlow {
-            0%   { box-shadow: 0 0 0 0 rgba(255, 146, 0, 0.45); }
-            70%  { box-shadow: 0 0 0 10px rgba(255, 146, 0, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(255, 146, 0, 0); }
-        }
-        @keyframes popIn {
-            0%   { transform: scale(0.9); opacity: 0.4; }
-            60%  { transform: scale(1.04); opacity: 1; }
-            100% { transform: scale(1); opacity: 1; }
-        }
-
-        .dash-header, .metric-card {
-            -webkit-font-smoothing: antialiased;
-            -moz-osx-font-smoothing: grayscale;
-            backface-visibility: hidden;
-        }
-
-        .dash-header {
-            background: linear-gradient(-45deg, #001E57, #051435, #0B296B, #001233);
-            background-size: 300% 300%;
-            animation: floatGradient 14s ease infinite, fadeInUp 0.4s ease-out;
-            padding: 24px 28px;
-            border-radius: 18px;
-            color: #fff;
-            margin-bottom: 22px;
-            border-left: 6px solid #FF9200;
-            box-shadow: 0 12px 32px rgba(0, 30, 87, 0.18);
-            position: relative;
-            overflow: hidden;
-        }
-        .dash-header::before {
-            content: '';
-            position: absolute;
-            top: -50%; right: -5%;
-            width: 260px; height: 260px;
-            border-radius: 50%;
-            background: radial-gradient(circle, rgba(255,146,0,0.18) 0%, transparent 70%);
-            pointer-events: none;
-        }
-        .dash-header h2 {
-            margin: 0; font-weight: 800; font-size: 1.65rem;
-            letter-spacing: -0.3px; position: relative; z-index: 1;
-        }
-        .dash-header p {
-            margin: 4px 0 0 0; color: #94A3B8; font-size: 0.88rem;
-            position: relative; z-index: 1;
-        }
-        .dash-badge {
-            display: inline-block; margin-top: 10px;
-            background: linear-gradient(135deg, #FF9200, #FFAE33);
-            color: #FFFFFF; padding: 4px 12px; border-radius: 99px;
-            font-weight: 800; font-size: 0.65rem; letter-spacing: 0.5px;
-            animation: pulseGlow 2.5s infinite; position: relative; z-index: 1;
-        }
-        .dash-live {
-            display: inline-flex; align-items: center; gap: 6px;
-            margin-left: 10px; font-size: 0.65rem; font-weight: 700;
-            color: #86EFAC; position: relative; z-index: 1;
-        }
-        .dash-live .dot {
-            width: 7px; height: 7px; border-radius: 50%;
-            background: #22C55E; animation: pulseGlow 1.6s infinite;
-        }
-
-        .metric-card {
-            background: #FFFFFF;
-            border: 1px solid #E2E8F0;
-            border-radius: 14px;
-            padding: 16px 12px;
-            text-align: center;
-            box-shadow: 0 4px 16px rgba(0, 30, 87, 0.04);
-            transition: all 0.25s ease;
-            animation: fadeInUp 0.4s ease-out backwards;
-            height: 100%;
-        }
-        .metric-card:hover {
-            transform: translateY(-3px);
-            border-color: rgba(255, 146, 0, 0.5);
-            box-shadow: 0 8px 24px rgba(255, 146, 0, 0.12);
-        }
-        .metric-card h3 {
-            margin: 0; color: #001E57; font-size: 1.6rem; font-weight: 800;
-            font-variant-numeric: tabular-nums;
-            transition: color 0.2s ease;
-        }
-        .metric-card h3.updated { animation: popIn 0.4s ease-out; }
-        .metric-card h3.accent { color: #FF9200; }
-        .metric-card h3.green  { color: #10B981; }
-        .metric-card h3.red    { color: #EF4444; }
-        .metric-card h3.yellow { color: #F59E0B; }
-        .metric-card p {
-            margin: 4px 0 0 0; color: #64748B; font-size: 0.70rem;
-            font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px;
-        }
-        .metric-card .sub { margin-top: 2px; font-size: 0.68rem; color: #94A3B8; font-weight: 600; }
-
-        div[data-testid="stVerticalBlockBorderWrapper"] {
-            border-radius: 16px !important;
-            border: 1px solid #E2E8F0 !important;
-            background: #FFFFFF !important;
-            box-shadow: 0 6px 20px rgba(0, 30, 87, 0.04) !important;
-            animation: fadeInUp 0.45s ease-out backwards;
-            transition: box-shadow .25s ease, transform .25s ease, border-color .25s ease;
-            padding: 14px !important;
-        }
-        div[data-testid="stVerticalBlockBorderWrapper"]:hover {
-            box-shadow: 0 10px 28px rgba(0, 30, 87, 0.08) !important;
-            border-color: rgba(255, 146, 0, 0.35) !important;
-        }
-
-        .card-head {
-            display: flex; align-items: center; gap: 8px;
-            margin-bottom: 8px; padding-bottom: 6px;
-            border-bottom: 1px solid #F1F5F9;
-        }
-        .card-icon {
-            display: inline-flex; align-items: center; justify-content: center;
-            width: 28px; height: 28px; border-radius: 8px;
-            background: rgba(255, 146, 0, 0.12); font-size: 14px;
-        }
-        .card-head h4 { margin: 0; color: #001E57; font-weight: 800; font-size: 0.95rem; flex: 1; }
-        .card-badge {
-            font-size: 0.62rem; font-weight: 800; text-transform: uppercase;
-            letter-spacing: .04em; color: #FF9200;
-            background: rgba(255,146,0,0.10); padding: 2px 8px; border-radius: 99px;
-        }
-
-        .insight-box {
-            background: linear-gradient(135deg, #FFF7ED 0%, #FFEDD5 100%);
-            border: 1px solid #FDBA74; border-left: 4px solid #FF9200;
-            border-radius: 12px; padding: 10px 14px; margin-bottom: 10px;
-            animation: fadeInUp 0.4s ease-out backwards;
-        }
-        .insight-box strong { color: #9A3412; }
-        .insight-box span { color: #7C2D12; font-size: 0.86rem; }
-
-        .section-title {
-            color: #001E57; font-weight: 800; font-size: 1.05rem;
-            margin: 20px 0 10px 0; padding-left: 8px; border-left: 4px solid #FF9200;
-        }
-
-        div[data-testid="stDataFrame"] {
-            background: #FFFFFF !important; border: 1px solid #E2E8F0 !important;
-            border-radius: 14px !important; box-shadow: 0 6px 20px rgba(0, 30, 87, 0.04) !important;
-            overflow: hidden !important;
-        }
-        div[data-testid="stDataFrame"] thead tr th {
-            background: #001E57 !important;
-            color: #FFFFFF !important; font-weight: 700 !important; font-size: 0.72rem !important;
-            text-transform: uppercase !important; letter-spacing: 0.3px !important;
-            padding: 10px 12px !important; border: none !important;
-        }
-        div[data-testid="stDataFrame"] tbody tr td {
-            padding: 9px 12px !important; font-size: 0.84rem !important;
-            color: #1E293B !important; border-bottom: 1px solid #F1F5F9 !important;
-        }
-        div[data-testid="stDataFrame"] tbody tr:nth-child(even) td { background: #F8FAFC !important; }
-        div[data-testid="stDataFrame"] tbody tr:hover td { background: rgba(255, 146, 0, 0.06) !important; }
-    </style>
-    """,
-        unsafe_allow_html=True,
-    )
-
-
-def _inject_count_up_script():
-    """Injeta o JavaScript de animação (count-up) dos KPIs."""
-    components.html(
-        """
-        <script>
-        (function() {
-            const doc = window.parent.document;
-
-            function animar(el) {
-                const alvoStr = el.getAttribute('data-target') || "0";
-                if (el.dataset.lastTarget === alvoStr) {
-                    return;
-                }
-                el.dataset.lastTarget = alvoStr;
-                el.classList.remove('updated');
-                void el.offsetWidth;
-                el.classList.add('updated');
-
-                const alvo = parseFloat(alvoStr) || 0;
-                const sufixo = el.getAttribute('data-suffix') || '';
-                const prefixo = el.getAttribute('data-prefix') || '';
-                const casas = sufixo.includes('%') || String(alvo).includes('.') ? 1 : 0;
-                const duracao = 600;
-                const inicio = performance.now();
-                const partiuDe = parseFloat(el.dataset.lastRendered || "0") || 0;
-
-                function passo(agora) {
-                    const p = Math.min((agora - inicio) / duracao, 1);
-                    const suave = 1 - Math.pow(1 - p, 3);
-                    const valor = partiuDe + (alvo - partiuDe) * suave;
-                    const formatado = casas ? valor.toFixed(casas) : Math.round(valor);
-                    el.textContent = prefixo + formatado.toLocaleString('pt-BR') + sufixo;
-                    if (p < 1) {
-                        requestAnimationFrame(passo);
-                    } else {
-                        el.dataset.lastRendered = String(alvo);
-                    }
-                }
-                requestAnimationFrame(passo);
-            }
-
-            function varrer() {
-                doc.querySelectorAll('.kpi-number').forEach(animar);
-            }
-
-            setTimeout(varrer, 50);
-
-            const alvoObservado = doc.body;
-            if (alvoObservado && !alvoObservado.dataset.duarteKpiObserverAtivo) {
-                alvoObservado.dataset.duarteKpiObserverAtivo = "true";
-                const observer = new MutationObserver(() => {
-                    clearTimeout(window.__duarteKpiDebounce);
-                    window.__duarteKpiDebounce = setTimeout(varrer, 60);
-                });
-                observer.observe(alvoObservado, { childList: true, subtree: true, attributes: true });
-            }
-        })();
-        </script>
-        """,
-        height=0,
-    )
-
-
-# ===================== CARGA E FILTRAGEM DE DADOS =====================
-def _carregar_dataframe(api_get_fn: Callable[[str], Any]) -> Optional[pd.DataFrame]:
-    """Busca os registros na API e devolve um DataFrame já normalizado."""
-    with st.spinner("Carregando indicadores..."):
-        dados = _fetch_registros(api_get_fn)
+def _carregar_dataframe(
+    api_get_fn: Callable[[str], Any],
+) -> Optional[pd.DataFrame]:
+    with st.spinner("Carregando indicadores gerenciais..."):
+        dados = _buscar_registros(api_get_fn)
 
     if dados is None:
         return None
 
     df = pd.DataFrame(dados)
+
     if df.empty:
         return df
 
-    if "data_registro" in df.columns:
-        df["data_registro"] = pd.to_datetime(df["data_registro"], errors="coerce")
+    for coluna in (
+        "operador_nome",
+        "cliente_nome",
+        "status",
+        "justificativa",
+    ):
+        if coluna not in df.columns:
+            df[coluna] = ""
 
-    return _normalizar_operadores(df)
+    if "data_registro" not in df.columns:
+        df["data_registro"] = pd.NaT
+    else:
+        df["data_registro"] = pd.to_datetime(
+            df["data_registro"].map(_converter_data_br),
+            errors="coerce",
+        )
+
+    df["status"] = df["status"].map(_normalizar_status)
+
+    df["operador_nome"] = df["operador_nome"].map(_texto)
+    df["cliente_nome"] = df["cliente_nome"].map(_texto)
+    df["justificativa"] = df["justificativa"].map(_texto)
+
+    df["op_key"] = df["operador_nome"].map(_chave_nome)
+
+    mapa_operadores = (
+        df.groupby("op_key", dropna=False)["operador_nome"]
+        .apply(_rotulo_operador)
+        .to_dict()
+    )
+
+    df["operador_exibicao"] = (
+        df["op_key"]
+        .map(mapa_operadores)
+        .fillna("Não informado")
+    )
+
+    df["cliente_exibicao"] = df["cliente_nome"].replace(
+        "", "Não informado"
+    )
+
+    return df
+
+
+# ============================================================
+# DESIGN SYSTEM
+# ============================================================
+
+def _injetar_css() -> None:
+    st.markdown(
+        """
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+
+@keyframes duarteEntrance {
+    from {
+        opacity: 0;
+        transform: translateY(14px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes duarteGradient {
+    0%, 100% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+}
+
+@keyframes duarteShine {
+    from { transform: translateX(-160%) rotate(20deg); }
+    to { transform: translateX(370%) rotate(20deg); }
+}
+
+.dash-hero,
+.dash-kpi,
+.dash-section,
+.dash-insight {
+    font-family: Inter, system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+}
+
+.dash-hero {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    padding: clamp(24px, 3vw, 38px);
+    margin: 0 0 22px;
+    border: 1px solid rgba(255,255,255,.12);
+    border-left: 6px solid #FF9200;
+    border-radius: 24px;
+    color: #FFFFFF;
+    background:
+        radial-gradient(circle at 88% 15%, rgba(255,146,0,.17), transparent 29%),
+        linear-gradient(115deg, #030A1A 0%, #001E57 49%, #0B296B 100%);
+    background-size: 300% 300%;
+    box-shadow: 0 20px 48px rgba(0,30,87,.20);
+    animation:
+        duarteEntrance .55s ease-out both,
+        duarteGradient 18s ease-in-out infinite;
+}
+
+.dash-hero::after {
+    content: "";
+    position: absolute;
+    z-index: -1;
+    top: -100px;
+    right: 12%;
+    width: 100px;
+    height: 420px;
+    background: rgba(255,255,255,.055);
+    filter: blur(18px);
+    transform: rotate(20deg);
+    animation: duarteShine 13s ease-in-out 1.5s infinite;
+}
+
+.dash-hero__eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: #FFB84D;
+    font-size: .70rem;
+    font-weight: 800;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+}
+
+.dash-hero__eyebrow::before {
+    content: "";
+    display: inline-block;
+    width: 18px;
+    height: 3px;
+    border-radius: 99px;
+    background: #FF9200;
+}
+
+.dash-hero h1 {
+    position: relative;
+    margin: 11px 0 7px;
+    color: #FFFFFF;
+    font-size: clamp(1.75rem, 3vw, 2.55rem);
+    font-weight: 850;
+    letter-spacing: -.055em;
+    line-height: 1.12;
+}
+
+.dash-hero p {
+    position: relative;
+    margin: 0;
+    max-width: 720px;
+    color: #CED8E9;
+    font-size: .93rem;
+    line-height: 1.6;
+}
+
+.dash-hero__footer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 9px;
+    margin-top: 20px;
+}
+
+.dash-hero__tag {
+    display: inline-flex;
+    align-items: center;
+    min-height: 30px;
+    padding: 5px 11px;
+    border: 1px solid rgba(255,255,255,.16);
+    border-radius: 999px;
+    background: rgba(255,255,255,.08);
+    color: #F8FAFC;
+    font-size: .70rem;
+    font-weight: 700;
+}
+
+.dash-hero__tag--orange {
+    border-color: rgba(255,146,0,.3);
+    background: rgba(255,146,0,.16);
+    color: #FFD29A;
+}
+
+.dash-section {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 19px 0 12px;
+    color: #001E57;
+    font-size: 1.02rem;
+    font-weight: 800;
+    letter-spacing: -.025em;
+}
+
+.dash-section::before {
+    content: "";
+    flex: 0 0 4px;
+    height: 21px;
+    border-radius: 99px;
+    background: #FF9200;
+}
+
+.dash-section__detail {
+    margin-left: auto;
+    color: #64748B;
+    font-size: .73rem;
+    font-weight: 600;
+    letter-spacing: 0;
+}
+
+.dash-kpi {
+    position: relative;
+    overflow: hidden;
+    min-height: 153px;
+    height: 100%;
+    padding: 18px 17px 17px;
+    border: 1px solid #E2E8F0;
+    border-top: 3px solid var(--kpi-accent, #001E57);
+    border-radius: 17px;
+    background: linear-gradient(160deg, #FFFFFF, #FBFCFE);
+    box-shadow: 0 8px 24px rgba(0,30,87,.055);
+    animation: duarteEntrance .5s ease-out both;
+    transition:
+        transform .25s ease,
+        box-shadow .25s ease,
+        border-color .25s ease;
+}
+
+.dash-kpi:hover {
+    transform: translateY(-4px);
+    border-color: rgba(255,146,0,.45);
+    box-shadow: 0 16px 32px rgba(0,30,87,.11);
+}
+
+.dash-kpi__label {
+    margin: 0 0 13px;
+    color: #64748B;
+    font-size: .69rem;
+    font-weight: 800;
+    letter-spacing: .075em;
+    text-transform: uppercase;
+}
+
+.dash-kpi__value {
+    margin: 0;
+    color: var(--kpi-accent, #001E57);
+    font-size: clamp(1.55rem, 2.3vw, 2rem);
+    font-weight: 850;
+    letter-spacing: -.065em;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+}
+
+.dash-kpi__detail {
+    margin-top: 10px;
+    color: #64748B;
+    font-size: .72rem;
+    font-weight: 600;
+}
+
+.dash-kpi__track {
+    height: 5px;
+    margin-top: 14px;
+    overflow: hidden;
+    border-radius: 99px;
+    background: #EDF2F7;
+}
+
+.dash-kpi__fill {
+    width: var(--kpi-progress, 0%);
+    height: 100%;
+    border-radius: inherit;
+    background: var(--kpi-accent, #001E57);
+    transform-origin: left;
+    animation: duarteEntrance .7s ease-out both;
+}
+
+.dash-insight {
+    padding: 13px 15px;
+    margin: 0 0 9px;
+    border: 1px solid #FED7AA;
+    border-left: 4px solid #FF9200;
+    border-radius: 13px;
+    background: linear-gradient(120deg, #FFF9F0, #FFFFFF);
+    color: #7C2D12;
+    font-size: .83rem;
+    line-height: 1.55;
+    animation: duarteEntrance .4s ease-out both;
+}
+
+.dash-insight strong {
+    color: #001E57;
+}
+
+.dash-chart-title {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 9px;
+    padding-bottom: 11px;
+    margin: 0 0 7px;
+    border-bottom: 1px solid #F1F5F9;
+    color: #001E57;
+    font-family: Inter, system-ui, sans-serif;
+    font-size: .94rem;
+    font-weight: 800;
+}
+
+.dash-chart-title__mark {
+    width: 9px;
+    height: 9px;
+    flex: 0 0 9px;
+    border-radius: 3px;
+    background: #FF9200;
+    box-shadow: 0 0 0 4px rgba(255,146,0,.12);
+}
+
+.dash-chart-title__badge {
+    margin-left: auto;
+    padding: 4px 9px;
+    border-radius: 999px;
+    background: #FFF3E3;
+    color: #9A4B00;
+    font-size: .65rem;
+    font-weight: 800;
+}
+
+.st-key-dash_filtros [data-testid="stVerticalBlockBorderWrapper"],
+.st-key-dash_grafico_status [data-testid="stVerticalBlockBorderWrapper"],
+.st-key-dash_grafico_ranking [data-testid="stVerticalBlockBorderWrapper"],
+.st-key-dash_grafico_operadores [data-testid="stVerticalBlockBorderWrapper"],
+.st-key-dash_grafico_clientes [data-testid="stVerticalBlockBorderWrapper"],
+.st-key-dash_grafico_evolucao [data-testid="stVerticalBlockBorderWrapper"] {
+    border: 1px solid #E2E8F0 !important;
+    border-radius: 19px !important;
+    background: #FFFFFF !important;
+    box-shadow: 0 8px 25px rgba(0,30,87,.055) !important;
+}
+
+.st-key-dash_filtros [data-testid="stVerticalBlockBorderWrapper"] {
+    border-top: 3px solid #FF9200 !important;
+}
+
+.st-key-dash_filtros label {
+    color: #001E57 !important;
+    font-weight: 700 !important;
+}
+
+.st-key-dash_filtros [data-baseweb="select"] > div {
+    border-radius: 11px !important;
+}
+
+.st-key-dash_atualizar button {
+    border: 1px solid #001E57 !important;
+    border-radius: 11px !important;
+    background: #FFFFFF !important;
+    color: #001E57 !important;
+    font-weight: 800 !important;
+    transition: all .2s ease !important;
+}
+
+.st-key-dash_atualizar button:hover {
+    border-color: #FF9200 !important;
+    background: #FFF7ED !important;
+    color: #001E57 !important;
+    transform: translateY(-2px);
+}
+
+@media (max-width: 768px) {
+    .dash-hero {
+        padding: 23px 20px;
+        border-radius: 19px;
+    }
+
+    .dash-kpi {
+        min-height: 135px;
+    }
+
+    .dash-section__detail {
+        display: none;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .dash-hero,
+    .dash-hero::after,
+    .dash-kpi,
+    .dash-kpi__fill,
+    .dash-insight {
+        animation: none !important;
+    }
+
+    .dash-kpi,
+    .st-key-dash_atualizar button {
+        transition: none !important;
+    }
+}
+</style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _secao(titulo: str, detalhe: str = "") -> None:
+    detalhe_html = (
+        '<span class="dash-section__detail">'
+        f"{html.escape(detalhe)}"
+        "</span>"
+        if detalhe
+        else ""
+    )
+
+    st.markdown(
+        f'<div class="dash-section">'
+        f"<span>{html.escape(titulo)}</span>"
+        f"{detalhe_html}"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def _render_cabecalho() -> None:
+    atualizado = _agora_br().strftime("%d/%m/%Y às %H:%M")
+
+    st.markdown(
+        f"""
+<div class="dash-hero">
+    <div class="dash-hero__eyebrow">Duarte Gestão em Saúde</div>
+    <h1>Dashboard Gerencial</h1>
+    <p>
+        Uma visão objetiva das execuções operacionais, do desempenho
+        da equipe e dos pontos que exigem atenção.
+    </p>
+    <div class="dash-hero__footer">
+        <span class="dash-hero__tag dash-hero__tag--orange">
+            DUARTE PERFORMANCE
+        </span>
+        <span class="dash-hero__tag">
+            Consulta realizada em {html.escape(atualizado)}
+        </span>
+    </div>
+</div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+@contextmanager
+def _card_grafico(
+    titulo: str,
+    badge: Optional[str] = None,
+    key: Optional[str] = None,
+):
+    with st.container(border=True, key=key):
+        badge_html = (
+            '<span class="dash-chart-title__badge">'
+            f"{html.escape(badge)}"
+            "</span>"
+            if badge
+            else ""
+        )
+
+        st.markdown(
+            '<div class="dash-chart-title">'
+            '<span class="dash-chart-title__mark"></span>'
+            f"<span>{html.escape(titulo)}</span>"
+            f"{badge_html}"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+
+        yield
+
+
+def _layout_grafico(
+    fig: go.Figure,
+    altura: int = 350,
+    margem_inferior: int = 44,
+) -> go.Figure:
+    fig.update_layout(
+        height=altura,
+        margin=dict(l=12, r=20, t=20, b=margem_inferior),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(
+            family="Inter, system-ui, sans-serif",
+            color=TEXTO,
+            size=12,
+        ),
+        hoverlabel=dict(
+            bgcolor=AZUL,
+            bordercolor=LARANJA,
+            font=dict(
+                color="#FFFFFF",
+                size=12,
+                family="Inter, sans-serif",
+            ),
+        ),
+        legend=dict(
+            orientation="h",
+            yanchor="top",
+            y=-0.18,
+            xanchor="center",
+            x=0.5,
+            font=dict(size=11, color=TEXTO_SECUNDARIO),
+        ),
+        xaxis=dict(
+            showline=False,
+            zeroline=False,
+            showgrid=False,
+            tickfont=dict(color=TEXTO_SECUNDARIO),
+        ),
+        yaxis=dict(
+            showline=False,
+            zeroline=False,
+            gridcolor="#F1F5F9",
+            tickfont=dict(color=TEXTO_SECUNDARIO),
+        ),
+    )
+
+    return fig
+
+
+# ============================================================
+# FILTROS E INDICADORES
+# ============================================================
+
+def _opcoes_texto(serie: pd.Series) -> list[str]:
+    valores = {
+        _texto(valor)
+        for valor in serie
+        if _texto(valor)
+    }
+
+    return ["Todos", *sorted(valores, key=str.casefold)]
+
+
+def _selectbox_seguro(
+    titulo: str,
+    opcoes: list[str],
+    key: str,
+) -> str:
+    """
+    Descarta seleção antiga quando novos filtros deixam a opção
+    indisponível, evitando estado inválido entre reruns.
+    """
+    if st.session_state.get(key) not in opcoes:
+        st.session_state[key] = "Todos"
+
+    return st.selectbox(titulo, opcoes, key=key)
 
 
 def _render_filtros(df: pd.DataFrame) -> pd.DataFrame:
-    """Renderiza os controles de filtro e retorna o DataFrame já filtrado."""
-    st.markdown("##### 🎛️ Filtros de Pesquisa")
-    f1, f2, f3, f4 = st.columns([1.4, 1.3, 1.3, 1.5])
+    _secao(
+        "Filtros de pesquisa",
+        "Todos os indicadores seguem a seleção abaixo",
+    )
 
-    with f1:
-        opcoes_periodo = ["Hoje", "Últimos 7 dias", "Últimos 30 dias", "Este mês", "Todos"]
-        if hasattr(st, "segmented_control"):
-            periodo = st.segmented_control(
-                "Período", opcoes_periodo, default="Todos", key="dash_periodo"
-            ) or "Todos"
-        else:
-            periodo = st.selectbox("Período", opcoes_periodo, index=4, key="dash_periodo")
+    with st.container(border=True, key="dash_filtros"):
+        col_periodo, col_operador, col_status, col_cliente = st.columns(
+            [1.15, 1.25, 1.2, 1.45],
+            gap="medium",
+        )
 
-    agora = _agora_br()
-    df_f = df.copy()
-
-    if periodo != "Todos" and "data_registro" in df_f.columns:
-        try:
-            if getattr(df_f["data_registro"].dt, "tz", None) is not None:
-                df_f["data_registro"] = (
-                    df_f["data_registro"].dt.tz_convert("America/Sao_Paulo").dt.tz_localize(None)
-                )
-        except Exception:
-            pass
-
-        df_f = df_f[df_f["data_registro"].notna()].copy()
-
-        if periodo == "Hoje":
-            df_f = df_f[df_f["data_registro"].dt.date == agora.date()]
-        elif periodo == "Últimos 7 dias":
-            limite = (agora - timedelta(days=7)).replace(tzinfo=None)
-            df_f = df_f[df_f["data_registro"] >= limite]
-        elif periodo == "Últimos 30 dias":
-            limite = (agora - timedelta(days=30)).replace(tzinfo=None)
-            df_f = df_f[df_f["data_registro"] >= limite]
-        elif periodo == "Este mês":
-            df_f = df_f[
-                (df_f["data_registro"].dt.month == agora.month)
-                & (df_f["data_registro"].dt.year == agora.year)
+        with col_periodo:
+            periodos = [
+                "Hoje",
+                "Últimos 7 dias",
+                "Últimos 30 dias",
+                "Este mês",
+                "Todos",
             ]
 
-    operadores = ["Todos"]
-    if "operador_exibicao" in df_f.columns:
-        operadores += sorted(df_f["operador_exibicao"].dropna().unique().tolist())
-    with f2:
-        filtro_op = st.selectbox("Operador", operadores, key="dash_op")
+            if st.session_state.get("dash_periodo") not in periodos:
+                st.session_state["dash_periodo"] = "Todos"
 
-    status_list = ["Todos"]
-    if "status" in df_f.columns:
-        status_list += sorted(df_f["status"].dropna().unique().tolist())
-    with f3:
-        filtro_status = st.selectbox("Status", status_list, key="dash_status")
+            periodo = st.selectbox(
+                "Período",
+                periodos,
+                key="dash_periodo",
+            )
 
-    clientes = ["Todos"]
-    if "cliente_nome" in df_f.columns:
-        clientes += sorted(df_f["cliente_nome"].dropna().unique().tolist())
-    with f4:
-        filtro_cliente = st.selectbox("Cliente", clientes, key="dash_cliente")
+        df_periodo = df
 
-    if filtro_op != "Todos" and "operador_exibicao" in df_f.columns:
-        df_f = df_f[df_f["operador_exibicao"] == filtro_op]
-    if filtro_status != "Todos" and "status" in df_f.columns:
-        df_f = df_f[df_f["status"] == filtro_status]
-    if filtro_cliente != "Todos" and "cliente_nome" in df_f.columns:
-        df_f = df_f[df_f["cliente_nome"] == filtro_cliente]
+        if periodo != "Todos":
+            datas = df["data_registro"]
+            hoje = _agora_br().date()
+            dias = datas.dt.date
 
-    return df_f
+            if periodo == "Hoje":
+                mascara = dias.eq(hoje)
+            elif periodo == "Últimos 7 dias":
+                mascara = dias.ge(hoje - timedelta(days=6)) & dias.le(hoje)
+            elif periodo == "Últimos 30 dias":
+                mascara = dias.ge(hoje - timedelta(days=29)) & dias.le(hoje)
+            else:
+                mascara = (
+                    datas.dt.year.eq(hoje.year)
+                    & datas.dt.month.eq(hoje.month)
+                )
+
+            df_periodo = df.loc[mascara.fillna(False)].copy()
+
+        with col_operador:
+            operador = _selectbox_seguro(
+                "Operador",
+                _opcoes_texto(df_periodo["operador_exibicao"]),
+                "dash_op",
+            )
+
+        with col_status:
+            status = _selectbox_seguro(
+                "Status",
+                _opcoes_texto(df_periodo["status"]),
+                "dash_status",
+            )
+
+        with col_cliente:
+            cliente = _selectbox_seguro(
+                "Cliente",
+                _opcoes_texto(df_periodo["cliente_exibicao"]),
+                "dash_cliente",
+            )
+
+        col_info, col_acao = st.columns([3, 1])
+
+        with col_info:
+            st.caption(
+                "A consulta é feita ao abrir ou atualizar o dashboard. "
+                "Os filtros reorganizam os dados carregados."
+            )
+
+        with col_acao:
+            if st.button(
+                "Atualizar dados",
+                key="dash_atualizar",
+                use_container_width=True,
+            ):
+                st.rerun()
+
+    resultado = df_periodo
+
+    if operador != "Todos":
+        resultado = resultado.loc[
+            resultado["operador_exibicao"].eq(operador)
+        ]
+
+    if status != "Todos":
+        resultado = resultado.loc[
+            resultado["status"].eq(status)
+        ]
+
+    if cliente != "Todos":
+        resultado = resultado.loc[
+            resultado["cliente_exibicao"].eq(cliente)
+        ]
+
+    return resultado.copy()
 
 
-# ===================== KPIs =====================
-def _calcular_kpis(df_f: pd.DataFrame) -> dict:
-    total = len(df_f)
-    realizados = int((df_f["status"] == "Realizado Total").sum()) if "status" in df_f.columns else 0
-    parciais = int((df_f["status"] == "Realizado Parcial").sum()) if "status" in df_f.columns else 0
-    nao = int((df_f["status"] == "Não Realizado").sum()) if "status" in df_f.columns else 0
-    eficiencia = round((realizados / total * 100), 1) if total else 0.0
+def _calcular_kpis(df: pd.DataFrame) -> dict[str, float | int]:
+    total = len(df)
+    contagens = df["status"].value_counts()
+
+    realizados = int(contagens.get("Realizado Total", 0))
+    parciais = int(contagens.get("Realizado Parcial", 0))
+    nao_realizados = int(contagens.get("Não Realizado", 0))
+
+    eficiencia = (
+        round(100 * realizados / total, 1)
+        if total
+        else 0.0
+    )
+
     return {
         "total": total,
         "realizados": realizados,
         "parciais": parciais,
-        "nao": nao,
+        "nao_realizados": nao_realizados,
         "eficiencia": eficiencia,
     }
 
 
-def _render_kpis(kpis: dict):
-    total = kpis["total"]
-    realizados = kpis["realizados"]
-    parciais = kpis["parciais"]
-    nao = kpis["nao"]
-    eficiencia = kpis["eficiencia"]
+def _formatar_numero(valor: int | float) -> str:
+    if isinstance(valor, float):
+        return (
+            f"{valor:,.1f}"
+            .replace(",", "_")
+            .replace(".", ",")
+            .replace("_", ".")
+        )
 
-    k1, k2, k3, k4, k5 = st.columns(5)
+    return f"{valor:,}".replace(",", ".")
 
-    with k1:
-        st.markdown(_kpi_html(int(total), "Total", "lançamentos"), unsafe_allow_html=True)
-    with k2:
-        pct = round(realizados / total * 100, 1) if total else 0.0
-        st.markdown(_kpi_html(int(realizados), "Realizados", f"{pct}%", "green"), unsafe_allow_html=True)
-    with k3:
-        pct = round(parciais / total * 100, 1) if total else 0.0
-        st.markdown(_kpi_html(int(parciais), "Parciais", f"{pct}%", "yellow"), unsafe_allow_html=True)
-    with k4:
-        pct = round(nao / total * 100, 1) if total else 0.0
-        st.markdown(_kpi_html(int(nao), "Não realizados", f"{pct}%", "red"), unsafe_allow_html=True)
-    with k5:
+
+def _card_kpi(
+    titulo: str,
+    valor: int | float,
+    descricao: str,
+    cor: str,
+    progresso: float,
+    percentual: bool = False,
+) -> str:
+    progresso = max(0.0, min(float(progresso), 100.0))
+    valor_formatado = _formatar_numero(valor)
+
+    if percentual:
+        valor_formatado += "%"
+
+    return f"""
+<div class="dash-kpi"
+     style="--kpi-accent:{cor}; --kpi-progress:{progresso:.1f}%">
+    <div class="dash-kpi__label">{html.escape(titulo)}</div>
+    <div class="dash-kpi__value">
+        {html.escape(valor_formatado)}
+    </div>
+    <div class="dash-kpi__detail">
+        {html.escape(descricao)}
+    </div>
+    <div class="dash-kpi__track" aria-hidden="true">
+        <div class="dash-kpi__fill"></div>
+    </div>
+</div>
+    """
+
+
+def _render_kpis(kpis: dict[str, float | int]) -> None:
+    _secao("Indicadores principais", "Base: registros filtrados")
+
+    total = int(kpis["total"])
+    realizados = int(kpis["realizados"])
+    parciais = int(kpis["parciais"])
+    nao_realizados = int(kpis["nao_realizados"])
+    eficiencia = float(kpis["eficiencia"])
+
+    def pct(quantidade: int) -> float:
+        return 100 * quantidade / total if total else 0.0
+
+    especificacoes = [
+        (
+            "Lançamentos",
+            total,
+            "Volume no período selecionado",
+            AZUL,
+            100.0,
+            False,
+        ),
+        (
+            "Realizados",
+            realizados,
+            f"{_formatar_numero(round(pct(realizados), 1))}% do total",
+            VERDE,
+            pct(realizados),
+            False,
+        ),
+        (
+            "Parciais",
+            parciais,
+            f"{_formatar_numero(round(pct(parciais), 1))}% do total",
+            AMARELO,
+            pct(parciais),
+            False,
+        ),
+        (
+            "Não realizados",
+            nao_realizados,
+            f"{_formatar_numero(round(pct(nao_realizados), 1))}% do total",
+            VERMELHO,
+            pct(nao_realizados),
+            False,
+        ),
+        (
+            "Eficiência",
+            eficiencia,
+            "Realizado Total / lançamentos",
+            LARANJA,
+            eficiencia,
+            True,
+        ),
+    ]
+
+    colunas = st.columns(5, gap="small")
+
+    for coluna, dados in zip(colunas, especificacoes):
+        with coluna:
+            st.markdown(
+                _card_kpi(*dados),
+                unsafe_allow_html=True,
+            )
+
+
+def _resumo_operadores(df: pd.DataFrame) -> pd.DataFrame:
+    base = df.assign(
+        _realizado=df["status"].eq("Realizado Total").astype(int)
+    )
+
+    resumo = (
+        base.groupby("operador_exibicao", dropna=False)
+        .agg(
+            total=("status", "size"),
+            realizados=("_realizado", "sum"),
+        )
+        .reset_index()
+    )
+
+    resumo["eficiencia"] = (
+        resumo["realizados"]
+        .div(resumo["total"])
+        .mul(100)
+        .round(1)
+    )
+
+    return resumo
+
+
+def _render_insights(
+    df: pd.DataFrame,
+    kpis: dict[str, float | int],
+) -> None:
+    total = int(kpis["total"])
+
+    if not total:
+        return
+
+    mensagens: list[str] = []
+
+    resumo = _resumo_operadores(df)
+    elegiveis = resumo.loc[resumo["total"].ge(3)]
+
+    if not elegiveis.empty:
+        melhor = elegiveis.sort_values(
+            ["eficiencia", "total", "operador_exibicao"],
+            ascending=[False, False, True],
+        ).iloc[0]
+
+        if float(melhor["eficiencia"]) >= 80:
+            nome = html.escape(str(melhor["operador_exibicao"]))
+
+            mensagens.append(
+                f"<strong>{nome}</strong> apresenta a maior eficiência "
+                f"entre operadores com pelo menos 3 lançamentos: "
+                f"<strong>{_formatar_numero(float(melhor['eficiencia']))}%"
+                f"</strong> em {int(melhor['total'])} registros."
+            )
+
+    ocorrencias = (
+        int(kpis["parciais"])
+        + int(kpis["nao_realizados"])
+    )
+
+    taxa_ocorrencias = 100 * ocorrencias / total
+
+    if taxa_ocorrencias > 35:
+        mensagens.append(
+            "A participação de lançamentos parciais ou não realizados "
+            f"chegou a <strong>"
+            f"{_formatar_numero(round(taxa_ocorrencias, 1))}%"
+            "</strong> no recorte atual."
+        )
+
+    if not mensagens:
+        return
+
+    _secao("Pontos de atenção")
+
+    for mensagem in mensagens[:2]:
         st.markdown(
-            _kpi_html(float(eficiencia), "Eficiência", "Realizado Total", "accent", suffix="%"),
+            f'<div class="dash-insight">{mensagem}</div>',
             unsafe_allow_html=True,
         )
 
-    _inject_count_up_script()
-    st.markdown("<br>", unsafe_allow_html=True)
+
+# ============================================================
+# GRÁFICOS
+# ============================================================
+
+def _render_status(
+    df: pd.DataFrame,
+    eficiencia: float,
+) -> None:
+    with _card_grafico(
+        "Distribuição por status",
+        "COMPOSIÇÃO",
+        "dash_grafico_status",
+    ):
+        contagem = (
+            df["status"]
+            .value_counts()
+            .rename_axis("status")
+            .reset_index(name="quantidade")
+        )
+
+        ordem = [
+            status for status in STATUS_ORDEM
+            if status in contagem["status"].values
+        ]
+
+        ordem += [
+            status for status in contagem["status"].tolist()
+            if status not in ordem
+        ]
+
+        figura = px.pie(
+            contagem,
+            names="status",
+            values="quantidade",
+            color="status",
+            color_discrete_map=CORES_STATUS,
+            category_orders={"status": ordem},
+            hole=0.69,
+        )
+
+        figura.update_traces(
+            sort=False,
+            textinfo="percent",
+            textposition="inside",
+            textfont=dict(size=12, color="#FFFFFF"),
+            marker=dict(line=dict(color="#FFFFFF", width=3)),
+            hovertemplate=(
+                "<b>%{label}</b><br>"
+                "%{value} lançamentos · %{percent}"
+                "<extra></extra>"
+            ),
+        )
+
+        figura.add_annotation(
+            x=0.5,
+            y=0.5,
+            showarrow=False,
+            align="center",
+            text=(
+                f"<b>{_formatar_numero(eficiencia)}%</b>"
+                "<br><span style='font-size:11px'>EFICIÊNCIA</span>"
+            ),
+            font=dict(
+                family="Inter, sans-serif",
+                color=AZUL,
+                size=22,
+            ),
+        )
+
+        _layout_grafico(
+            figura,
+            altura=365,
+            margem_inferior=70,
+        )
+
+        st.plotly_chart(
+            figura,
+            use_container_width=True,
+            config=CONFIG_GRAFICO,
+        )
 
 
-# ===================== INSIGHTS =====================
-def _render_insights(df_f: pd.DataFrame, kpis: dict):
-    insights = []
-    total = kpis["total"]
-    parciais = kpis["parciais"]
-    nao = kpis["nao"]
+def _render_ranking(df: pd.DataFrame) -> None:
+    with _card_grafico(
+        "Eficiência por operador",
+        "RANKING",
+        "dash_grafico_ranking",
+    ):
+        resumo = _resumo_operadores(df)
 
-    if total > 0 and "status" in df_f.columns and "operador_exibicao" in df_f.columns:
-        df_temp = df_f.assign(_is_realizado=df_f["status"].eq("Realizado Total"))
-        rank = (
-            df_temp.groupby("operador_exibicao")
-            .agg(total=("status", "count"), realizados=("_is_realizado", "sum"))
+        if resumo.empty:
+            st.info("Sem operadores para apresentar.")
+            return
+
+        resumo = resumo.sort_values(
+            ["eficiencia", "total", "operador_exibicao"],
+            ascending=[True, True, True],
+        )
+
+        altura = max(365, min(850, 75 + len(resumo) * 37))
+
+        figura = px.bar(
+            resumo,
+            x="eficiencia",
+            y="operador_exibicao",
+            orientation="h",
+            color="eficiencia",
+            color_continuous_scale=ESCALA_EFICIENCIA,
+            range_color=(0, 100),
+            text="eficiencia",
+            custom_data=["total"],
+        )
+
+        figura.update_traces(
+            marker_line_width=0,
+            texttemplate="%{text:.1f}%",
+            textposition="outside",
+            cliponaxis=False,
+            hovertemplate=(
+                "<b>%{y}</b><br>"
+                "Eficiência: %{x:.1f}%<br>"
+                "Lançamentos: %{customdata[0]}"
+                "<extra></extra>"
+            ),
+        )
+
+        figura.update_layout(
+            coloraxis_showscale=False,
+            bargap=0.35,
+        )
+
+        _layout_grafico(
+            figura,
+            altura=altura,
+            margem_inferior=45,
+        )
+
+        figura.update_xaxes(
+            title="Eficiência (%)",
+            range=[0, 115],
+            gridcolor="#F1F5F9",
+            showgrid=True,
+        )
+
+        figura.update_yaxes(title="")
+
+        st.plotly_chart(
+            figura,
+            use_container_width=True,
+            config=CONFIG_GRAFICO,
+        )
+
+
+def _render_volume_operadores(df: pd.DataFrame) -> None:
+    with _card_grafico(
+        "Volume e status por operador",
+        "EQUIPE",
+        "dash_grafico_operadores",
+    ):
+        resumo = (
+            df.groupby(
+                ["operador_exibicao", "status"],
+                dropna=False,
+            )
+            .size()
+            .reset_index(name="quantidade")
+        )
+
+        if resumo.empty:
+            st.info("Sem dados para o comparativo.")
+            return
+
+        ordem_operadores = (
+            df["operador_exibicao"]
+            .value_counts()
+            .index
+            .tolist()
+        )
+
+        figura = px.bar(
+            resumo,
+            x="operador_exibicao",
+            y="quantidade",
+            color="status",
+            color_discrete_map=CORES_STATUS,
+            category_orders={
+                "operador_exibicao": ordem_operadores,
+                "status": STATUS_ORDEM,
+            },
+            barmode="stack",
+        )
+
+        figura.update_traces(
+            hovertemplate=(
+                "<b>%{x}</b><br>"
+                "%{fullData.name}: %{y}"
+                "<extra></extra>"
+            ),
+        )
+
+        _layout_grafico(
+            figura,
+            altura=390,
+            margem_inferior=85,
+        )
+
+        figura.update_layout(
+            bargap=0.38,
+            legend_title_text="",
+        )
+
+        figura.update_xaxes(
+            title="",
+            tickangle=-20,
+        )
+
+        figura.update_yaxes(
+            title="Lançamentos",
+            rangemode="tozero",
+        )
+
+        st.plotly_chart(
+            figura,
+            use_container_width=True,
+            config=CONFIG_GRAFICO,
+        )
+
+
+def _render_clientes(df: pd.DataFrame) -> None:
+    with _card_grafico(
+        "Clientes com maior volume",
+        "TOP 10",
+        "dash_grafico_clientes",
+    ):
+        base = df.assign(
+            _realizado=df["status"].eq("Realizado Total").astype(int)
+        )
+
+        clientes = (
+            base.groupby("cliente_exibicao", dropna=False)
+            .agg(
+                total=("status", "size"),
+                realizados=("_realizado", "sum"),
+            )
             .reset_index()
         )
-        rank["eficiencia"] = (rank["realizados"] / rank["total"] * 100).round(1)
-        rank_valido = rank[rank["total"] >= 3]
 
-        if not rank_valido.empty:
-            melhor = rank_valido.loc[rank_valido["eficiencia"].idxmax()]
-            melhor_nome = html.escape(str(melhor["operador_exibicao"]))
+        clientes["eficiencia"] = (
+            clientes["realizados"]
+            .div(clientes["total"])
+            .mul(100)
+            .round(1)
+        )
 
-            if melhor["eficiencia"] >= 80:
-                insights.append(
-                    f"🏆 <strong>{melhor_nome}</strong> lidera em eficiência "
-                    f"({melhor['eficiencia']}% em {int(melhor['total'])} apontamentos)."
-                )
+        clientes = clientes.sort_values(
+            ["total", "cliente_exibicao"],
+            ascending=[False, True],
+        ).head(10)
 
-            if len(rank_valido) > 1:
-                pior = rank_valido.loc[rank_valido["eficiencia"].idxmin()]
-                pior_nome = html.escape(str(pior["operador_exibicao"]))
+        if clientes.empty:
+            st.info("Sem dados de clientes.")
+            return
 
-                if (
-                    pior["eficiencia"] < 50
-                    and pior["total"] >= 5
-                    and pior["operador_exibicao"] != melhor["operador_exibicao"]
-                ):
-                    insights.append(
-                        f"⚠️ <strong>{pior_nome}</strong> registra a menor eficiência do período "
-                        f"({pior['eficiencia']}% em {int(pior['total'])} apontamentos)."
-                    )
+        figura = px.bar(
+            clientes,
+            x="cliente_exibicao",
+            y="total",
+            color="eficiencia",
+            color_continuous_scale=ESCALA_EFICIENCIA,
+            range_color=(0, 100),
+            text="total",
+            custom_data=["eficiencia"],
+        )
 
-    if total > 0:
-        taxa_problema = round(((parciais + nao) / total * 100), 1)
-        if taxa_problema > 35:
-            insights.append(
-                f"📉 A taxa de ocorrências pendentes (Parcial + Não Realizado) está em "
-                f"<strong>{taxa_problema}%</strong>."
+        figura.update_traces(
+            textposition="outside",
+            cliponaxis=False,
+            marker_line_width=0,
+            hovertemplate=(
+                "<b>%{x}</b><br>"
+                "Lançamentos: %{y}<br>"
+                "Eficiência: %{customdata[0]:.1f}%"
+                "<extra></extra>"
+            ),
+        )
+
+        _layout_grafico(
+            figura,
+            altura=380,
+            margem_inferior=90,
+        )
+
+        figura.update_layout(
+            bargap=0.38,
+            coloraxis_colorbar=dict(
+                title="Eficiência",
+                ticksuffix="%",
+                thickness=11,
+                len=0.72,
+            ),
+        )
+
+        figura.update_xaxes(
+            title="",
+            tickangle=-22,
+        )
+
+        figura.update_yaxes(
+            title="Lançamentos",
+            rangemode="tozero",
+        )
+
+        st.plotly_chart(
+            figura,
+            use_container_width=True,
+            config=CONFIG_GRAFICO,
+        )
+
+
+def _render_evolucao(df: pd.DataFrame) -> None:
+    with _card_grafico(
+        "Evolução das execuções",
+        "POR DIA",
+        "dash_grafico_evolucao",
+    ):
+        base = df.dropna(subset=["data_registro"]).copy()
+
+        if base.empty:
+            st.info("Não há datas válidas para gerar a evolução.")
+            return
+
+        base["dia"] = base["data_registro"].dt.normalize()
+        base["_realizado"] = (
+            base["status"].eq("Realizado Total").astype(int)
+        )
+
+        serie = (
+            base.groupby("dia")
+            .agg(
+                total=("status", "size"),
+                realizados=("_realizado", "sum"),
             )
+            .reset_index()
+            .sort_values("dia")
+        )
 
-    for ins in insights[:3]:
-        st.markdown(f'<div class="insight-box"><span>{ins}</span></div>', unsafe_allow_html=True)
+        serie["eficiencia"] = (
+            serie["realizados"]
+            .div(serie["total"])
+            .mul(100)
+            .round(1)
+        )
 
+        figura = go.Figure()
 
-# ===================== GRÁFICOS =====================
-def _render_graficos(df_f: pd.DataFrame, eficiencia: float):
-    c1, c2 = st.columns(2)
-
-    with c1:
-        with chart_card("🎯", "Distribuição por Status"):
-            if "status" in df_f.columns and not df_f["status"].isna().all():
-                vc = df_f["status"].value_counts().reset_index()
-                vc.columns = ["status", "qtd"]
-                fig = px.pie(
-                    vc, names="status", values="qtd", color="status",
-                    color_discrete_map=CORES_STATUS, hole=0.64,
-                )
-                fig.update_traces(
-                    textposition="inside",
-                    textinfo="percent",
-                    marker=dict(line=dict(color="#FFFFFF", width=2)),
-                    hovertemplate="<b>%{label}</b><br>%{value} lançamentos (%{percent})<extra></extra>",
-                )
-                fig.add_annotation(
-                    text=f"<b style='font-size:22px;color:{COR_AZUL}'>{eficiencia}%</b><br>"
-                         f"<span style='font-size:10px;color:#94A3B8'>EFICIÊNCIA</span>",
-                    x=0.5, y=0.5, showarrow=False, align="center",
-                )
-                fig = _layout_padrao(fig, 330, margem_b=50)
-                st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
-            else:
-                st.info("Sem dados de status.")
-
-    with c2:
-        with chart_card("📈", "Ranking de Eficiência por Operador"):
-            if "operador_exibicao" in df_f.columns and "status" in df_f.columns:
-                rank_plot = (
-                    df_f.groupby("operador_exibicao")
-                    .agg(total=("status", "count"), realizados=("status", lambda x: (x == "Realizado Total").sum()))
-                    .reset_index()
-                )
-                rank_plot["eficiencia"] = (rank_plot["realizados"] / rank_plot["total"] * 100).round(1)
-                rank_plot = rank_plot.sort_values(by=["eficiencia", "total"], ascending=[True, True])
-
-                if not rank_plot.empty:
-                    fig2 = px.bar(
-                        rank_plot, x="eficiencia", y="operador_exibicao", orientation="h",
-                        color="eficiencia", color_continuous_scale=["#EF4444", "#F59E0B", "#10B981"],
-                        text="eficiencia",
-                    )
-                    marker_extra = dict(cornerradius=6) if SUPORTA_CORNER_RADIUS else {}
-                    fig2.update_traces(
-                        texttemplate="%{text}%", textposition="outside",
-                        marker_line_width=0,
-                        hovertemplate="<b>%{y}</b><br>Eficiência: %{x}%<extra></extra>",
-                        **({"marker": marker_extra} if marker_extra else {}),
-                    )
-                    fig2.update_layout(coloraxis_showscale=False)
-                    fig2 = _layout_padrao(fig2, max(330, 32 * len(rank_plot) + 60), margem_b=25)
-                    fig2.update_yaxes(title="")
-                    fig2.update_xaxes(title="Eficiência %", gridcolor="#F1F5F9", range=[0, 115])
-                    st.plotly_chart(fig2, use_container_width=True, config={"displayModeBar": False})
-                else:
-                    st.info("Sem dados suficientes.")
-            else:
-                st.info("Sem dados de operador.")
-
-    with chart_card("👥", "Volume e Status por Operador"):
-        if "status" in df_f.columns and "operador_exibicao" in df_f.columns:
-            comp = df_f.groupby(["operador_exibicao", "status"]).size().reset_index(name="qtd")
-            fig_comp = px.bar(
-                comp, x="operador_exibicao", y="qtd", color="status",
-                barmode="stack", color_discrete_map=CORES_STATUS,
+        figura.add_trace(
+            go.Scatter(
+                x=serie["dia"],
+                y=serie["total"],
+                name="Volume",
+                mode="lines+markers",
+                line=dict(
+                    color=AZUL,
+                    width=3,
+                    shape="linear",
+                ),
+                marker=dict(
+                    color=LARANJA,
+                    size=8,
+                    line=dict(color="#FFFFFF", width=1.5),
+                ),
+                fill="tozeroy",
+                fillcolor="rgba(0,30,87,.055)",
+                hovertemplate=(
+                    "Volume: %{y}"
+                    "<extra></extra>"
+                ),
             )
-            fig_comp.update_traces(hovertemplate="<b>%{x}</b><br>%{fullData.name}: %{y}<extra></extra>")
-            fig_comp.update_layout(xaxis_title="", yaxis_title="Lançamentos", legend_title="")
-            fig_comp.update_xaxes(tickangle=-15)
-            fig_comp.update_yaxes(gridcolor="#F1F5F9")
-            fig_comp = _layout_padrao(fig_comp, 360, margem_b=60)
-            st.plotly_chart(fig_comp, use_container_width=True, config={"displayModeBar": False})
-        else:
-            st.info("Sem dados para comparativo.")
+        )
 
-    if "cliente_nome" in df_f.columns:
-        with chart_card("🏢", "Top Clientes (Volume + Eficiência)"):
-            cli = (
-                df_f.groupby("cliente_nome")
-                .agg(total=("status", "count"), realizados=("status", lambda x: (x == "Realizado Total").sum()))
-                .reset_index()
+        figura.add_trace(
+            go.Scatter(
+                x=serie["dia"],
+                y=serie["eficiencia"],
+                name="Eficiência",
+                mode="lines+markers",
+                yaxis="y2",
+                line=dict(
+                    color=VERDE,
+                    width=2.5,
+                    dash="dot",
+                ),
+                marker=dict(size=7),
+                hovertemplate=(
+                    "Eficiência: %{y:.1f}%"
+                    "<extra></extra>"
+                ),
             )
-            cli["eficiencia"] = (cli["realizados"] / cli["total"] * 100).round(1)
-            cli = cli.sort_values("total", ascending=False).head(10)
+        )
 
-            if not cli.empty:
-                fig_cli = px.bar(
-                    cli, x="cliente_nome", y="total", color="eficiencia",
-                    color_continuous_scale=["#EF4444", "#F59E0B", "#10B981"], text="total",
-                )
-                marker_extra = dict(cornerradius=6) if SUPORTA_CORNER_RADIUS else {}
-                fig_cli.update_traces(
-                    textposition="outside",
-                    hovertemplate="<b>%{x}</b><br>Volume: %{y}<br>Eficiência: %{marker.color}%<extra></extra>",
-                    **({"marker": marker_extra} if marker_extra else {}),
-                )
-                fig_cli.update_layout(xaxis_title="", yaxis_title="Lançamentos", coloraxis_colorbar=dict(title="Eficiência %"))
-                fig_cli.update_xaxes(tickangle=-20)
-                fig_cli = _layout_padrao(fig_cli, 360, margem_b=55)
-                st.plotly_chart(fig_cli, use_container_width=True, config={"displayModeBar": False})
-            else:
-                st.info("Sem dados de clientes.")
+        _layout_grafico(
+            figura,
+            altura=370,
+            margem_inferior=65,
+        )
 
-    with chart_card("📈", "Evolução Temporal das Execuções"):
-        if "data_registro" in df_f.columns:
-            tmp = df_f.dropna(subset=["data_registro"]).copy()
-            if not tmp.empty:
-                tmp["dia"] = tmp["data_registro"].dt.date
-                serie = tmp.groupby("dia").size().reset_index(name="quantidade").sort_values("dia")
+        figura.update_layout(
+            hovermode="x unified",
+            xaxis=dict(
+                title="",
+                tickformat="%d/%m/%Y",
+            ),
+            yaxis=dict(
+                title="Lançamentos",
+                gridcolor="#F1F5F9",
+                rangemode="tozero",
+            ),
+            yaxis2=dict(
+                title="Eficiência (%)",
+                overlaying="y",
+                side="right",
+                range=[0, 105],
+                showgrid=False,
+                ticksuffix="%",
+            ),
+        )
 
-                if "status" in tmp.columns:
-                    tmp["realizado"] = (tmp["status"] == "Realizado Total").astype(int)
-                    efic = tmp.groupby("dia").agg(total=("status", "count"), real=("realizado", "sum")).reset_index()
-                    efic["eficiencia"] = (efic["real"] / efic["total"] * 100).round(1)
-
-                    fig3 = go.Figure()
-                    fig3.add_trace(go.Scatter(
-                        x=serie["dia"], y=serie["quantidade"], mode="lines+markers", name="Volume",
-                        line=dict(color=COR_AZUL, width=3, shape="spline"),
-                        marker=dict(color=COR_LARANJA, size=7),
-                        fill="tozeroy", fillcolor="rgba(0, 30, 87, 0.06)",
-                        hovertemplate="<b>%{x}</b><br>Volume: %{y}<extra></extra>",
-                    ))
-                    fig3.add_trace(go.Scatter(
-                        x=efic["dia"], y=efic["eficiencia"], mode="lines+markers", name="Eficiência %",
-                        yaxis="y2", line=dict(color=COR_VERDE, width=2.5, dash="dot"), marker=dict(size=6),
-                        hovertemplate="<b>%{x}</b><br>Eficiência: %{y}%<extra></extra>",
-                    ))
-                    fig3.update_layout(
-                        yaxis=dict(title="Volume", gridcolor="#F1F5F9"),
-                        yaxis2=dict(title="Eficiência %", overlaying="y", side="right", range=[0, 105], showgrid=False),
-                        hovermode="x unified",
-                    )
-                else:
-                    fig3 = go.Figure(data=[go.Scatter(
-                        x=serie["dia"], y=serie["quantidade"], mode="lines+markers",
-                        line=dict(color=COR_AZUL, width=3, shape="spline"),
-                        marker=dict(color=COR_LARANJA, size=8),
-                        fill="tozeroy", fillcolor="rgba(0, 30, 87, 0.06)",
-                    )])
-
-                fig3 = _layout_padrao(fig3, 330, margem_b=45)
-                st.plotly_chart(fig3, use_container_width=True, config={"displayModeBar": False})
-            else:
-                st.info("Sem dados suficientes para gerar evolução.")
-        else:
-            st.info("Sem dados de data para gerar evolução.")
+        st.plotly_chart(
+            figura,
+            use_container_width=True,
+            config=CONFIG_GRAFICO,
+        )
 
 
-# ===================== TABELA =====================
-def _render_tabela(df_f: pd.DataFrame):
-    st.markdown('<p class="section-title">📋 Lançamentos Registrados</p>', unsafe_allow_html=True)
+def _render_graficos(
+    df: pd.DataFrame,
+    eficiencia: float,
+) -> None:
+    _secao("Análise visual")
 
-    cols = [c for c in ["data_registro", "operador_nome", "cliente_nome", "status", "justificativa"] if c in df_f.columns]
+    coluna_1, coluna_2 = st.columns(2, gap="medium")
 
-    if not cols:
-        st.info("Sem lançamentos para listar.")
-        return
+    with coluna_1:
+        _render_status(df, eficiencia)
 
-    tabela = df_f[cols].sort_values(
-        "data_registro" if "data_registro" in cols else cols[0], ascending=False
-    ).copy()
+    with coluna_2:
+        _render_ranking(df)
 
-    if "data_registro" in tabela.columns:
-        tabela["data_registro"] = pd.to_datetime(
-            tabela["data_registro"], errors="coerce"
-        ).dt.strftime("%d/%m/%Y %H:%M")
-
-    rename_map = {
-        "data_registro": "Data",
-        "operador_nome": "Operador",
-        "cliente_nome": "Cliente",
-        "status": "Status",
-        "justificativa": "Justificativa",
-    }
-    tabela = tabela.rename(columns={k: v for k, v in rename_map.items() if k in tabela.columns})
-
-    st.caption(f"Exibindo {min(50, len(tabela))} de {len(tabela)} registros filtrados")
-    st.dataframe(tabela.head(50), use_container_width=True, hide_index=True, height=400)
+    _render_volume_operadores(df)
+    _render_clientes(df)
+    _render_evolucao(df)
 
 
-# ===================== ENTRY POINT =====================
-def render_dashboard(api_get_fn: Callable[[str], Any]):
-    """Ponto de entrada único do Dashboard Gerencial."""
-    if api_get_fn is None:
+# ============================================================
+# TABELA DE REGISTROS
+# ============================================================
+
+def _render_tabela(df: pd.DataFrame) -> None:
+    _secao(
+        "Lançamentos registrados",
+        "50 registros mais recentes do recorte",
+    )
+
+    colunas = [
+        "data_registro",
+        "operador_nome",
+        "cliente_nome",
+        "status",
+        "justificativa",
+    ]
+
+    tabela = (
+        df[colunas]
+        .sort_values(
+            "data_registro",
+            ascending=False,
+            na_position="last",
+            kind="stable",
+        )
+        .head(50)
+        .copy()
+    )
+
+    tabela["data_registro"] = (
+        tabela["data_registro"]
+        .dt.strftime("%d/%m/%Y %H:%M")
+        .fillna("Data não informada")
+    )
+
+    for coluna in (
+        "operador_nome",
+        "cliente_nome",
+        "justificativa",
+    ):
+        tabela[coluna] = tabela[coluna].replace("", "—")
+
+    tabela = tabela.rename(
+        columns={
+            "data_registro": "Data",
+            "operador_nome": "Operador",
+            "cliente_nome": "Cliente",
+            "status": "Status",
+            "justificativa": "Justificativa",
+        }
+    )
+
+    st.caption(
+        f"Exibindo {len(tabela)} de "
+        f"{len(df)} lançamentos filtrados."
+    )
+
+    st.dataframe(
+        tabela,
+        use_container_width=True,
+        hide_index=True,
+        height=410,
+    )
+
+
+# ============================================================
+# PONTO DE ENTRADA
+# ============================================================
+
+def render_dashboard(
+    api_get_fn: Callable[[str], Any],
+) -> None:
+    """Renderiza o Dashboard Gerencial da Duarte Performance."""
+    if not callable(api_get_fn):
         st.error(
-            "❌ Erro de configuração: `render_dashboard` foi chamado sem uma função "
-            "de acesso à API (`api_get_fn`). Ajuste a chamada em `app.py`, por exemplo: "
-            "`render_dashboard(api_get)`."
+            "O dashboard precisa receber a função de acesso à API. "
+            "No app.py, utilize: render_dashboard(api_get)."
         )
         return
 
-    _inject_css()
-
-    st.markdown(
-        """
-    <div class="dash-header">
-        <h2>📊 Dashboard Gerencial</h2>
-        <p>Visão consolidada das execuções operacionais · performance da equipe</p>
-        <span class="dash-badge">⚡ PERFORMANCE · DUARTE GESTÃO</span>
-        <span class="dash-live"><span class="dot"></span> DADOS AO VIVO · ATUALIZA A CADA 15S</span>
-    </div>
-    """,
-        unsafe_allow_html=True,
-    )
+    _injetar_css()
+    _render_cabecalho()
 
     df = _carregar_dataframe(api_get_fn)
+
     if df is None:
-        st.error("Erro ao carregar registros da API.")
+        st.error(
+            "Não foi possível carregar os registros. "
+            "Confira a conexão com a API e tente novamente."
+        )
         return
+
     if df.empty:
-        st.info("Nenhum registro encontrado.")
+        st.info(
+            "Ainda não há lançamentos registrados para apresentar "
+            "neste dashboard."
+        )
         return
 
-    df_f = _render_filtros(df)
+    df_filtrado = _render_filtros(df)
 
-    if df_f.empty:
-        st.warning("Nenhum registro encontrado com os filtros selecionados.")
+    if df_filtrado.empty:
+        st.warning(
+            "Nenhum lançamento corresponde aos filtros selecionados."
+        )
         return
 
-    kpis = _calcular_kpis(df_f)
+    kpis = _calcular_kpis(df_filtrado)
+
     _render_kpis(kpis)
-    _render_insights(df_f, kpis)
-    _render_graficos(df_f, kpis["eficiencia"])
-    _render_tabela(df_f)
+    _render_insights(df_filtrado, kpis)
+    _render_graficos(
+        df_filtrado,
+        float(kpis["eficiencia"]),
+    )
+    _render_tabela(df_filtrado)
