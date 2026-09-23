@@ -138,3 +138,22 @@ div[role="radiogroup"] > label[data-checked="true"] {
 ::-webkit-scrollbar-thumb:hover {
     background: var(--accent-orange);
 }
+
+/* Texto claro somente nas faixas escuras personalizadas */
+.editor-header h2,
+.admin-hero h2,
+.lanc-hero h2 {
+    color: #FFFFFF !important;
+}
+
+/* Texto escuro nos cartões claros que contêm HTML próprio */
+.admin-card,
+.admin-card h4,
+.admin-card li,
+.backup-card,
+.backup-card strong,
+.backup-card li,
+.lanc-shell,
+.admin-box {
+    color: #0F172A;
+}
