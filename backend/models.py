@@ -1,15 +1,27 @@
 """
-Definições dos Modelos SQLAlchemy do Banco de Dados.
+Modelos SQLAlchemy — Duarte Performance.
+
+Atenção: não adicionar colunas a tabelas existentes apenas neste
+arquivo. Alterações de estrutura do PostgreSQL exigem migração.
 """
-from sqlalchemy import Column, Integer, String, Text, DateTime
-from database import Base
+
 import datetime
+
+from sqlalchemy import Column, DateTime, Integer, String, Text
+
+from database import Base
+
 
 class Usuario(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
-    username = Column(String(120), unique=True, nullable=False, index=True)
+    username = Column(
+        String(120),
+        unique=True,
+        nullable=False,
+        index=True,
+    )
     password_hash = Column(String(255), nullable=False)
     role = Column(String(50), default="Operador")
     nome = Column(String(120), nullable=True)
@@ -25,7 +37,10 @@ class RegistroModel(Base):
     status = Column(String(120), nullable=True)
     justificativa = Column(Text, nullable=True)
     periodo = Column(String(50), nullable=True)
-    data_registro = Column(DateTime, default=datetime.datetime.utcnow)
+    data_registro = Column(
+        DateTime,
+        default=datetime.datetime.utcnow,
+    )
 
 
 class CronogramaModel(Base):
@@ -49,7 +64,10 @@ class SolicitacaoSenhaModel(Base):
     email = Column(String(120), nullable=True)
     telefone = Column(String(50), nullable=True)
     status = Column(String(50), default="pendente")
-    solicitado_em = Column(DateTime, default=datetime.datetime.utcnow)
+    solicitado_em = Column(
+        DateTime,
+        default=datetime.datetime.utcnow,
+    )
 
 
 class LogAtividade(Base):
@@ -59,4 +77,7 @@ class LogAtividade(Base):
     usuario = Column(String(120), nullable=False)
     acao = Column(String(255), nullable=False)
     detalhes = Column(Text, nullable=True)
-    data_hora = Column(DateTime, default=datetime.datetime.utcnow)
+    data_hora = Column(
+        DateTime,
+        default=datetime.datetime.utcnow,
+    )

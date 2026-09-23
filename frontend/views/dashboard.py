@@ -4,17 +4,15 @@ Sistema: Duarte Performance — Duarte Gestão em Saúde
 
 Dashboard gerencial de execuções operacionais.
 
-Integração:
+Uso no app.py:
     from views.dashboard import render_dashboard
     render_dashboard(api_get)
-
-A função api_get deve aceitar o caminho da rota e retornar um objeto
-compatível com requests.Response.
 """
 
 from __future__ import annotations
 
 import html
+import json
 import unicodedata
 from contextlib import contextmanager
 from datetime import datetime, timedelta
@@ -24,6 +22,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
+import streamlit.components.v1 as components
 
 try:
     from zoneinfo import ZoneInfo
@@ -34,12 +33,11 @@ except Exception:
 
 
 # ============================================================
-# IDENTIDADE VISUAL DUARTE
+# IDENTIDADE VISUAL
 # ============================================================
 
 AZUL = "#001E57"
 AZUL_MEDIO = "#0B296B"
-AZUL_ESCURO = "#030A1A"
 LARANJA = "#FF9200"
 LARANJA_CLARO = "#FFB84D"
 
@@ -51,8 +49,6 @@ GRAFITE = "#64748B"
 
 TEXTO = "#0F172A"
 TEXTO_SECUNDARIO = "#64748B"
-BORDA = "#E2E8F0"
-FUNDO_SUAVE = "#F8FAFC"
 
 STATUS_ORDEM = [
     "Realizado Total",
@@ -71,9 +67,9 @@ CORES_STATUS = {
 }
 
 ESCALA_EFICIENCIA = [
-    [0.00, VERMELHO],
-    [0.50, AMARELO],
-    [1.00, VERDE],
+    [0.0, VERMELHO],
+    [0.5, AMARELO],
+    [1.0, VERDE],
 ]
 
 CONFIG_GRAFICO = {
@@ -83,11 +79,36 @@ CONFIG_GRAFICO = {
 
 
 # ============================================================
+# HELPERS DE HTML
+# ============================================================
+
+def _html_em_uma_linha(conteudo: str) -> str:
+    """
+    Evita que o Markdown do Streamlit interprete HTML recuado
+    como bloco de código.
+
+    Usar este helper para TODOS os fragmentos HTML renderizados
+    com st.markdown(..., unsafe_allow_html=True).
+    """
+    return " ".join(
+        linha.strip()
+        for linha in conteudo.splitlines()
+        if linha.strip()
+    )
+
+
+def _render_html(conteudo: str) -> None:
+    st.markdown(
+        _html_em_uma_linha(conteudo),
+        unsafe_allow_html=True,
+    )
+
+
+# ============================================================
 # NORMALIZAÇÃO E ACESSO A DADOS
 # ============================================================
 
 def _texto(valor: Any) -> str:
-    """Converte valores opcionais em texto limpo para exibição."""
     if valor is None:
         return ""
 
@@ -97,16 +118,17 @@ def _texto(valor: Any) -> str:
     except (TypeError, ValueError):
         pass
 
-    texto = str(valor).strip()
+    resultado = str(valor).strip()
 
-    if texto.casefold() in {"nan", "none", "null", "nat"}:
+    if resultado.casefold() in {"nan", "none", "null", "nat"}:
         return ""
 
-    return texto
+    return resultado
 
 
 def _sem_acentos(valor: str) -> str:
     normalizado = unicodedata.normalize("NFKD", valor)
+
     return "".join(
         caractere
         for caractere in normalizado
@@ -116,13 +138,11 @@ def _sem_acentos(valor: str) -> str:
 
 def _chave_nome(nome: Any) -> str:
     """
-    Normaliza o nome completo para agrupamento.
-
-    Nomes distintos com o mesmo primeiro nome NÃO são unidos
-    automaticamente, evitando misturar operadores diferentes.
+    Normaliza o nome completo, sem juntar operadores diferentes
+    que compartilham apenas o primeiro nome.
     """
-    texto = " ".join(_texto(nome).split())
-    return _sem_acentos(texto).casefold()
+    nome_limpo = " ".join(_texto(nome).split())
+    return _sem_acentos(nome_limpo).casefold()
 
 
 def _rotulo_operador(nomes: pd.Series) -> str:
@@ -135,8 +155,8 @@ def _rotulo_operador(nomes: pd.Series) -> str:
     return max(validos, key=lambda nome: (len(nome), nome))
 
 
-def _normalizar_status(status: Any) -> str:
-    texto = _texto(status)
+def _normalizar_status(valor: Any) -> str:
+    texto = _texto(valor)
 
     if not texto:
         return "Não Informado"
@@ -161,12 +181,6 @@ def _agora_br() -> datetime:
 
 
 def _converter_data_br(valor: Any) -> pd.Timestamp:
-    """
-    Converte datas individuais preservando datas locais sem fuso.
-
-    Datas que chegam com offset/fuso são convertidas para São Paulo
-    antes da remoção do timezone, para filtros e gráficos consistentes.
-    """
     if valor is None or _texto(valor) == "":
         return pd.NaT
 
@@ -179,24 +193,29 @@ def _converter_data_br(valor: Any) -> pd.Timestamp:
         if data.tzinfo is not None:
             if FUSO_BR is not None:
                 data = data.tz_convert(FUSO_BR)
+
             data = data.tz_localize(None)
 
         return data
+
     except (TypeError, ValueError, OverflowError):
         return pd.NaT
 
 
-def _buscar_registros(api_get_fn: Callable[[str], Any]) -> Optional[list[dict]]:
+def _buscar_registros(
+    api_get_fn: Callable[[str], Any],
+) -> Optional[list[dict]]:
     """
-    Busca registros sem cache compartilhado entre sessões autenticadas.
-
-    Retorna None para erro de comunicação/formato e lista vazia
-    para uma resposta válida sem registros.
+    Busca sem cache global, pois os registros são acessados
+    em sessões autenticadas.
     """
     try:
         resposta = api_get_fn("/registros/")
 
-        if resposta is None or getattr(resposta, "status_code", None) != 200:
+        if resposta is None:
+            return None
+
+        if getattr(resposta, "status_code", None) != 200:
             return None
 
         dados = resposta.json()
@@ -207,7 +226,11 @@ def _buscar_registros(api_get_fn: Callable[[str], Any]) -> Optional[list[dict]]:
         if not isinstance(dados, list):
             return None
 
-        return [item for item in dados if isinstance(item, dict)]
+        return [
+            item
+            for item in dados
+            if isinstance(item, dict)
+        ]
 
     except Exception:
         return None
@@ -265,14 +288,15 @@ def _carregar_dataframe(
     )
 
     df["cliente_exibicao"] = df["cliente_nome"].replace(
-        "", "Não informado"
+        "",
+        "Não informado",
     )
 
     return df
 
 
 # ============================================================
-# DESIGN SYSTEM
+# CSS — DESIGN SYSTEM DUARTE
 # ============================================================
 
 def _injetar_css() -> None:
@@ -281,106 +305,212 @@ def _injetar_css() -> None:
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
 
-@keyframes duarteEntrance {
+@keyframes duarteRise {
     from {
         opacity: 0;
         transform: translateY(14px);
     }
+
     to {
         opacity: 1;
         transform: translateY(0);
     }
 }
 
-@keyframes duarteGradient {
-    0%, 100% { background-position: 0% 50%; }
-    50% { background-position: 100% 50%; }
+@keyframes duarteBorderFlow {
+    0%, 100% {
+        background-position: 50% 0%;
+    }
+
+    50% {
+        background-position: 50% 100%;
+    }
 }
 
-@keyframes duarteShine {
-    from { transform: translateX(-160%) rotate(20deg); }
-    to { transform: translateX(370%) rotate(20deg); }
+@keyframes duarteHeroGlow {
+    0%, 100% {
+        opacity: .35;
+        transform: translate3d(0, 0, 0);
+    }
+
+    50% {
+        opacity: .70;
+        transform: translate3d(-24px, 8px, 0);
+    }
+}
+
+@keyframes duarteCardShine {
+    from {
+        transform: translateX(-180%) skewX(-22deg);
+    }
+
+    to {
+        transform: translateX(340%) skewX(-22deg);
+    }
+}
+
+@keyframes duarteProgressReveal {
+    from {
+        transform: scaleX(0);
+    }
+
+    to {
+        transform: scaleX(1);
+    }
+}
+
+@keyframes duarteValueArrival {
+    from {
+        opacity: .72;
+        transform: translateY(5px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 .dash-hero,
 .dash-kpi,
 .dash-section,
-.dash-insight {
+.dash-insight,
+.dash-chart-title {
     font-family: Inter, system-ui, -apple-system, sans-serif;
     -webkit-font-smoothing: antialiased;
 }
+
+/* CABEÇALHO */
 
 .dash-hero {
     position: relative;
     isolation: isolate;
     overflow: hidden;
-    padding: clamp(24px, 3vw, 38px);
-    margin: 0 0 22px;
-    border: 1px solid rgba(255,255,255,.12);
-    border-left: 6px solid #FF9200;
-    border-radius: 24px;
-    color: #FFFFFF;
+
+    min-height: 218px;
+    padding: clamp(24px, 3vw, 36px);
+    margin-bottom: 24px;
+
+    border: 1px solid rgba(255,255,255,.10);
+    border-radius: 19px;
+
     background:
-        radial-gradient(circle at 88% 15%, rgba(255,146,0,.17), transparent 29%),
-        linear-gradient(115deg, #030A1A 0%, #001E57 49%, #0B296B 100%);
-    background-size: 300% 300%;
-    box-shadow: 0 20px 48px rgba(0,30,87,.20);
-    animation:
-        duarteEntrance .55s ease-out both,
-        duarteGradient 18s ease-in-out infinite;
+        radial-gradient(
+            circle at 78% 105%,
+            rgba(255,146,0,.11),
+            transparent 37%
+        ),
+        linear-gradient(
+            108deg,
+            #09162F 0%,
+            #101E3D 51%,
+            #242329 100%
+        );
+
+    box-shadow:
+        0 22px 42px rgba(0,30,87,.14),
+        0 7px 16px rgba(0,30,87,.08);
+
+    color: #FFFFFF;
+    animation: duarteRise .55s ease-out both;
+}
+
+.dash-hero::before {
+    content: "";
+
+    position: absolute;
+    z-index: 2;
+    top: 0;
+    bottom: 0;
+    left: 0;
+
+    width: 4px;
+
+    background: linear-gradient(
+        180deg,
+        #E67900 0%,
+        #FF9200 26%,
+        #FFE2B0 48%,
+        #FF9200 69%,
+        #D96C00 100%
+    );
+
+    background-size: 100% 300%;
+
+    box-shadow:
+        0 0 14px rgba(255,146,0,.65),
+        3px 0 22px rgba(255,146,0,.20);
+
+    animation: duarteBorderFlow 4.5s ease-in-out infinite;
 }
 
 .dash-hero::after {
     content: "";
+
     position: absolute;
     z-index: -1;
-    top: -100px;
-    right: 12%;
-    width: 100px;
-    height: 420px;
-    background: rgba(255,255,255,.055);
-    filter: blur(18px);
-    transform: rotate(20deg);
-    animation: duarteShine 13s ease-in-out 1.5s infinite;
+
+    width: 310px;
+    height: 310px;
+
+    right: -95px;
+    top: -135px;
+
+    border-radius: 50%;
+
+    background: radial-gradient(
+        circle,
+        rgba(255,146,0,.15) 0%,
+        rgba(255,146,0,.06) 37%,
+        transparent 72%
+    );
+
+    pointer-events: none;
+    animation: duarteHeroGlow 9s ease-in-out infinite;
 }
 
 .dash-hero__eyebrow {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
-    color: #FFB84D;
-    font-size: .70rem;
-    font-weight: 800;
-    letter-spacing: .16em;
+    gap: 9px;
+
+    color: #FFC373;
+
+    font-size: .68rem;
+    font-weight: 850;
+    letter-spacing: .15em;
     text-transform: uppercase;
 }
 
 .dash-hero__eyebrow::before {
     content: "";
-    display: inline-block;
-    width: 18px;
-    height: 3px;
+
+    width: 17px;
+    height: 2px;
+
     border-radius: 99px;
     background: #FF9200;
 }
 
 .dash-hero h1 {
-    position: relative;
-    margin: 11px 0 7px;
+    margin: 18px 0 10px;
+
     color: #FFFFFF;
-    font-size: clamp(1.75rem, 3vw, 2.55rem);
-    font-weight: 850;
-    letter-spacing: -.055em;
-    line-height: 1.12;
+
+    font-size: clamp(1.7rem, 2.8vw, 2.45rem);
+    font-weight: 900;
+    letter-spacing: -.05em;
+    line-height: 1.13;
 }
 
 .dash-hero p {
-    position: relative;
+    max-width: 710px;
     margin: 0;
-    max-width: 720px;
-    color: #CED8E9;
-    font-size: .93rem;
-    line-height: 1.6;
+
+    color: #CFD7E6;
+
+    font-size: .90rem;
+    line-height: 1.65;
 }
 
 .dash-hero__footer {
@@ -388,67 +518,106 @@ def _injetar_css() -> None:
     flex-wrap: wrap;
     align-items: center;
     gap: 9px;
-    margin-top: 20px;
+
+    margin-top: 21px;
 }
 
 .dash-hero__tag {
     display: inline-flex;
     align-items: center;
-    min-height: 30px;
+
+    min-height: 29px;
     padding: 5px 11px;
+
     border: 1px solid rgba(255,255,255,.16);
     border-radius: 999px;
-    background: rgba(255,255,255,.08);
+
+    background: rgba(255,255,255,.07);
+    backdrop-filter: blur(8px);
+
     color: #F8FAFC;
-    font-size: .70rem;
-    font-weight: 700;
+
+    font-size: .67rem;
+    font-weight: 750;
 }
 
 .dash-hero__tag--orange {
-    border-color: rgba(255,146,0,.3);
-    background: rgba(255,146,0,.16);
+    border-color: rgba(255,146,0,.35);
+    background: rgba(255,146,0,.13);
     color: #FFD29A;
 }
+
+/* TÍTULOS DE SEÇÃO */
 
 .dash-section {
     display: flex;
     align-items: center;
     gap: 10px;
-    margin: 19px 0 12px;
+
+    margin: 22px 0 13px;
+
     color: #001E57;
-    font-size: 1.02rem;
-    font-weight: 800;
+
+    font-size: 1rem;
+    font-weight: 850;
     letter-spacing: -.025em;
 }
 
 .dash-section::before {
     content: "";
+
+    width: 4px;
+    height: 20px;
     flex: 0 0 4px;
-    height: 21px;
+
     border-radius: 99px;
     background: #FF9200;
 }
 
 .dash-section__detail {
     margin-left: auto;
+
     color: #64748B;
-    font-size: .73rem;
+
+    font-size: .70rem;
     font-weight: 600;
     letter-spacing: 0;
 }
 
+/* CARDS DE KPI */
+
 .dash-kpi {
     position: relative;
+    isolation: isolate;
     overflow: hidden;
-    min-height: 153px;
+
     height: 100%;
-    padding: 18px 17px 17px;
+    min-height: 165px;
+
+    padding: 20px 16px 17px;
+
     border: 1px solid #E2E8F0;
     border-top: 3px solid var(--kpi-accent, #001E57);
     border-radius: 17px;
-    background: linear-gradient(160deg, #FFFFFF, #FBFCFE);
-    box-shadow: 0 8px 24px rgba(0,30,87,.055);
-    animation: duarteEntrance .5s ease-out both;
+
+    background:
+        radial-gradient(
+            circle at 100% 0%,
+            var(--kpi-wash, rgba(0,30,87,.045)),
+            transparent 44%
+        ),
+        linear-gradient(
+            155deg,
+            #FFFFFF 0%,
+            #FBFCFF 100%
+        );
+
+    box-shadow:
+        0 10px 25px rgba(0,30,87,.06),
+        0 1px 3px rgba(0,30,87,.035);
+
+    animation: duarteRise .52s ease-out both;
+
     transition:
         transform .25s ease,
         box-shadow .25s ease,
@@ -456,65 +625,165 @@ def _injetar_css() -> None:
 }
 
 .dash-kpi:hover {
-    transform: translateY(-4px);
-    border-color: rgba(255,146,0,.45);
-    box-shadow: 0 16px 32px rgba(0,30,87,.11);
+    transform: translateY(-5px);
+
+    border-color: rgba(255,146,0,.48);
+    border-top-color: var(--kpi-accent, #001E57);
+
+    box-shadow:
+        0 19px 37px rgba(0,30,87,.12),
+        0 5px 12px rgba(255,146,0,.055);
+}
+
+.dash-kpi::after {
+    content: "";
+
+    position: absolute;
+    z-index: -1;
+
+    top: -35%;
+    left: -30%;
+
+    width: 36%;
+    height: 180%;
+
+    background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(255,255,255,.85),
+        transparent
+    );
+
+    transform: translateX(-180%) skewX(-22deg);
+    pointer-events: none;
+}
+
+.dash-kpi:hover::after {
+    animation: duarteCardShine .85s ease-out 1;
+}
+
+.dash-kpi__top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+
+    margin-bottom: 16px;
 }
 
 .dash-kpi__label {
-    margin: 0 0 13px;
-    color: #64748B;
-    font-size: .69rem;
-    font-weight: 800;
-    letter-spacing: .075em;
+    margin: 0;
+
+    color: #52637C;
+
+    font-size: .65rem;
+    font-weight: 850;
+    letter-spacing: .065em;
+    line-height: 1.3;
     text-transform: uppercase;
 }
 
-.dash-kpi__value {
-    margin: 0;
+.dash-kpi__symbol {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    width: 26px;
+    height: 26px;
+    flex: 0 0 26px;
+
+    border: 1px solid rgba(0,30,87,.10);
+    border-radius: 9px;
+
+    background: var(--kpi-wash, rgba(0,30,87,.05));
+
     color: var(--kpi-accent, #001E57);
-    font-size: clamp(1.55rem, 2.3vw, 2rem);
-    font-weight: 850;
+
+    font-size: .77rem;
+    font-weight: 900;
+    font-style: normal;
+}
+
+.dash-kpi__value {
+    min-height: 36px;
+    margin: 0;
+
+    color: var(--kpi-accent, #001E57);
+
+    font-size: clamp(1.63rem, 2.15vw, 2rem);
+    font-weight: 900;
     letter-spacing: -.065em;
     line-height: 1.1;
+
     font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.dash-kpi__value.is-animating {
+    animation: duarteValueArrival .36s ease-out both;
 }
 
 .dash-kpi__detail {
-    margin-top: 10px;
+    min-height: 27px;
+    margin-top: 7px;
+
     color: #64748B;
-    font-size: .72rem;
+
+    font-size: .68rem;
     font-weight: 600;
+    line-height: 1.4;
 }
 
 .dash-kpi__track {
     height: 5px;
-    margin-top: 14px;
+    margin-top: 11px;
+
     overflow: hidden;
+
     border-radius: 99px;
-    background: #EDF2F7;
+    background: #EAF0F7;
 }
 
 .dash-kpi__fill {
     width: var(--kpi-progress, 0%);
     height: 100%;
+
     border-radius: inherit;
-    background: var(--kpi-accent, #001E57);
-    transform-origin: left;
-    animation: duarteEntrance .7s ease-out both;
+
+    background: linear-gradient(
+        90deg,
+        var(--kpi-accent, #001E57),
+        var(--kpi-accent-end, #0B296B)
+    );
+
+    transform-origin: left center;
+
+    box-shadow: 0 0 10px var(--kpi-glow, rgba(0,30,87,.20));
+    animation: duarteProgressReveal .9s ease-out both;
 }
+
+/* INSIGHTS E TÍTULOS DOS GRÁFICOS */
 
 .dash-insight {
     padding: 13px 15px;
-    margin: 0 0 9px;
+    margin-bottom: 9px;
+
     border: 1px solid #FED7AA;
     border-left: 4px solid #FF9200;
     border-radius: 13px;
-    background: linear-gradient(120deg, #FFF9F0, #FFFFFF);
+
+    background: linear-gradient(
+        110deg,
+        #FFF9F0 0%,
+        #FFFFFF 100%
+    );
+
     color: #7C2D12;
-    font-size: .83rem;
+
+    font-size: .82rem;
     line-height: 1.55;
-    animation: duarteEntrance .4s ease-out both;
+
+    animation: duarteRise .45s ease-out both;
 }
 
 .dash-insight strong {
@@ -525,34 +794,44 @@ def _injetar_css() -> None:
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: 9px;
-    padding-bottom: 11px;
-    margin: 0 0 7px;
+    gap: 10px;
+
+    padding-bottom: 12px;
+    margin-bottom: 7px;
+
     border-bottom: 1px solid #F1F5F9;
+
     color: #001E57;
-    font-family: Inter, system-ui, sans-serif;
-    font-size: .94rem;
-    font-weight: 800;
+
+    font-size: .92rem;
+    font-weight: 850;
 }
 
 .dash-chart-title__mark {
     width: 9px;
     height: 9px;
     flex: 0 0 9px;
+
     border-radius: 3px;
     background: #FF9200;
-    box-shadow: 0 0 0 4px rgba(255,146,0,.12);
+
+    box-shadow: 0 0 0 4px rgba(255,146,0,.13);
 }
 
 .dash-chart-title__badge {
     margin-left: auto;
     padding: 4px 9px;
+
     border-radius: 999px;
     background: #FFF3E3;
+
     color: #9A4B00;
-    font-size: .65rem;
-    font-weight: 800;
+
+    font-size: .63rem;
+    font-weight: 850;
 }
+
+/* STREAMLIT: APENAS COMPONENTES DO DASHBOARD */
 
 .st-key-dash_filtros [data-testid="stVerticalBlockBorderWrapper"],
 .st-key-dash_grafico_status [data-testid="stVerticalBlockBorderWrapper"],
@@ -561,9 +840,12 @@ def _injetar_css() -> None:
 .st-key-dash_grafico_clientes [data-testid="stVerticalBlockBorderWrapper"],
 .st-key-dash_grafico_evolucao [data-testid="stVerticalBlockBorderWrapper"] {
     border: 1px solid #E2E8F0 !important;
-    border-radius: 19px !important;
+    border-radius: 18px !important;
+
     background: #FFFFFF !important;
-    box-shadow: 0 8px 25px rgba(0,30,87,.055) !important;
+
+    box-shadow:
+        0 9px 24px rgba(0,30,87,.05) !important;
 }
 
 .st-key-dash_filtros [data-testid="stVerticalBlockBorderWrapper"] {
@@ -576,33 +858,39 @@ def _injetar_css() -> None:
 }
 
 .st-key-dash_filtros [data-baseweb="select"] > div {
-    border-radius: 11px !important;
+    border-radius: 10px !important;
 }
 
 .st-key-dash_atualizar button {
     border: 1px solid #001E57 !important;
-    border-radius: 11px !important;
+    border-radius: 10px !important;
+
     background: #FFFFFF !important;
     color: #001E57 !important;
+
     font-weight: 800 !important;
-    transition: all .2s ease !important;
+
+    transition:
+        transform .2s ease,
+        border-color .2s ease,
+        background .2s ease !important;
 }
 
 .st-key-dash_atualizar button:hover {
+    transform: translateY(-2px);
+
     border-color: #FF9200 !important;
     background: #FFF7ED !important;
-    color: #001E57 !important;
-    transform: translateY(-2px);
 }
 
 @media (max-width: 768px) {
     .dash-hero {
-        padding: 23px 20px;
-        border-radius: 19px;
+        min-height: auto;
+        padding: 24px 21px;
     }
 
     .dash-kpi {
-        min-height: 135px;
+        min-height: 147px;
     }
 
     .dash-section__detail {
@@ -612,9 +900,12 @@ def _injetar_css() -> None:
 
 @media (prefers-reduced-motion: reduce) {
     .dash-hero,
+    .dash-hero::before,
     .dash-hero::after,
     .dash-kpi,
+    .dash-kpi::after,
     .dash-kpi__fill,
+    .dash-kpi__value,
     .dash-insight {
         animation: none !important;
     }
@@ -631,46 +922,53 @@ def _injetar_css() -> None:
 
 
 def _secao(titulo: str, detalhe: str = "") -> None:
-    detalhe_html = (
-        '<span class="dash-section__detail">'
-        f"{html.escape(detalhe)}"
-        "</span>"
-        if detalhe
-        else ""
-    )
+    detalhe_html = ""
 
-    st.markdown(
-        f'<div class="dash-section">'
-        f"<span>{html.escape(titulo)}</span>"
-        f"{detalhe_html}"
-        f"</div>",
-        unsafe_allow_html=True,
+    if detalhe:
+        detalhe_html = (
+            '<span class="dash-section__detail">'
+            f"{html.escape(detalhe)}"
+            "</span>"
+        )
+
+    _render_html(
+        f"""
+        <div class="dash-section">
+            <span>{html.escape(titulo)}</span>
+            {detalhe_html}
+        </div>
+        """
     )
 
 
 def _render_cabecalho() -> None:
     atualizado = _agora_br().strftime("%d/%m/%Y às %H:%M")
 
-    st.markdown(
+    _render_html(
         f"""
-<div class="dash-hero">
-    <div class="dash-hero__eyebrow">Duarte Gestão em Saúde</div>
-    <h1>Dashboard Gerencial</h1>
-    <p>
-        Uma visão objetiva das execuções operacionais, do desempenho
-        da equipe e dos pontos que exigem atenção.
-    </p>
-    <div class="dash-hero__footer">
-        <span class="dash-hero__tag dash-hero__tag--orange">
-            DUARTE PERFORMANCE
-        </span>
-        <span class="dash-hero__tag">
-            Consulta realizada em {html.escape(atualizado)}
-        </span>
-    </div>
-</div>
-        """,
-        unsafe_allow_html=True,
+        <div class="dash-hero">
+            <div class="dash-hero__eyebrow">
+                Duarte Gestão em Saúde
+            </div>
+
+            <h1>Dashboard Gerencial</h1>
+
+            <p>
+                Visão consolidada das execuções operacionais,
+                do desempenho da equipe e dos pontos que exigem atenção.
+            </p>
+
+            <div class="dash-hero__footer">
+                <span class="dash-hero__tag dash-hero__tag--orange">
+                    DUARTE PERFORMANCE
+                </span>
+
+                <span class="dash-hero__tag">
+                    Consulta realizada em {html.escape(atualizado)}
+                </span>
+            </div>
+        </div>
+        """
     )
 
 
@@ -681,34 +979,41 @@ def _card_grafico(
     key: Optional[str] = None,
 ):
     with st.container(border=True, key=key):
-        badge_html = (
-            '<span class="dash-chart-title__badge">'
-            f"{html.escape(badge)}"
-            "</span>"
-            if badge
-            else ""
-        )
+        badge_html = ""
 
-        st.markdown(
-            '<div class="dash-chart-title">'
-            '<span class="dash-chart-title__mark"></span>'
-            f"<span>{html.escape(titulo)}</span>"
-            f"{badge_html}"
-            "</div>",
-            unsafe_allow_html=True,
+        if badge:
+            badge_html = (
+                '<span class="dash-chart-title__badge">'
+                f"{html.escape(badge)}"
+                "</span>"
+            )
+
+        _render_html(
+            f"""
+            <div class="dash-chart-title">
+                <span class="dash-chart-title__mark"></span>
+                <span>{html.escape(titulo)}</span>
+                {badge_html}
+            </div>
+            """
         )
 
         yield
 
 
 def _layout_grafico(
-    fig: go.Figure,
+    figura: go.Figure,
     altura: int = 350,
     margem_inferior: int = 44,
 ) -> go.Figure:
-    fig.update_layout(
+    figura.update_layout(
         height=altura,
-        margin=dict(l=12, r=20, t=20, b=margem_inferior),
+        margin=dict(
+            l=12,
+            r=20,
+            t=20,
+            b=margem_inferior,
+        ),
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         font=dict(
@@ -731,27 +1036,34 @@ def _layout_grafico(
             y=-0.18,
             xanchor="center",
             x=0.5,
-            font=dict(size=11, color=TEXTO_SECUNDARIO),
+            font=dict(
+                size=11,
+                color=TEXTO_SECUNDARIO,
+            ),
         ),
         xaxis=dict(
             showline=False,
             zeroline=False,
             showgrid=False,
-            tickfont=dict(color=TEXTO_SECUNDARIO),
+            tickfont=dict(
+                color=TEXTO_SECUNDARIO,
+            ),
         ),
         yaxis=dict(
             showline=False,
             zeroline=False,
             gridcolor="#F1F5F9",
-            tickfont=dict(color=TEXTO_SECUNDARIO),
+            tickfont=dict(
+                color=TEXTO_SECUNDARIO,
+            ),
         ),
     )
 
-    return fig
+    return figura
 
 
 # ============================================================
-# FILTROS E INDICADORES
+# FILTROS
 # ============================================================
 
 def _opcoes_texto(serie: pd.Series) -> list[str]:
@@ -761,7 +1073,10 @@ def _opcoes_texto(serie: pd.Series) -> list[str]:
         if _texto(valor)
     }
 
-    return ["Todos", *sorted(valores, key=str.casefold)]
+    return [
+        "Todos",
+        *sorted(valores, key=str.casefold),
+    ]
 
 
 def _selectbox_seguro(
@@ -769,14 +1084,14 @@ def _selectbox_seguro(
     opcoes: list[str],
     key: str,
 ) -> str:
-    """
-    Descarta seleção antiga quando novos filtros deixam a opção
-    indisponível, evitando estado inválido entre reruns.
-    """
     if st.session_state.get(key) not in opcoes:
         st.session_state[key] = "Todos"
 
-    return st.selectbox(titulo, opcoes, key=key)
+    return st.selectbox(
+        titulo,
+        opcoes,
+        key=key,
+    )
 
 
 def _render_filtros(df: pd.DataFrame) -> pd.DataFrame:
@@ -786,7 +1101,12 @@ def _render_filtros(df: pd.DataFrame) -> pd.DataFrame:
     )
 
     with st.container(border=True, key="dash_filtros"):
-        col_periodo, col_operador, col_status, col_cliente = st.columns(
+        (
+            col_periodo,
+            col_operador,
+            col_status,
+            col_cliente,
+        ) = st.columns(
             [1.15, 1.25, 1.2, 1.45],
             gap="medium",
         )
@@ -818,36 +1138,53 @@ def _render_filtros(df: pd.DataFrame) -> pd.DataFrame:
 
             if periodo == "Hoje":
                 mascara = dias.eq(hoje)
+
             elif periodo == "Últimos 7 dias":
-                mascara = dias.ge(hoje - timedelta(days=6)) & dias.le(hoje)
+                mascara = (
+                    dias.ge(hoje - timedelta(days=6))
+                    & dias.le(hoje)
+                )
+
             elif periodo == "Últimos 30 dias":
-                mascara = dias.ge(hoje - timedelta(days=29)) & dias.le(hoje)
+                mascara = (
+                    dias.ge(hoje - timedelta(days=29))
+                    & dias.le(hoje)
+                )
+
             else:
                 mascara = (
                     datas.dt.year.eq(hoje.year)
                     & datas.dt.month.eq(hoje.month)
                 )
 
-            df_periodo = df.loc[mascara.fillna(False)].copy()
+            df_periodo = df.loc[
+                mascara.fillna(False)
+            ].copy()
 
         with col_operador:
             operador = _selectbox_seguro(
                 "Operador",
-                _opcoes_texto(df_periodo["operador_exibicao"]),
+                _opcoes_texto(
+                    df_periodo["operador_exibicao"]
+                ),
                 "dash_op",
             )
 
         with col_status:
             status = _selectbox_seguro(
                 "Status",
-                _opcoes_texto(df_periodo["status"]),
+                _opcoes_texto(
+                    df_periodo["status"]
+                ),
                 "dash_status",
             )
 
         with col_cliente:
             cliente = _selectbox_seguro(
                 "Cliente",
-                _opcoes_texto(df_periodo["cliente_exibicao"]),
+                _opcoes_texto(
+                    df_periodo["cliente_exibicao"]
+                ),
                 "dash_cliente",
             )
 
@@ -887,13 +1224,27 @@ def _render_filtros(df: pd.DataFrame) -> pd.DataFrame:
     return resultado.copy()
 
 
-def _calcular_kpis(df: pd.DataFrame) -> dict[str, float | int]:
+# ============================================================
+# INDICADORES E ANIMAÇÃO
+# ============================================================
+
+def _calcular_kpis(
+    df: pd.DataFrame,
+) -> dict[str, float | int]:
     total = len(df)
     contagens = df["status"].value_counts()
 
-    realizados = int(contagens.get("Realizado Total", 0))
-    parciais = int(contagens.get("Realizado Parcial", 0))
-    nao_realizados = int(contagens.get("Não Realizado", 0))
+    realizados = int(
+        contagens.get("Realizado Total", 0)
+    )
+
+    parciais = int(
+        contagens.get("Realizado Parcial", 0)
+    )
+
+    nao_realizados = int(
+        contagens.get("Não Realizado", 0)
+    )
 
     eficiencia = (
         round(100 * realizados / total, 1)
@@ -923,38 +1274,220 @@ def _formatar_numero(valor: int | float) -> str:
 
 
 def _card_kpi(
+    identificador: str,
     titulo: str,
     valor: int | float,
     descricao: str,
+    simbolo: str,
     cor: str,
+    cor_final: str,
+    fundo: str,
+    brilho: str,
     progresso: float,
     percentual: bool = False,
 ) -> str:
-    progresso = max(0.0, min(float(progresso), 100.0))
-    valor_formatado = _formatar_numero(valor)
+    progresso = max(
+        0.0,
+        min(float(progresso), 100.0),
+    )
+
+    numero_formatado = _formatar_numero(valor)
 
     if percentual:
-        valor_formatado += "%"
+        numero_formatado += "%"
 
     return f"""
-<div class="dash-kpi"
-     style="--kpi-accent:{cor}; --kpi-progress:{progresso:.1f}%">
-    <div class="dash-kpi__label">{html.escape(titulo)}</div>
-    <div class="dash-kpi__value">
-        {html.escape(valor_formatado)}
-    </div>
-    <div class="dash-kpi__detail">
-        {html.escape(descricao)}
-    </div>
-    <div class="dash-kpi__track" aria-hidden="true">
-        <div class="dash-kpi__fill"></div>
-    </div>
-</div>
+        <div
+            class="dash-kpi"
+            style="
+                --kpi-accent:{cor};
+                --kpi-accent-end:{cor_final};
+                --kpi-wash:{fundo};
+                --kpi-glow:{brilho};
+                --kpi-progress:{progresso:.1f}%;
+            "
+        >
+            <div class="dash-kpi__top">
+                <div class="dash-kpi__label">
+                    {html.escape(titulo)}
+                </div>
+
+                <span
+                    class="dash-kpi__symbol"
+                    aria-hidden="true"
+                >
+                    {html.escape(simbolo)}
+                </span>
+            </div>
+
+            <div
+                class="dash-kpi__value"
+                data-duarte-kpi="{html.escape(identificador)}"
+            >
+                {html.escape(numero_formatado)}
+            </div>
+
+            <div class="dash-kpi__detail">
+                {html.escape(descricao)}
+            </div>
+
+            <div
+                class="dash-kpi__track"
+                aria-hidden="true"
+            >
+                <div class="dash-kpi__fill"></div>
+            </div>
+        </div>
     """
 
 
-def _render_kpis(kpis: dict[str, float | int]) -> None:
-    _secao("Indicadores principais", "Base: registros filtrados")
+def _animar_numeros_kpi(
+    anteriores: Optional[dict[str, float]],
+    atuais: dict[str, float],
+) -> None:
+    """
+    Anima apenas mudanças entre duas renderizações da mesma sessão.
+
+    Os valores finais já estão no HTML: se o JavaScript não executar,
+    o dashboard continua mostrando números corretos.
+    """
+    if anteriores is None:
+        return
+
+    if anteriores == atuais:
+        return
+
+    payload = json.dumps(
+        {
+            "anteriores": anteriores,
+            "atuais": atuais,
+        },
+        ensure_ascii=False,
+    )
+
+    components.html(
+        f"""
+<script>
+(function () {{
+    const dados = {payload};
+
+    let doc;
+
+    try {{
+        doc = window.parent.document;
+    }} catch (erro) {{
+        return;
+    }}
+
+    if (!doc) {{
+        return;
+    }}
+
+    const reduzirMovimento = window.matchMedia(
+        "(prefers-reduced-motion: reduce)"
+    ).matches;
+
+    if (reduzirMovimento) {{
+        return;
+    }}
+
+    const inteiro = new Intl.NumberFormat("pt-BR", {{
+        maximumFractionDigits: 0
+    }});
+
+    const decimal = new Intl.NumberFormat("pt-BR", {{
+        minimumFractionDigits: 1,
+        maximumFractionDigits: 1
+    }});
+
+    function formatar(valor, percentual) {{
+        if (percentual) {{
+            return decimal.format(valor) + "%";
+        }}
+
+        return inteiro.format(Math.round(valor));
+    }}
+
+    function executar() {{
+        for (const [chave, alvo] of Object.entries(dados.atuais)) {{
+            const origem = dados.anteriores[chave];
+
+            if (
+                typeof origem !== "number" ||
+                typeof alvo !== "number" ||
+                origem === alvo
+            ) {{
+                continue;
+            }}
+
+            const elemento = doc.querySelector(
+                '[data-duarte-kpi="' + chave + '"]'
+            );
+
+            if (!elemento) {{
+                continue;
+            }}
+
+            const percentual = chave === "eficiencia";
+            const inicio = performance.now();
+            const duracao = 780;
+
+            elemento.classList.add("is-animating");
+
+            function quadro(agora) {{
+                if (!elemento.isConnected) {{
+                    return;
+                }}
+
+                const progresso = Math.min(
+                    (agora - inicio) / duracao,
+                    1
+                );
+
+                const suavizado =
+                    1 - Math.pow(1 - progresso, 3);
+
+                const valor =
+                    origem + (alvo - origem) * suavizado;
+
+                elemento.textContent = formatar(
+                    valor,
+                    percentual
+                );
+
+                if (progresso < 1) {{
+                    requestAnimationFrame(quadro);
+                }} else {{
+                    elemento.textContent = formatar(
+                        alvo,
+                        percentual
+                    );
+
+                    elemento.classList.remove(
+                        "is-animating"
+                    );
+                }}
+            }}
+
+            requestAnimationFrame(quadro);
+        }}
+    }}
+
+    window.setTimeout(executar, 80);
+}})();
+</script>
+        """,
+        height=0,
+    )
+
+
+def _render_kpis(
+    kpis: dict[str, float | int],
+) -> None:
+    _secao(
+        "Indicadores principais",
+        "Base: registros filtrados",
+    )
 
     total = int(kpis["total"])
     realizados = int(kpis["realizados"])
@@ -963,46 +1496,84 @@ def _render_kpis(kpis: dict[str, float | int]) -> None:
     eficiencia = float(kpis["eficiencia"])
 
     def pct(quantidade: int) -> float:
-        return 100 * quantidade / total if total else 0.0
+        return (
+            100 * quantidade / total
+            if total
+            else 0.0
+        )
 
     especificacoes = [
         (
+            "total",
             "Lançamentos",
             total,
             "Volume no período selecionado",
+            "Σ",
             AZUL,
+            AZUL_MEDIO,
+            "rgba(0,30,87,.055)",
+            "rgba(0,30,87,.25)",
             100.0,
             False,
         ),
         (
+            "realizados",
             "Realizados",
             realizados,
-            f"{_formatar_numero(round(pct(realizados), 1))}% do total",
+            (
+                f"{_formatar_numero(round(pct(realizados), 1))}% "
+                "do total"
+            ),
+            "✓",
             VERDE,
+            "#34D399",
+            "rgba(16,185,129,.075)",
+            "rgba(16,185,129,.30)",
             pct(realizados),
             False,
         ),
         (
+            "parciais",
             "Parciais",
             parciais,
-            f"{_formatar_numero(round(pct(parciais), 1))}% do total",
+            (
+                f"{_formatar_numero(round(pct(parciais), 1))}% "
+                "do total"
+            ),
+            "½",
             AMARELO,
+            "#FBBF24",
+            "rgba(245,158,11,.075)",
+            "rgba(245,158,11,.30)",
             pct(parciais),
             False,
         ),
         (
+            "nao_realizados",
             "Não realizados",
             nao_realizados,
-            f"{_formatar_numero(round(pct(nao_realizados), 1))}% do total",
+            (
+                f"{_formatar_numero(round(pct(nao_realizados), 1))}% "
+                "do total"
+            ),
+            "×",
             VERMELHO,
+            "#FB7185",
+            "rgba(239,68,68,.070)",
+            "rgba(239,68,68,.28)",
             pct(nao_realizados),
             False,
         ),
         (
+            "eficiencia",
             "Eficiência",
             eficiencia,
             "Realizado Total / lançamentos",
+            "%",
             LARANJA,
+            LARANJA_CLARO,
+            "rgba(255,146,0,.095)",
+            "rgba(255,146,0,.32)",
             eficiencia,
             True,
         ),
@@ -1012,19 +1583,48 @@ def _render_kpis(kpis: dict[str, float | int]) -> None:
 
     for coluna, dados in zip(colunas, especificacoes):
         with coluna:
-            st.markdown(
-                _card_kpi(*dados),
-                unsafe_allow_html=True,
+            _render_html(
+                _card_kpi(*dados)
             )
 
+    atuais = {
+        "total": float(total),
+        "realizados": float(realizados),
+        "parciais": float(parciais),
+        "nao_realizados": float(nao_realizados),
+        "eficiencia": eficiencia,
+    }
 
-def _resumo_operadores(df: pd.DataFrame) -> pd.DataFrame:
+    anteriores = st.session_state.get(
+        "_dash_kpis_anteriores"
+    )
+
+    _animar_numeros_kpi(
+        anteriores,
+        atuais,
+    )
+
+    st.session_state["_dash_kpis_anteriores"] = atuais
+
+
+# ============================================================
+# INSIGHTS
+# ============================================================
+
+def _resumo_operadores(
+    df: pd.DataFrame,
+) -> pd.DataFrame:
     base = df.assign(
-        _realizado=df["status"].eq("Realizado Total").astype(int)
+        _realizado=df["status"]
+        .eq("Realizado Total")
+        .astype(int)
     )
 
     resumo = (
-        base.groupby("operador_exibicao", dropna=False)
+        base.groupby(
+            "operador_exibicao",
+            dropna=False,
+        )
         .agg(
             total=("status", "size"),
             realizados=("_realizado", "sum"),
@@ -1054,22 +1654,40 @@ def _render_insights(
     mensagens: list[str] = []
 
     resumo = _resumo_operadores(df)
-    elegiveis = resumo.loc[resumo["total"].ge(3)]
+
+    elegiveis = resumo.loc[
+        resumo["total"].ge(3)
+    ]
 
     if not elegiveis.empty:
         melhor = elegiveis.sort_values(
-            ["eficiencia", "total", "operador_exibicao"],
-            ascending=[False, False, True],
+            [
+                "eficiencia",
+                "total",
+                "operador_exibicao",
+            ],
+            ascending=[
+                False,
+                False,
+                True,
+            ],
         ).iloc[0]
 
         if float(melhor["eficiencia"]) >= 80:
-            nome = html.escape(str(melhor["operador_exibicao"]))
+            nome = html.escape(
+                str(melhor["operador_exibicao"])
+            )
+
+            valor_eficiencia = _formatar_numero(
+                float(melhor["eficiencia"])
+            )
 
             mensagens.append(
-                f"<strong>{nome}</strong> apresenta a maior eficiência "
-                f"entre operadores com pelo menos 3 lançamentos: "
-                f"<strong>{_formatar_numero(float(melhor['eficiencia']))}%"
-                f"</strong> em {int(melhor['total'])} registros."
+                f"<strong>{nome}</strong> apresenta a maior "
+                "eficiência entre operadores com pelo menos "
+                "3 lançamentos: "
+                f"<strong>{valor_eficiencia}%</strong> em "
+                f"{int(melhor['total'])} registros."
             )
 
     ocorrencias = (
@@ -1077,14 +1695,20 @@ def _render_insights(
         + int(kpis["nao_realizados"])
     )
 
-    taxa_ocorrencias = 100 * ocorrencias / total
+    taxa_ocorrencias = (
+        100 * ocorrencias / total
+    )
 
     if taxa_ocorrencias > 35:
+        taxa = _formatar_numero(
+            round(taxa_ocorrencias, 1)
+        )
+
         mensagens.append(
-            "A participação de lançamentos parciais ou não realizados "
-            f"chegou a <strong>"
-            f"{_formatar_numero(round(taxa_ocorrencias, 1))}%"
-            "</strong> no recorte atual."
+            "A participação de lançamentos parciais "
+            "ou não realizados chegou a "
+            f"<strong>{taxa}%</strong> "
+            "no recorte atual."
         )
 
     if not mensagens:
@@ -1093,9 +1717,8 @@ def _render_insights(
     _secao("Pontos de atenção")
 
     for mensagem in mensagens[:2]:
-        st.markdown(
-            f'<div class="dash-insight">{mensagem}</div>',
-            unsafe_allow_html=True,
+        _render_html(
+            f'<div class="dash-insight">{mensagem}</div>'
         )
 
 
@@ -1120,12 +1743,14 @@ def _render_status(
         )
 
         ordem = [
-            status for status in STATUS_ORDEM
+            status
+            for status in STATUS_ORDEM
             if status in contagem["status"].values
         ]
 
         ordem += [
-            status for status in contagem["status"].tolist()
+            status
+            for status in contagem["status"].tolist()
             if status not in ordem
         ]
 
@@ -1135,7 +1760,9 @@ def _render_status(
             values="quantidade",
             color="status",
             color_discrete_map=CORES_STATUS,
-            category_orders={"status": ordem},
+            category_orders={
+                "status": ordem
+            },
             hole=0.69,
         )
 
@@ -1143,8 +1770,16 @@ def _render_status(
             sort=False,
             textinfo="percent",
             textposition="inside",
-            textfont=dict(size=12, color="#FFFFFF"),
-            marker=dict(line=dict(color="#FFFFFF", width=3)),
+            textfont=dict(
+                size=12,
+                color="#FFFFFF",
+            ),
+            marker=dict(
+                line=dict(
+                    color="#FFFFFF",
+                    width=3,
+                )
+            ),
             hovertemplate=(
                 "<b>%{label}</b><br>"
                 "%{value} lançamentos · %{percent}"
@@ -1159,7 +1794,10 @@ def _render_status(
             align="center",
             text=(
                 f"<b>{_formatar_numero(eficiencia)}%</b>"
-                "<br><span style='font-size:11px'>EFICIÊNCIA</span>"
+                "<br>"
+                "<span style='font-size:11px'>"
+                "EFICIÊNCIA"
+                "</span>"
             ),
             font=dict(
                 family="Inter, sans-serif",
@@ -1181,7 +1819,9 @@ def _render_status(
         )
 
 
-def _render_ranking(df: pd.DataFrame) -> None:
+def _render_ranking(
+    df: pd.DataFrame,
+) -> None:
     with _card_grafico(
         "Eficiência por operador",
         "RANKING",
@@ -1190,15 +1830,31 @@ def _render_ranking(df: pd.DataFrame) -> None:
         resumo = _resumo_operadores(df)
 
         if resumo.empty:
-            st.info("Sem operadores para apresentar.")
+            st.info(
+                "Sem operadores para apresentar."
+            )
             return
 
         resumo = resumo.sort_values(
-            ["eficiencia", "total", "operador_exibicao"],
-            ascending=[True, True, True],
+            [
+                "eficiencia",
+                "total",
+                "operador_exibicao",
+            ],
+            ascending=[
+                True,
+                True,
+                True,
+            ],
         )
 
-        altura = max(365, min(850, 75 + len(resumo) * 37))
+        altura = max(
+            365,
+            min(
+                850,
+                75 + len(resumo) * 37,
+            ),
+        )
 
         figura = px.bar(
             resumo,
@@ -1252,7 +1908,9 @@ def _render_ranking(df: pd.DataFrame) -> None:
         )
 
 
-def _render_volume_operadores(df: pd.DataFrame) -> None:
+def _render_volume_operadores(
+    df: pd.DataFrame,
+) -> None:
     with _card_grafico(
         "Volume e status por operador",
         "EQUIPE",
@@ -1260,7 +1918,10 @@ def _render_volume_operadores(df: pd.DataFrame) -> None:
     ):
         resumo = (
             df.groupby(
-                ["operador_exibicao", "status"],
+                [
+                    "operador_exibicao",
+                    "status",
+                ],
                 dropna=False,
             )
             .size()
@@ -1268,7 +1929,9 @@ def _render_volume_operadores(df: pd.DataFrame) -> None:
         )
 
         if resumo.empty:
-            st.info("Sem dados para o comparativo.")
+            st.info(
+                "Sem dados para o comparativo."
+            )
             return
 
         ordem_operadores = (
@@ -1327,21 +1990,31 @@ def _render_volume_operadores(df: pd.DataFrame) -> None:
         )
 
 
-def _render_clientes(df: pd.DataFrame) -> None:
+def _render_clientes(
+    df: pd.DataFrame,
+) -> None:
     with _card_grafico(
         "Clientes com maior volume",
         "TOP 10",
         "dash_grafico_clientes",
     ):
         base = df.assign(
-            _realizado=df["status"].eq("Realizado Total").astype(int)
+            _realizado=df["status"]
+            .eq("Realizado Total")
+            .astype(int)
         )
 
         clientes = (
-            base.groupby("cliente_exibicao", dropna=False)
+            base.groupby(
+                "cliente_exibicao",
+                dropna=False,
+            )
             .agg(
                 total=("status", "size"),
-                realizados=("_realizado", "sum"),
+                realizados=(
+                    "_realizado",
+                    "sum",
+                ),
             )
             .reset_index()
         )
@@ -1354,12 +2027,20 @@ def _render_clientes(df: pd.DataFrame) -> None:
         )
 
         clientes = clientes.sort_values(
-            ["total", "cliente_exibicao"],
-            ascending=[False, True],
+            [
+                "total",
+                "cliente_exibicao",
+            ],
+            ascending=[
+                False,
+                True,
+            ],
         ).head(10)
 
         if clientes.empty:
-            st.info("Sem dados de clientes.")
+            st.info(
+                "Sem dados de clientes."
+            )
             return
 
         figura = px.bar(
@@ -1418,28 +2099,43 @@ def _render_clientes(df: pd.DataFrame) -> None:
         )
 
 
-def _render_evolucao(df: pd.DataFrame) -> None:
+def _render_evolucao(
+    df: pd.DataFrame,
+) -> None:
     with _card_grafico(
         "Evolução das execuções",
         "POR DIA",
         "dash_grafico_evolucao",
     ):
-        base = df.dropna(subset=["data_registro"]).copy()
+        base = df.dropna(
+            subset=["data_registro"]
+        ).copy()
 
         if base.empty:
-            st.info("Não há datas válidas para gerar a evolução.")
+            st.info(
+                "Não há datas válidas para gerar a evolução."
+            )
             return
 
-        base["dia"] = base["data_registro"].dt.normalize()
+        base["dia"] = (
+            base["data_registro"]
+            .dt.normalize()
+        )
+
         base["_realizado"] = (
-            base["status"].eq("Realizado Total").astype(int)
+            base["status"]
+            .eq("Realizado Total")
+            .astype(int)
         )
 
         serie = (
             base.groupby("dia")
             .agg(
                 total=("status", "size"),
-                realizados=("_realizado", "sum"),
+                realizados=(
+                    "_realizado",
+                    "sum",
+                ),
             )
             .reset_index()
             .sort_values("dia")
@@ -1468,7 +2164,10 @@ def _render_evolucao(df: pd.DataFrame) -> None:
                 marker=dict(
                     color=LARANJA,
                     size=8,
-                    line=dict(color="#FFFFFF", width=1.5),
+                    line=dict(
+                        color="#FFFFFF",
+                        width=1.5,
+                    ),
                 ),
                 fill="tozeroy",
                 fillcolor="rgba(0,30,87,.055)",
@@ -1539,10 +2238,16 @@ def _render_graficos(
 ) -> None:
     _secao("Análise visual")
 
-    coluna_1, coluna_2 = st.columns(2, gap="medium")
+    coluna_1, coluna_2 = st.columns(
+        2,
+        gap="medium",
+    )
 
     with coluna_1:
-        _render_status(df, eficiencia)
+        _render_status(
+            df,
+            eficiencia,
+        )
 
     with coluna_2:
         _render_ranking(df)
@@ -1553,10 +2258,12 @@ def _render_graficos(
 
 
 # ============================================================
-# TABELA DE REGISTROS
+# TABELA
 # ============================================================
 
-def _render_tabela(df: pd.DataFrame) -> None:
+def _render_tabela(
+    df: pd.DataFrame,
+) -> None:
     _secao(
         "Lançamentos registrados",
         "50 registros mais recentes do recorte",
@@ -1593,7 +2300,10 @@ def _render_tabela(df: pd.DataFrame) -> None:
         "cliente_nome",
         "justificativa",
     ):
-        tabela[coluna] = tabela[coluna].replace("", "—")
+        tabela[coluna] = tabela[coluna].replace(
+            "",
+            "—",
+        )
 
     tabela = tabela.rename(
         columns={
@@ -1647,8 +2357,8 @@ def render_dashboard(
 
     if df.empty:
         st.info(
-            "Ainda não há lançamentos registrados para apresentar "
-            "neste dashboard."
+            "Ainda não há lançamentos registrados "
+            "para apresentar neste dashboard."
         )
         return
 
@@ -1656,16 +2366,23 @@ def render_dashboard(
 
     if df_filtrado.empty:
         st.warning(
-            "Nenhum lançamento corresponde aos filtros selecionados."
+            "Nenhum lançamento corresponde "
+            "aos filtros selecionados."
         )
         return
 
     kpis = _calcular_kpis(df_filtrado)
 
     _render_kpis(kpis)
-    _render_insights(df_filtrado, kpis)
+
+    _render_insights(
+        df_filtrado,
+        kpis,
+    )
+
     _render_graficos(
         df_filtrado,
         float(kpis["eficiencia"]),
     )
+
     _render_tabela(df_filtrado)

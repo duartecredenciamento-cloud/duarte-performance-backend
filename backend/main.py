@@ -1,28 +1,62 @@
 """
-Aplicação Principal FastAPI com Autenticação JWT, Suporte CORS e Rotas Operacionais.
+Aplicação principal FastAPI — Duarte Performance.
+
+Autenticação JWT, usuários, registros operacionais, cronograma
+e provisionamento administrativo controlado por variáveis de ambiente.
 """
+
 import datetime
+import logging
+import os
 from datetime import timedelta
 from typing import List, Optional
-from fastapi import FastAPI, Depends, HTTPException, status
+
+from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from pydantic import BaseModel
-from sqlalchemy.orm import Session
 from jose import JWTError, jwt
 from passlib.context import CryptContext
+from pydantic import BaseModel
+from sqlalchemy import func
+from sqlalchemy.orm import Session
 
 import models
 from database import engine, get_db
 
-# Cria automaticamente todas as tabelas registradas no models.py
+
+# ==============================================================================
+# CONFIGURAÇÕES
+# ==============================================================================
+
+logger = logging.getLogger(__name__)
+
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 480
+
+# Obrigatória: não manter uma chave JWT fixa no código-fonte.
+SECRET_KEY = os.getenv("SECRET_KEY", "").strip()
+
+if len(SECRET_KEY) < 32:
+    raise RuntimeError(
+        "Configure SECRET_KEY no serviço backend com uma chave "
+        "aleatória de pelo menos 32 caracteres antes de iniciar a API."
+    )
+
+pwd_context = CryptContext(
+    schemes=["bcrypt"],
+    deprecated="auto",
+)
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
+# Preserva o comportamento de criação de tabelas do projeto.
 models.Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="Sistema de Gestão Operacional", version="2.1.0")
+app = FastAPI(
+    title="Sistema de Gestão Operacional",
+    version="2.2.0",
+)
 
-# ==============================================================================
-# CONFIGURAÇÃO DE CORS
-# ==============================================================================
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -31,17 +65,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Configurações do JWT e Criptografia
-SECRET_KEY = "SUA_CHAVE_SECRETA_SUPER_SEGURA_AQUI"
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 480  # 8 horas de sessão
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
-
 
 # ==============================================================================
-# SCHEMAS PYDANTIC (Flexibilizados para evitar erros 500 com campos nulos/ausentes)
+# SCHEMAS PYDANTIC
 # ==============================================================================
 
 class Token(BaseModel):
@@ -50,14 +76,17 @@ class Token(BaseModel):
     role: Optional[str] = None
     username: Optional[str] = None
 
+
 class UsuarioBase(BaseModel):
     username: str
     nome: Optional[str] = None
     email: Optional[str] = None
     role: Optional[str] = "operador"
 
+
 class UsuarioCreate(UsuarioBase):
     password: str
+
 
 class UsuarioResponse(UsuarioBase):
     id: int
@@ -74,8 +103,10 @@ class RegistroBase(BaseModel):
     justificativa: Optional[str] = ""
     periodo: Optional[str] = None
 
+
 class RegistroCreate(RegistroBase):
     pass
+
 
 class RegistroResponse(BaseModel):
     id: int
@@ -99,8 +130,10 @@ class CronogramaBase(BaseModel):
     quinta: Optional[str] = "-"
     sexta: Optional[str] = "-"
 
+
 class CronogramaCreate(CronogramaBase):
     pass
+
 
 class CronogramaResponse(CronogramaBase):
     id: int
@@ -113,6 +146,7 @@ class SolicitacaoSenhaCreate(BaseModel):
     username: str
     email: Optional[str] = None
     telefone: Optional[str] = None
+
 
 class SolicitacaoSenhaResponse(BaseModel):
     id: int
@@ -127,258 +161,623 @@ class SolicitacaoSenhaResponse(BaseModel):
 
 
 # ==============================================================================
-# SEGURANÇA E AUXILIARES DE AUTENTICAÇÃO
+# SENHAS E JWT
 # ==============================================================================
 
-def verificar_senha(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
+def verificar_senha(
+    plain_password: str,
+    hashed_password: str,
+) -> bool:
+    if not hashed_password:
+        return False
+
+    try:
+        return pwd_context.verify(
+            plain_password,
+            hashed_password,
+        )
+    except (TypeError, ValueError):
+        # Um hash inválido não deve provocar erro 500 no login.
+        logger.warning(
+            "Foi encontrado um hash de senha inválido "
+            "durante uma tentativa de login."
+        )
+        return False
+
 
 def gerar_hash_senha(password: str) -> str:
     return pwd_context.hash(password)
 
-def criar_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
-    to_encode = data.copy()
-    expire = datetime.datetime.utcnow() + (expires_delta or timedelta(minutes=15))
-    to_encode.update({"exp": expire})
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
-def obter_usuario_atual(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+def criar_access_token(
+    data: dict,
+    expires_delta: Optional[timedelta] = None,
+) -> str:
+    to_encode = data.copy()
+
+    expire = datetime.datetime.now(
+        datetime.timezone.utc
+    ) + (
+        expires_delta
+        or timedelta(minutes=15)
+    )
+
+    to_encode.update({"exp": expire})
+
+    return jwt.encode(
+        to_encode,
+        SECRET_KEY,
+        algorithm=ALGORITHM,
+    )
+
+
+def obter_usuario_atual(
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
+):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Não foi possível validar as credenciais",
         headers={"WWW-Authenticate": "Bearer"},
     )
+
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username: str = payload.get("sub")
-        if username is None:
+        payload = jwt.decode(
+            token,
+            SECRET_KEY,
+            algorithms=[ALGORITHM],
+        )
+
+        username = payload.get("sub")
+
+        if not isinstance(username, str) or not username.strip():
             raise credentials_exception
+
     except JWTError:
         raise credentials_exception
-        
-    usuario = db.query(models.Usuario).filter(models.Usuario.username == username).first()
-    if usuario is None:
+
+    usuario = (
+        db.query(models.Usuario)
+        .filter(
+            func.lower(models.Usuario.username)
+            == username.strip().lower()
+        )
+        .first()
+    )
+
+    if usuario is None or usuario.ativo is False:
         raise credentials_exception
+
     return usuario
 
-def registrar_log(db: Session, usuario: str, acao: str, detalhes: str = None):
+
+def registrar_log(
+    db: Session,
+    usuario: str,
+    acao: str,
+    detalhes: Optional[str] = None,
+):
     try:
         log = models.LogAtividade(
             usuario=usuario,
             acao=acao,
             detalhes=detalhes,
-            data_hora=datetime.datetime.utcnow()
+            data_hora=datetime.datetime.utcnow(),
         )
+
         db.add(log)
         db.commit()
+
     except Exception:
         db.rollback()
+        logger.exception(
+            "Falha ao registrar ação de auditoria."
+        )
 
 
 # ==============================================================================
-# ROTAS DE AUTENTICAÇÃO E USUÁRIOS
+# PROVISIONAMENTO ADMINISTRATIVO SEGURO
 # ==============================================================================
 
-@app.post("/token", response_model=Token)
-def login_para_obter_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    usuario = db.query(models.Usuario).filter(models.Usuario.username == form_data.username).first()
-    if not usuario or not verificar_senha(form_data.password, usuario.password_hash):
+def _variavel_verdadeira(nome: str) -> bool:
+    return os.getenv(nome, "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "sim",
+    }
+
+
+def _provisionar_admin_ambiente() -> None:
+    """
+    Provisiona uma conta administrativa no início do backend.
+
+    Variáveis:
+        ADMIN_BOOTSTRAP_USERNAME
+        ADMIN_BOOTSTRAP_PASSWORD
+        ADMIN_BOOTSTRAP_RESET_EXISTING
+
+    Regras:
+    - Sem username/senha configurados, não faz nada.
+    - Se o usuário não existe, cria como admin.
+    - Se existe, só redefine a senha quando
+      ADMIN_BOOTSTRAP_RESET_EXISTING=true.
+    - Nunca imprime a senha nos logs.
+    """
+    username = os.getenv(
+        "ADMIN_BOOTSTRAP_USERNAME",
+        "",
+    ).strip()
+
+    password = os.getenv(
+        "ADMIN_BOOTSTRAP_PASSWORD",
+        "",
+    )
+
+    if not username and not password:
+        return
+
+    if not username or not password:
+        raise RuntimeError(
+            "Configure ADMIN_BOOTSTRAP_USERNAME e "
+            "ADMIN_BOOTSTRAP_PASSWORD em conjunto."
+        )
+
+    if len(password) < 12:
+        raise RuntimeError(
+            "ADMIN_BOOTSTRAP_PASSWORD precisa ter "
+            "pelo menos 12 caracteres."
+        )
+
+    # bcrypt considera no máximo os primeiros 72 bytes da senha.
+    if len(password.encode("utf-8")) > 72:
+        raise RuntimeError(
+            "ADMIN_BOOTSTRAP_PASSWORD deve ter no máximo "
+            "72 bytes em UTF-8."
+        )
+
+    reset_existing = _variavel_verdadeira(
+        "ADMIN_BOOTSTRAP_RESET_EXISTING"
+    )
+
+    db = next(get_db())
+
+    try:
+        usuario = (
+            db.query(models.Usuario)
+            .filter(
+                func.lower(models.Usuario.username)
+                == username.lower()
+            )
+            .first()
+        )
+
+        if usuario is None:
+            usuario = models.Usuario(
+                username=username,
+                password_hash=gerar_hash_senha(password),
+                nome="Abraão"
+                if username.lower() == "abraao"
+                else username,
+                role="admin",
+                ativo=True,
+            )
+
+            db.add(usuario)
+            db.commit()
+
+            logger.warning(
+                "Conta administrativa %s criada "
+                "por provisionamento de ambiente.",
+                username,
+            )
+            return
+
+        if not reset_existing:
+            logger.warning(
+                "A conta %s já existe. Nenhuma senha foi "
+                "alterada. Para redefini-la, configure "
+                "ADMIN_BOOTSTRAP_RESET_EXISTING=true.",
+                username,
+            )
+            return
+
+        usuario.password_hash = gerar_hash_senha(password)
+        usuario.role = "admin"
+        usuario.ativo = True
+
+        db.commit()
+
+        logger.warning(
+            "Conta administrativa %s redefinida "
+            "por provisionamento de ambiente.",
+            username,
+        )
+
+    except Exception:
+        db.rollback()
+        logger.exception(
+            "Falha no provisionamento da conta administrativa."
+        )
+        raise
+
+    finally:
+        db.close()
+
+
+@app.on_event("startup")
+def inicializar_aplicacao():
+    _provisionar_admin_ambiente()
+
+
+# ==============================================================================
+# AUTENTICAÇÃO E USUÁRIOS
+# ==============================================================================
+
+@app.post(
+    "/token",
+    response_model=Token,
+)
+def login_para_obter_token(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db),
+):
+    username = form_data.username.strip()
+
+    usuario = (
+        db.query(models.Usuario)
+        .filter(
+            func.lower(models.Usuario.username)
+            == username.lower()
+        )
+        .first()
+    )
+
+    if (
+        usuario is None
+        or usuario.ativo is False
+        or not verificar_senha(
+            form_data.password,
+            usuario.password_hash,
+        )
+    ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Usuário ou senha incorretos",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
-    # Força role ADMIN tanto para Erick quanto para Abraão
-    user_role = "admin" if usuario.username.lower() in ["erick", "abraao"] else (usuario.role or "operador").lower()
 
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = criar_access_token(
-        data={"sub": usuario.username, "role": user_role}, expires_delta=access_token_expires
+    # A permissão vem do banco; não existe bypass por username.
+    # O provisionamento acima define a role admin de Abraão.
+    user_role = (
+        (usuario.role or "operador")
+        .strip()
+        .lower()
     )
-    
+
+    access_token = criar_access_token(
+        data={
+            "sub": usuario.username,
+            "role": user_role,
+        },
+        expires_delta=timedelta(
+            minutes=ACCESS_TOKEN_EXPIRE_MINUTES
+        ),
+    )
+
     return {
-        "access_token": access_token, 
+        "access_token": access_token,
         "token_type": "bearer",
         "role": user_role,
-        "username": usuario.username
+        "username": usuario.username,
     }
 
-@app.get("/usuarios/", response_model=List[UsuarioResponse])
-def listar_todos_usuarios(db: Session = Depends(get_db)):
-    """Rota para o Painel Admin carregar a lista de usuários da equipe"""
+
+@app.get(
+    "/usuarios/",
+    response_model=List[UsuarioResponse],
+)
+def listar_todos_usuarios(
+    db: Session = Depends(get_db),
+):
+    """Mantida para compatibilidade com o painel atual."""
     try:
         return db.query(models.Usuario).all()
+
     except Exception:
+        logger.exception(
+            "Erro ao listar usuários."
+        )
         return []
 
-@app.get("/usuarios/me", response_model=UsuarioResponse)
-def ler_usuario_logado(current_user: models.Usuario = Depends(obter_usuario_atual)):
+
+@app.get(
+    "/usuarios/me",
+    response_model=UsuarioResponse,
+)
+def ler_usuario_logado(
+    current_user: models.Usuario = Depends(
+        obter_usuario_atual
+    ),
+):
     return current_user
 
-@app.post("/usuarios/", response_model=UsuarioResponse, status_code=status.HTTP_201_CREATED)
-def cadastrar_usuario(usuario: UsuarioCreate, db: Session = Depends(get_db)):
-    db_user = db.query(models.Usuario).filter(models.Usuario.username == usuario.username).first()
-    if db_user:
-        raise HTTPException(status_code=400, detail="Nome de usuário já cadastrado.")
-    
+
+@app.post(
+    "/usuarios/",
+    response_model=UsuarioResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def cadastrar_usuario(
+    usuario: UsuarioCreate,
+    db: Session = Depends(get_db),
+):
+    username = usuario.username.strip()
+
+    if not username:
+        raise HTTPException(
+            status_code=400,
+            detail="Informe o nome de usuário.",
+        )
+
+    existente = (
+        db.query(models.Usuario)
+        .filter(
+            func.lower(models.Usuario.username)
+            == username.lower()
+        )
+        .first()
+    )
+
+    if existente:
+        raise HTTPException(
+            status_code=400,
+            detail="Nome de usuário já cadastrado.",
+        )
+
+    # Rota pública: nunca aceitar role=admin enviada pelo cliente.
     novo_usuario = models.Usuario(
-        username=usuario.username,
+        username=username,
         password_hash=gerar_hash_senha(usuario.password),
         nome=usuario.nome,
         email=usuario.email,
-        role=usuario.role
+        role="operador",
+        ativo=True,
     )
-    db.add(novo_usuario)
-    db.commit()
-    db.refresh(novo_usuario)
+
+    try:
+        db.add(novo_usuario)
+        db.commit()
+        db.refresh(novo_usuario)
+
+    except Exception:
+        db.rollback()
+        logger.exception(
+            "Erro ao cadastrar usuário."
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Erro ao cadastrar usuário.",
+        )
+
     return novo_usuario
 
 
 # ==============================================================================
-# SETUP INICIAL DE ADMINISTRADORES
+# ENDPOINTS ANTIGOS DE SETUP: DESATIVADOS
 # ==============================================================================
 
 @app.get("/setup-admin")
-def setup_admin_manual(db: Session = Depends(get_db)):
-    try:
-        usuarios = db.query(models.Usuario).filter(models.Usuario.username.ilike("erick")).all()
-        
-        if usuarios:
-            for u in usuarios:
-                u.role = "admin"
-                u.password_hash = gerar_hash_senha("admin123")
-            db.commit()
-            return {"status": "success", "message": "Role do Erick alterada para admin e senha definida como admin123!"}
-        
-        novo_admin = models.Usuario(
-            username="erick",
-            password_hash=gerar_hash_senha("admin123"),
-            nome="Erick",
-            email="admin@duartegestao.com.br",
-            role="admin"
-        )
-        db.add(novo_admin)
-        db.commit()
-        return {"status": "success", "message": "Usuário erick criado com role admin!"}
-        
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"Erro ao configurar admin: {str(e)}")
+def setup_admin_manual():
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail=(
+            "Endpoint de redefinição pública desativado. "
+            "Utilize o provisionamento administrativo "
+            "por variáveis de ambiente."
+        ),
+    )
 
 
 @app.get("/setup-abraao")
-def setup_abraao_manual(db: Session = Depends(get_db)):
+def setup_abraao_manual():
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail=(
+            "Endpoint de redefinição pública desativado. "
+            "Utilize o provisionamento administrativo "
+            "por variáveis de ambiente."
+        ),
+    )
+
+
+# ==============================================================================
+# REGISTROS
+# ==============================================================================
+
+@app.post(
+    "/registros/",
+    response_model=RegistroResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def criar_registro(
+    registro: RegistroCreate,
+    db: Session = Depends(get_db),
+):
     try:
-        usuarios = db.query(models.Usuario).filter(models.Usuario.username.ilike("abraao")).all()
-        
-        if usuarios:
-            for u in usuarios:
-                u.role = "admin"
-                u.password_hash = gerar_hash_senha("admin123")
-            db.commit()
-            return {"status": "success", "message": "Role do Abraão alterada para ADMIN e senha redefinida para 'admin123'!"}
-        
-        novo_admin = models.Usuario(
-            username="abraao",
-            password_hash=gerar_hash_senha("admin123"),
-            nome="Abraão",
-            email="abraao@duartegestao.com.br",
-            role="admin"
+        dados = registro.model_dump(
+            exclude_unset=True
         )
-        db.add(novo_admin)
-        db.commit()
-        return {"status": "success", "message": "Usuário 'abraao' criado com sucesso como ADMIN com a senha 'admin123'!"}
-        
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"Erro ao configurar conta do Abraão: {str(e)}")
 
-
-# ==============================================================================
-# ROTAS DE REGISTROS (DASHBOARD, RELATÓRIOS E EDITOR)
-# ==============================================================================
-
-@app.post("/registros/", response_model=RegistroResponse, status_code=status.HTTP_201_CREATED)
-def criar_registro(registro: RegistroCreate, db: Session = Depends(get_db)):
-    try:
-        dados = registro.model_dump(exclude_unset=True)
-        
         db_registro = models.RegistroModel(
-            operador_nome=dados.get("operador_nome") or "Operador",
-            cliente_nome=dados.get("cliente_nome") or "Atendimento Geral",
-            status=dados.get("status") or "Concluído",
-            justificativa=dados.get("justificativa") or "",
-            periodo=dados.get("periodo") or "Geral"
+            operador_nome=(
+                dados.get("operador_nome")
+                or "Operador"
+            ),
+            cliente_nome=(
+                dados.get("cliente_nome")
+                or "Atendimento Geral"
+            ),
+            status=(
+                dados.get("status")
+                or "Concluído"
+            ),
+            justificativa=(
+                dados.get("justificativa")
+                or ""
+            ),
+            periodo=(
+                dados.get("periodo")
+                or "Geral"
+            ),
         )
-        
+
         db.add(db_registro)
         db.commit()
         db.refresh(db_registro)
-        
+
         registrar_log(
-            db, 
-            usuario=db_registro.operador_nome, 
-            acao="Criou Registro", 
-            detalhes=f"Cliente: {db_registro.cliente_nome}"
+            db,
+            usuario=db_registro.operador_nome,
+            acao="Criou Registro",
+            detalhes=(
+                f"Cliente: {db_registro.cliente_nome}"
+            ),
         )
+
         return db_registro
-        
-    except Exception as e:
+
+    except Exception as exc:
         db.rollback()
+
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Erro ao salvar registro: {str(e)}"
+            status_code=500,
+            detail=(
+                f"Erro ao salvar registro: {exc}"
+            ),
         )
 
-@app.get("/registros/", response_model=List[RegistroResponse])
-def listar_registros(skip: int = 0, limit: int = 500, db: Session = Depends(get_db)):
-    """Carrega as tabelas e gráficos do frontend"""
+
+@app.get(
+    "/registros/",
+    response_model=List[RegistroResponse],
+)
+def listar_registros(
+    skip: int = 0,
+    limit: int = 500,
+    db: Session = Depends(get_db),
+):
     try:
-        return db.query(models.RegistroModel).offset(skip).limit(limit).all()
+        return (
+            db.query(models.RegistroModel)
+            .offset(skip)
+            .limit(limit)
+            .all()
+        )
+
     except Exception:
+        logger.exception(
+            "Erro ao listar registros."
+        )
         return []
 
 
 # ==============================================================================
-# ROTAS DE CRONOGRAMA
+# CRONOGRAMA
 # ==============================================================================
 
-@app.get("/cronograma/", response_model=List[CronogramaResponse])
-def listar_cronograma(db: Session = Depends(get_db)):
+@app.get(
+    "/cronograma/",
+    response_model=List[CronogramaResponse],
+)
+def listar_cronograma(
+    db: Session = Depends(get_db),
+):
     try:
-        return db.query(models.CronogramaModel).all()
+        return db.query(
+            models.CronogramaModel
+        ).all()
+
     except Exception:
+        logger.exception(
+            "Erro ao listar cronograma."
+        )
         return []
 
-@app.post("/cronograma/", response_model=CronogramaResponse, status_code=status.HTTP_201_CREATED)
-def criar_cronograma(cronograma: CronogramaCreate, db: Session = Depends(get_db)):
-    db_cronograma = models.CronogramaModel(**cronograma.model_dump(exclude_unset=True))
+
+@app.post(
+    "/cronograma/",
+    response_model=CronogramaResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def criar_cronograma(
+    cronograma: CronogramaCreate,
+    db: Session = Depends(get_db),
+):
+    db_cronograma = models.CronogramaModel(
+        **cronograma.model_dump(
+            exclude_unset=True
+        )
+    )
+
     db.add(db_cronograma)
     db.commit()
     db.refresh(db_cronograma)
+
     return db_cronograma
 
 
 # ==============================================================================
-# ROTAS DE RECUPERAÇÃO DE SENHA E ADMIN
+# RECUPERAÇÃO DE SENHA E ADMIN
 # ==============================================================================
 
-@app.post("/recuperar-senha/", response_model=SolicitacaoSenhaResponse, status_code=status.HTTP_201_CREATED)
-def solicitar_recuperacao_senha(solicitacao: SolicitacaoSenhaCreate, db: Session = Depends(get_db)):
-    db_solicitacao = models.SolicitacaoSenhaModel(**solicitacao.model_dump(exclude_unset=True))
+@app.post(
+    "/recuperar-senha/",
+    response_model=SolicitacaoSenhaResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def solicitar_recuperacao_senha(
+    solicitacao: SolicitacaoSenhaCreate,
+    db: Session = Depends(get_db),
+):
+    db_solicitacao = models.SolicitacaoSenhaModel(
+        **solicitacao.model_dump(
+            exclude_unset=True
+        )
+    )
+
     db.add(db_solicitacao)
     db.commit()
     db.refresh(db_solicitacao)
-    
-    registrar_log(db, usuario=solicitacao.username, acao="Solicitação de Senha", detalhes="Usuário pediu redefinição de senha.")
+
+    registrar_log(
+        db,
+        usuario=solicitacao.username,
+        acao="Solicitação de Senha",
+        detalhes=(
+            "Usuário pediu redefinição de senha."
+        ),
+    )
+
     return db_solicitacao
 
-@app.get("/admin/solicitacoes-senha/", response_model=List[SolicitacaoSenhaResponse])
-def listar_solicitacoes_senha(db: Session = Depends(get_db)):
+
+@app.get(
+    "/admin/solicitacoes-senha/",
+    response_model=List[SolicitacaoSenhaResponse],
+)
+def listar_solicitacoes_senha(
+    db: Session = Depends(get_db),
+):
     try:
-        return db.query(models.SolicitacaoSenhaModel).all()
+        return db.query(
+            models.SolicitacaoSenhaModel
+        ).all()
+
     except Exception:
+        logger.exception(
+            "Erro ao listar solicitações de senha."
+        )
         return []
 
 
@@ -388,12 +787,30 @@ def listar_solicitacoes_senha(db: Session = Depends(get_db)):
 
 @app.get("/")
 def health_check():
-    return {"status": "online", "message": "API Duarte Gestão 100% Ativa"}
+    return {
+        "status": "online",
+        "message": (
+            "API Duarte Gestão 100% Ativa"
+        ),
+    }
+
 
 @app.get("/admin/diagnostico-cronograma")
-def diagnostico_cronograma(db: Session = Depends(get_db)):
+def diagnostico_cronograma(
+    db: Session = Depends(get_db),
+):
     try:
-        total = db.query(models.CronogramaModel).count()
-        return {"status": "ok", "total_registros_cronograma": total}
-    except Exception as e:
-        return {"status": "erro", "detalhes": str(e)}
+        total = db.query(
+            models.CronogramaModel
+        ).count()
+
+        return {
+            "status": "ok",
+            "total_registros_cronograma": total,
+        }
+
+    except Exception as exc:
+        return {
+            "status": "erro",
+            "detalhes": str(exc),
+        }
