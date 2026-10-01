@@ -3,3 +3,10 @@ requests
 pandas
 openpyxl
 plotly
+fastapi
+uvicorn[standard]
+sqlalchemy
+psycopg[binary]
+psycopg2-binary
+psycopg[binary]>=3.1,<4
+   

@@ -9,3 +9,6 @@ python-multipart
 python-dotenv
 pydantic
 apscheduler
+uvicorn[standard]
+psycopg[binary]>=3.1,<4
+   
