@@ -86,6 +86,10 @@ class UsuarioCreate(UsuarioBase):
     password: str
 
 
+class UsuarioRoleUpdate(BaseModel):
+    role: str
+
+
 class UsuarioResponse(UsuarioBase):
     id: int
 
@@ -252,6 +256,16 @@ def obter_usuario_atual(
         raise credentials_exception
 
     return usuario
+
+
+def exigir_administrador(usuario: models.Usuario) -> None:
+    """Permite ações administrativas somente ao administrador atual."""
+    role = (usuario.role or "").strip().casefold().replace("_", " ")
+    if role not in {"admin", "admin master"}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Apenas administradores podem realizar esta ação.",
+        )
 
 
 def registrar_log(
@@ -474,7 +488,9 @@ def login_para_obter_token(
 )
 def listar_todos_usuarios(
     db: Session = Depends(get_db),
+    current_user: models.Usuario = Depends(obter_usuario_atual),
 ):
+    exigir_administrador(current_user)
     try:
         return db.query(models.Usuario).all()
 
@@ -560,6 +576,86 @@ def cadastrar_usuario(
         )
 
     return novo_usuario
+
+
+@app.put(
+    "/usuarios/{usuario_id}/role",
+    response_model=UsuarioResponse,
+)
+def atualizar_funcao_usuario(
+    usuario_id: int,
+    atualizacao: UsuarioRoleUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.Usuario = Depends(obter_usuario_atual),
+):
+    """Altera a função de uma conta; exige administrador autenticado."""
+    exigir_administrador(current_user)
+
+    roles_permitidas = {
+        "operador": "operador",
+        "visualizador": "visualizador",
+        "gestor": "gestor",
+        "admin": "admin",
+    }
+    role_solicitada = atualizacao.role.strip().casefold()
+    nova_role = roles_permitidas.get(role_solicitada)
+
+    if nova_role is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Função inválida. Escolha Operador, Visualizador, "
+                "Gestor ou Admin."
+            ),
+        )
+
+    usuario = db.query(models.Usuario).filter(
+        models.Usuario.id == usuario_id
+    ).first()
+    if usuario is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Usuário não encontrado.",
+        )
+
+    role_atual = (usuario.role or "operador").strip().casefold()
+    if usuario.id == current_user.id and nova_role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Não é permitido remover sua própria função de administrador.",
+        )
+
+    if role_atual in {"admin", "admin master"} and nova_role != "admin":
+        total_admins = db.query(models.Usuario).filter(
+            func.lower(func.trim(models.Usuario.role)).in_(
+                ["admin", "admin master"]
+            )
+        ).count()
+        if total_admins <= 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Não é possível remover o último administrador.",
+            )
+
+    usuario.role = nova_role
+    try:
+        db.commit()
+        db.refresh(usuario)
+    except Exception:
+        db.rollback()
+        logger.exception("Erro ao atualizar função do usuário.")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Erro ao atualizar a função do usuário.",
+        )
+
+    registrar_log(
+        db,
+        usuario=current_user.username,
+        acao="Alterou função de usuário",
+        detalhes=f"Usuário ID {usuario.id}: {role_atual} -> {nova_role}",
+    )
+    return usuario
 
 
 # ==============================================================================
