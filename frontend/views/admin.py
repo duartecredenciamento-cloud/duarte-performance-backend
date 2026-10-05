@@ -179,7 +179,7 @@ def render_painel_admin():
                             "email": (
                                 email.strip() if email else username.strip()
                             ),
-                            "senha": senha,
+                            "password": senha,
                             "role": role,
                         }
 
