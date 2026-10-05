@@ -241,7 +241,7 @@ def render_painel_admin():
 
         try:
             resp_lista = requests.get(
-                f"{API_URL}/usuarios/todos", headers=headers, timeout=25
+                f"{API_URL}/usuarios/", headers=headers, timeout=25
             )
         except Exception as e:
             resp_lista = None
@@ -294,7 +294,7 @@ def render_painel_admin():
         with st.spinner("Carregando usuários..."):
             try:
                 resp_usuarios = requests.get(
-                    f"{API_URL}/usuarios/todos", headers=headers, timeout=25
+                    f"{API_URL}/usuarios/", headers=headers, timeout=25
                 )
             except Exception as e:
                 resp_usuarios = None
