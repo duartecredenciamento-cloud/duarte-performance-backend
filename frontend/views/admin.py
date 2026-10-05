@@ -382,7 +382,15 @@ def render_painel_admin():
                                         )
                                     elif resp_role.status_code == 404:
                                         st.error(
-                                            "❌ Usuário não encontrado."
+                                            "❌ A API respondeu 404 ao tentar alterar a função. "
+                                            "Isso pode significar que o endpoint de alteração não existe "
+                                            "no backend publicado ou que o usuário não foi localizado."
+                                        )
+                                        st.info(
+                                            "No main.py enviado para análise, não há uma rota "
+                                            "PUT /usuarios/{id}/role. Portanto, trocar somente este "
+                                            "admin.py não habilita a alteração: o backend também precisa "
+                                            "implementar essa rota."
                                         )
                                     else:
                                         st.error(
