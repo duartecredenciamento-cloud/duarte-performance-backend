@@ -13,6 +13,10 @@ from typing import List, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+from starlette.middleware.base import BaseHTTPMiddleware
+from pathlib import Path
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -48,20 +52,42 @@ pwd_context = CryptContext(
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
-models.Base.metadata.create_all(bind=engine)
+# Criação de schema é explícita apenas em desenvolvimento, nunca no deploy.
+if os.getenv("ALLOW_SCHEMA_CREATE", "").strip().lower() in {"1", "true", "yes"}:
+    if os.getenv("APP_ENV", "development").lower() == "production":
+        raise RuntimeError("ALLOW_SCHEMA_CREATE não pode ser usado em produção.")
+    models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
-    title="Sistema de Gestão Operacional",
-    version="2.2.1",
+    title="Duarte Performance 2.0",
+    version="2.0.0",
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+            "font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data:; connect-src 'self'; "
+            "object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
+        )
+        return response
+
+
+app.add_middleware(SecurityHeadersMiddleware)
+
+_cors_origins = [x.strip() for x in os.getenv("CORS_ORIGINS", "").split(",") if x.strip()]
+if _cors_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_cors_origins,
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type"],
+    )
 
 
 # ==============================================================================
@@ -106,6 +132,15 @@ class RegistroBase(BaseModel):
     cliente_nome: Optional[str] = None
     status: Optional[str] = None
     justificativa: Optional[str] = ""
+    periodo: Optional[str] = None
+    data_registro: Optional[datetime.datetime] = None
+
+
+class RegistroUpdate(BaseModel):
+    cliente_nome: Optional[str] = None
+    status: Optional[str] = None
+    justificativa: Optional[str] = None
+    data_registro: Optional[datetime.datetime] = None
     periodo: Optional[str] = None
 
 
@@ -160,9 +195,22 @@ class SolicitacaoSenhaResponse(BaseModel):
     telefone: Optional[str] = None
     status: Optional[str] = "pendente"
     solicitado_em: Optional[datetime.datetime] = None
+    autorizado_em: Optional[datetime.datetime] = None
+    expira_em: Optional[datetime.datetime] = None
+    autorizado_por: Optional[str] = None
 
     class Config:
         from_attributes = True
+
+
+class SenhaUpdate(BaseModel):
+    username: str
+    nova_senha: str
+    confirmar_senha: str
+
+
+class SenhaAdminReset(BaseModel):
+    nova_senha: str
 
 
 # ==============================================================================
@@ -266,6 +314,16 @@ def exigir_administrador(usuario: models.Usuario) -> None:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Apenas administradores podem realizar esta ação.",
         )
+
+
+def _role_normalizada(usuario: models.Usuario) -> str:
+    return (usuario.role or "operador").strip().casefold().replace("_", " ")
+
+
+def _pode_gerir_operacao(usuario: models.Usuario) -> bool:
+    return _role_normalizada(usuario) in {
+        "admin", "admin master", "gestor", "coordenador"
+    }
 
 
 def registrar_log(
@@ -420,6 +478,9 @@ def _provisionar_admin_ambiente() -> None:
 @app.on_event("startup")
 def inicializar_aplicacao():
     _provisionar_admin_ambiente()
+    if os.getenv("APP_ENV", "development").lower() == "production":
+        with engine.connect() as connection:
+            connection.exec_driver_sql("SELECT 1")
 
 
 # ==============================================================================
@@ -479,6 +540,7 @@ def login_para_obter_token(
         "token_type": "bearer",
         "role": user_role,
         "username": usuario.username,
+        "nome": usuario.nome or usuario.username,
     }
 
 
@@ -521,6 +583,7 @@ def ler_usuario_logado(
 def cadastrar_usuario(
     usuario: UsuarioCreate,
     db: Session = Depends(get_db),
+    current_user: models.Usuario = Depends(obter_usuario_atual),
 ):
     username = usuario.username.strip()
 
@@ -552,6 +615,8 @@ def cadastrar_usuario(
         )
 
     # Rota pública: não aceita role=admin enviada pelo cliente.
+    if len(usuario.password) < 10 or len(usuario.password.encode("utf-8")) > 72:
+        raise HTTPException(status_code=422, detail="A senha deve ter de 10 a 72 bytes.")
     novo_usuario = models.Usuario(
         username=username,
         password_hash=gerar_hash_senha(usuario.password),
@@ -698,33 +763,34 @@ def setup_abraao_manual():
 def criar_registro(
     registro: RegistroCreate,
     db: Session = Depends(get_db),
+    current_user: models.Usuario = Depends(obter_usuario_atual),
 ):
     try:
+        permitidos = {"Realizado Total", "Realizado Parcial", "Não Realizado", "Não Se Aplica"}
+        if _pode_gerir_operacao(current_user):
+            permitidos.add("Não Informado")
+        if registro.status not in permitidos:
+            raise HTTPException(status_code=422, detail="Status de execução inválido para este perfil.")
+        if registro.status in {"Realizado Parcial", "Não Realizado", "Não Se Aplica", "Não Informado"} and not (registro.justificativa or "").strip():
+            raise HTTPException(status_code=422, detail="Justificativa obrigatória para o status informado.")
+        nome_autenticado = (current_user.nome or current_user.username).strip()
+        if not _pode_gerir_operacao(current_user) and registro.operador_nome and registro.operador_nome.strip().casefold() not in {nome_autenticado.casefold(), current_user.username.casefold()}:
+            raise HTTPException(status_code=403, detail="Não é permitido lançar em nome de outro operador.")
         dados = registro.model_dump(
             exclude_unset=True
         )
 
         db_registro = models.RegistroModel(
             operador_nome=(
-                dados.get("operador_nome")
-                or "Operador"
+                (dados.get("operador_nome") or nome_autenticado).strip()
+                if _pode_gerir_operacao(current_user)
+                else nome_autenticado
             ),
-            cliente_nome=(
-                dados.get("cliente_nome")
-                or "Atendimento Geral"
-            ),
-            status=(
-                dados.get("status")
-                or "Concluído"
-            ),
-            justificativa=(
-                dados.get("justificativa")
-                or ""
-            ),
-            periodo=(
-                dados.get("periodo")
-                or "Geral"
-            ),
+            cliente_nome=(dados.get("cliente_nome") or "Atendimento Geral").strip(),
+            status=dados["status"],
+            justificativa=(dados.get("justificativa") or "").strip(),
+            periodo=(dados.get("periodo") or "Geral").strip(),
+            data_registro=dados.get("data_registro") or datetime.datetime.utcnow(),
         )
 
         db.add(db_registro)
@@ -742,6 +808,9 @@ def criar_registro(
 
         return db_registro
 
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception:
         db.rollback()
         logger.exception("Erro ao salvar registro.")
@@ -759,14 +828,14 @@ def listar_registros(
     skip: int = 0,
     limit: int = 500,
     db: Session = Depends(get_db),
+    current_user: models.Usuario = Depends(obter_usuario_atual),
 ):
     try:
-        return (
-            db.query(models.RegistroModel)
-            .offset(skip)
-            .limit(limit)
-            .all()
-        )
+        query = db.query(models.RegistroModel)
+        if not (_pode_gerir_operacao(current_user) or _role_normalizada(current_user) == "visualizador"):
+            nome = (current_user.nome or current_user.username).strip()
+            query = query.filter(func.lower(models.RegistroModel.operador_nome) == nome.casefold())
+        return query.order_by(models.RegistroModel.data_registro.desc()).offset(max(skip, 0)).limit(min(max(limit, 1), 500)).all()
 
     except Exception:
         logger.exception(
@@ -785,17 +854,109 @@ def listar_registros(
 )
 def listar_cronograma(
     db: Session = Depends(get_db),
+    current_user: models.Usuario = Depends(obter_usuario_atual),
 ):
     try:
-        return db.query(
-            models.CronogramaModel
-        ).all()
+        query = db.query(models.CronogramaModel)
+        if not (_pode_gerir_operacao(current_user) or _role_normalizada(current_user) == "visualizador"):
+            nome = (current_user.nome or current_user.username).strip()
+            query = query.filter(func.lower(models.CronogramaModel.operador) == nome.casefold())
+        return query.all()
 
     except Exception:
         logger.exception(
             "Erro ao listar cronograma."
         )
         return []
+
+
+@app.put(
+    "/registros/{registro_id}",
+    response_model=RegistroResponse,
+)
+def atualizar_registro(
+    registro_id: int,
+    atualizacao: RegistroUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.Usuario = Depends(obter_usuario_atual),
+):
+    if not _pode_gerir_operacao(current_user):
+        raise HTTPException(status_code=403, detail="Apenas gestão pode editar apontamentos.")
+    registro = db.query(models.RegistroModel).filter(models.RegistroModel.id == registro_id).first()
+    if registro is None:
+        raise HTTPException(status_code=404, detail="Registro não encontrado.")
+    changes = atualizacao.model_dump(exclude_unset=True)
+    status_novo = changes.get("status", registro.status)
+    justificativa = changes.get("justificativa", registro.justificativa or "")
+    if status_novo not in {"Realizado Total", "Realizado Parcial", "Não Realizado", "Não Se Aplica", "Não Informado"}:
+        raise HTTPException(status_code=422, detail="Status de execução inválido.")
+    if status_novo in {"Realizado Parcial", "Não Realizado", "Não Se Aplica", "Não Informado"} and not (justificativa or "").strip():
+        raise HTTPException(status_code=422, detail="Justificativa obrigatória para o status informado.")
+    for key, value in changes.items():
+        setattr(registro, key, value)
+    try:
+        db.commit()
+        db.refresh(registro)
+    except Exception:
+        db.rollback()
+        logger.exception("Erro ao editar apontamento.")
+        raise HTTPException(status_code=500, detail="Não foi possível atualizar o registro.")
+    registrar_log(db, current_user.username, "Editou apontamento", f"Registro ID {registro_id}")
+    return registro
+
+
+@app.delete("/registros/{registro_id}")
+def excluir_registro(
+    registro_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.Usuario = Depends(obter_usuario_atual),
+):
+    if not _pode_gerir_operacao(current_user):
+        raise HTTPException(status_code=403, detail="Apenas gestão pode excluir apontamentos.")
+    registro = db.query(models.RegistroModel).filter(models.RegistroModel.id == registro_id).first()
+    if registro is None:
+        raise HTTPException(status_code=404, detail="Registro não encontrado.")
+    db.delete(registro)
+    db.commit()
+    registrar_log(db, current_user.username, "Excluiu apontamento", f"Registro ID {registro_id}")
+    return {"ok": True}
+
+
+@app.put("/cronograma/{cronograma_id}", response_model=CronogramaResponse)
+def atualizar_cronograma(
+    cronograma_id: int,
+    atualizacao: CronogramaBase,
+    db: Session = Depends(get_db),
+    current_user: models.Usuario = Depends(obter_usuario_atual),
+):
+    if not _pode_gerir_operacao(current_user):
+        raise HTTPException(status_code=403, detail="Apenas gestão pode alterar o cronograma.")
+    item = db.query(models.CronogramaModel).filter(models.CronogramaModel.id == cronograma_id).first()
+    if item is None:
+        raise HTTPException(status_code=404, detail="Linha da escala não encontrada.")
+    for key, value in atualizacao.model_dump(exclude_unset=True).items():
+        setattr(item, key, value)
+    db.commit()
+    db.refresh(item)
+    registrar_log(db, current_user.username, "Atualizou cronograma", f"Linha ID {cronograma_id}")
+    return item
+
+
+@app.delete("/cronograma/{cronograma_id}")
+def excluir_cronograma(
+    cronograma_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.Usuario = Depends(obter_usuario_atual),
+):
+    if not _pode_gerir_operacao(current_user):
+        raise HTTPException(status_code=403, detail="Apenas gestão pode alterar o cronograma.")
+    item = db.query(models.CronogramaModel).filter(models.CronogramaModel.id == cronograma_id).first()
+    if item is None:
+        raise HTTPException(status_code=404, detail="Linha da escala não encontrada.")
+    db.delete(item)
+    db.commit()
+    registrar_log(db, current_user.username, "Excluiu cronograma", f"Linha ID {cronograma_id}")
+    return {"ok": True}
 
 
 @app.post(
@@ -806,7 +967,10 @@ def listar_cronograma(
 def criar_cronograma(
     cronograma: CronogramaCreate,
     db: Session = Depends(get_db),
+    current_user: models.Usuario = Depends(obter_usuario_atual),
 ):
+    if not _pode_gerir_operacao(current_user):
+        raise HTTPException(status_code=403, detail="Apenas gestão pode alterar o cronograma.")
     db_cronograma = models.CronogramaModel(
         **cronograma.model_dump(
             exclude_unset=True
@@ -833,26 +997,82 @@ def solicitar_recuperacao_senha(
     solicitacao: SolicitacaoSenhaCreate,
     db: Session = Depends(get_db),
 ):
-    db_solicitacao = models.SolicitacaoSenhaModel(
-        **solicitacao.model_dump(
-            exclude_unset=True
+    username = solicitacao.username.strip()
+    usuario = db.query(models.Usuario).filter(func.lower(models.Usuario.username) == username.casefold()).first()
+    if usuario and solicitacao.email and usuario.email and usuario.email.casefold() == solicitacao.email.strip().casefold():
+        db_solicitacao = models.SolicitacaoSenhaModel(
+            username=usuario.username,
+            email=usuario.email,
+            telefone=solicitacao.telefone,
+            status="pendente",
         )
-    )
+        db.add(db_solicitacao)
+        db.commit()
+        registrar_log(db, usuario=usuario.username, acao="Solicitação de senha", detalhes="Solicitação recebida para análise administrativa.")
+    # Resposta indistinguível para evitar enumeração de contas.
+    return {"id": 0, "username": username, "email": None, "telefone": None, "status": "pendente", "solicitado_em": datetime.datetime.utcnow(), "message": "Se os dados coincidirem, a solicitação será encaminhada para análise."}
 
-    db.add(db_solicitacao)
+
+@app.post("/admin/solicitacoes-senha/{solicitacao_id}/autorizar")
+def autorizar_recuperacao(
+    solicitacao_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.Usuario = Depends(obter_usuario_atual),
+):
+    exigir_administrador(current_user)
+    item = db.query(models.SolicitacaoSenhaModel).filter(models.SolicitacaoSenhaModel.id == solicitacao_id).first()
+    if item is None or item.status != "pendente":
+        raise HTTPException(status_code=404, detail="Solicitação pendente não encontrada.")
+    agora = datetime.datetime.utcnow()
+    item.status = "autorizado"
+    item.autorizado_em = agora
+    item.expira_em = agora + timedelta(minutes=10)
+    item.autorizado_por = current_user.username
     db.commit()
-    db.refresh(db_solicitacao)
+    registrar_log(db, current_user.username, "Autorizou recuperação de senha", f"Solicitação ID {solicitacao_id}")
+    return {"ok": True, "expira_em": item.expira_em}
 
-    registrar_log(
-        db,
-        usuario=solicitacao.username,
-        acao="Solicitação de Senha",
-        detalhes=(
-            "Usuário pediu redefinição de senha."
-        ),
-    )
 
-    return db_solicitacao
+@app.post("/admin/solicitacoes-senha/{solicitacao_id}/rejeitar")
+def rejeitar_recuperacao(
+    solicitacao_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.Usuario = Depends(obter_usuario_atual),
+):
+    exigir_administrador(current_user)
+    item = db.query(models.SolicitacaoSenhaModel).filter(models.SolicitacaoSenhaModel.id == solicitacao_id).first()
+    if item is None or item.status != "pendente":
+        raise HTTPException(status_code=404, detail="Solicitação pendente não encontrada.")
+    item.status = "rejeitado"
+    item.autorizado_por = current_user.username
+    db.commit()
+    registrar_log(db, current_user.username, "Rejeitou recuperação de senha", f"Solicitação ID {solicitacao_id}")
+    return {"ok": True}
+
+
+@app.post("/redefinir-senha-autorizada/")
+def redefinir_senha_autorizada(
+    dados: SenhaUpdate,
+    db: Session = Depends(get_db),
+):
+    username = dados.username.strip()
+    if dados.nova_senha != dados.confirmar_senha or len(dados.nova_senha) < 10 or len(dados.nova_senha.encode("utf-8")) > 72:
+        raise HTTPException(status_code=422, detail="Confirmação inválida ou senha fora do limite permitido.")
+    item = db.query(models.SolicitacaoSenhaModel).filter(
+        func.lower(models.SolicitacaoSenhaModel.username) == username.casefold(),
+        models.SolicitacaoSenhaModel.status == "autorizado",
+        models.SolicitacaoSenhaModel.expira_em >= datetime.datetime.utcnow(),
+    ).order_by(models.SolicitacaoSenhaModel.id.desc()).first()
+    if item is None:
+        raise HTTPException(status_code=403, detail="Não há autorização válida para redefinir a senha.")
+    usuario = db.query(models.Usuario).filter(func.lower(models.Usuario.username) == username.casefold()).first()
+    if usuario is None:
+        raise HTTPException(status_code=404, detail="Conta não encontrada.")
+    usuario.password_hash = gerar_hash_senha(dados.nova_senha)
+    item.status = "usado"
+    db.commit()
+    registrar_log(db, usuario.username, "Redefiniu senha autorizada", f"Solicitação ID {item.id}")
+    return {"ok": True, "message": "Senha redefinida. Entre novamente."}
 
 
 @app.get(
@@ -861,7 +1081,9 @@ def solicitar_recuperacao_senha(
 )
 def listar_solicitacoes_senha(
     db: Session = Depends(get_db),
+    current_user: models.Usuario = Depends(obter_usuario_atual),
 ):
+    exigir_administrador(current_user)
     try:
         return db.query(
             models.SolicitacaoSenhaModel
@@ -878,18 +1100,31 @@ def listar_solicitacoes_senha(
 # DIAGNÓSTICO E SAÚDE
 # ==============================================================================
 
-@app.get("/")
+@app.get("/", include_in_schema=False)
+def frontend_home():
+    index = Path(__file__).resolve().parent / "static" / "index.html"
+    if index.is_file():
+        return FileResponse(index)
+    return {"status": "online", "message": "API Duarte Performance 2.0"}
+
+
+@app.get("/healthz")
 def health_check():
-    return {
-        "status": "online",
-        "message": "API Duarte Gestão 100% Ativa",
-    }
+    try:
+        with engine.connect() as connection:
+            connection.exec_driver_sql("SELECT 1")
+        return {"status": "online", "database": "connected"}
+    except Exception:
+        logger.exception("Falha no health check do banco.")
+        raise HTTPException(status_code=503, detail="Banco de dados indisponível.")
 
 
 @app.get("/admin/diagnostico-cronograma")
 def diagnostico_cronograma(
     db: Session = Depends(get_db),
+    current_user: models.Usuario = Depends(obter_usuario_atual),
 ):
+    exigir_administrador(current_user)
     try:
         total = db.query(
             models.CronogramaModel
@@ -910,3 +1145,14 @@ def diagnostico_cronograma(
                 "Não foi possível consultar o cronograma."
             ),
         }
+
+# Interface web servida pela mesma origem da API para evitar CORS permissivo.
+_static_dir = Path(__file__).resolve().parent / "static"
+if _static_dir.is_dir():
+    app.mount("/app", StaticFiles(directory=str(_static_dir), html=True), name="frontend")
+    @app.get("/{path:path}", include_in_schema=False)
+    def frontend_spa_fallback(path: str):
+        asset = (_static_dir / path).resolve()
+        if asset.is_relative_to(_static_dir.resolve()) and asset.is_file():
+            return FileResponse(asset)
+        return FileResponse(_static_dir / "index.html")

@@ -1,10 +1,19 @@
 import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv()
 from sqlalchemy import create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import declarative_base, sessionmaker
 
 # Lê a URL do PostgreSQL das variáveis do Railway; se não achar, usa SQLite local
-SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./sql_app.db")
+SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+if not SQLALCHEMY_DATABASE_URL:
+    if os.getenv("APP_ENV", "development").lower() == "production":
+        raise RuntimeError("DATABASE_URL persistente é obrigatória em produção.")
+    local_db = Path(os.getenv("LOCAL_DB_PATH", "./data/duarte_performance_dev.sqlite3")).resolve()
+    local_db.parent.mkdir(parents=True, exist_ok=True)
+    SQLALCHEMY_DATABASE_URL = "sqlite:///" + local_db.as_posix()
 
 # Correção de protocolo para compatibilidade com SQLAlchemy 2.0+
 if SQLALCHEMY_DATABASE_URL.startswith("postgres://"):

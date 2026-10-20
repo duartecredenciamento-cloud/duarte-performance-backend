@@ -1,0 +1,166 @@
+[
+  {
+    "arquivo": "backend/duarte_performance.db",
+    "bytes": 122880,
+    "sha256": "4ebf372b1ee7ba83f49e65dde8896ea0213fcc5fd1cdab10975f6b51b023da6c",
+    "tabelas": [
+      {
+        "nome": "auditoria_logs",
+        "linhas": 0,
+        "colunas": [
+          "id",
+          "timestamp",
+          "usuario_login",
+          "usuario_nome",
+          "ip_origem",
+          "acao",
+          "detalhes"
+        ]
+      },
+      {
+        "nome": "clientes",
+        "linhas": 0,
+        "colunas": [
+          "id",
+          "nome"
+        ]
+      },
+      {
+        "nome": "cronogramas",
+        "linhas": 0,
+        "colunas": [
+          "id",
+          "operador",
+          "dia_semana",
+          "atividade",
+          "cliente",
+          "periodo",
+          "data_limite",
+          "status_prazo"
+        ]
+      },
+      {
+        "nome": "departamentos",
+        "linhas": 1,
+        "colunas": [
+          "id",
+          "nome"
+        ]
+      },
+      {
+        "nome": "logs",
+        "linhas": 0,
+        "colunas": [
+          "id",
+          "usuario",
+          "acao",
+          "detalhes",
+          "data_hora"
+        ]
+      },
+      {
+        "nome": "registros",
+        "linhas": 0,
+        "colunas": [
+          "id",
+          "data_registro",
+          "operador_nome",
+          "cliente_nome",
+          "status",
+          "justificativa",
+          "caminho_evidencia",
+          "aprovado_gestor"
+        ]
+      },
+      {
+        "nome": "users",
+        "linhas": 1,
+        "colunas": [
+          "id",
+          "username",
+          "password_hash",
+          "role",
+          "nome",
+          "email"
+        ]
+      },
+      {
+        "nome": "usuarios",
+        "linhas": 1,
+        "colunas": [
+          "id",
+          "username",
+          "password_hash",
+          "nome",
+          "email",
+          "telefone",
+          "perfil_completo",
+          "role",
+          "departamento_id"
+        ]
+      }
+    ]
+  },
+  {
+    "arquivo": "duarte_gestao.db",
+    "bytes": 28672,
+    "sha256": "97dc1b4650e0ca37f4441452bde815e6980a2ba9ed77d7f724de39ea2b1dbfcf",
+    "tabelas": [
+      {
+        "nome": "logs",
+        "linhas": 0,
+        "colunas": [
+          "id",
+          "usuario_acao",
+          "acao",
+          "data_hora"
+        ]
+      },
+      {
+        "nome": "notificacoes",
+        "linhas": 0,
+        "colunas": [
+          "id",
+          "usuario",
+          "mensagem",
+          "lida",
+          "data_hora"
+        ]
+      },
+      {
+        "nome": "reembolsos",
+        "linhas": 0,
+        "colunas": [
+          "id",
+          "usuario",
+          "despesa",
+          "categoria",
+          "c_custo",
+          "valor",
+          "status",
+          "data",
+          "caminho_arquivo"
+        ]
+      },
+      {
+        "nome": "usuarios",
+        "linhas": 3,
+        "colunas": [
+          "usuario",
+          "senha",
+          "email",
+          "nivel",
+          "nome_completo",
+          "cpf",
+          "telefone"
+        ]
+      }
+    ]
+  },
+  {
+    "arquivo": "duarte_performance.db",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "tabelas": []
+  }
+]

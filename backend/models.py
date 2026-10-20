@@ -68,6 +68,9 @@ class SolicitacaoSenhaModel(Base):
         DateTime,
         default=datetime.datetime.utcnow,
     )
+    autorizado_em = Column(DateTime, nullable=True)
+    expira_em = Column(DateTime, nullable=True)
+    autorizado_por = Column(String(120), nullable=True)
 
 
 class LogAtividade(Base):
