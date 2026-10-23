@@ -1,0 +1,13 @@
+CORREÇÃO DA TELA DE ACESSO — DUARTE PERFORMANCE
+
+Arquivos a substituir, preservando os mesmos caminhos:
+- backend/main.py
+- backend/static/index.html
+- backend/static/app.js
+- backend/static/app.css
+
+Causa encontrada: a tela oferecia criar conta antes do login, mas a rota POST /usuarios/ exigia que o usuário já estivesse autenticado. Assim, o envio do cadastro era rejeitado pelo backend. A rota agora permite o cadastro inicial sem sessão e sempre cria a função Operador, sem aceitar privilégios enviados pelo navegador. A consulta à lista da equipe e a alteração de função permanecem protegidas para administradores.
+
+A tela agora deixa os botões de acesso mais visíveis e inclui orientação sobre entrar, criar acesso e recuperar senha, confirmação visível do cadastro e explicação dos perfis Operador, Visualizador, Gestor e Admin.
+
+Não requer alteração no banco, migrations, volume ou configurações de hospedagem. Após substituir e publicar o serviço backend, teste o cadastro e o login em janela anônima. O teste local não conecta ao banco de produção nem substitui esse teste após publicação.

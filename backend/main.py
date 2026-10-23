@@ -583,7 +583,6 @@ def ler_usuario_logado(
 def cadastrar_usuario(
     usuario: UsuarioCreate,
     db: Session = Depends(get_db),
-    current_user: models.Usuario = Depends(obter_usuario_atual),
 ):
     username = usuario.username.strip()
 
