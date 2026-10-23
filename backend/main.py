@@ -1086,13 +1086,13 @@ def listar_solicitacoes_senha(
     try:
         return db.query(
             models.SolicitacaoSenhaModel
-        ).all()
-
-    except Exception:
-        logger.exception(
-            "Erro ao listar solicitações de senha."
-        )
-        return []
+        ).order_by(models.SolicitacaoSenhaModel.id.desc()).all()
+    except Exception as exc:
+        logger.exception("Erro ao listar solicitações de senha.")
+        raise HTTPException(
+            status_code=500,
+            detail="Não foi possível consultar a fila de redefinição. Verifique se a tabela solicitacoes_senha existe no banco.",
+        ) from exc
 
 
 # ==============================================================================
