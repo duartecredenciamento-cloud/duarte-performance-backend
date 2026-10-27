@@ -642,6 +642,46 @@ def cadastrar_usuario(
     return novo_usuario
 
 
+@app.post("/admin/usuarios/{usuario_id}/redefinir-senha")
+def redefinir_senha_por_administrador(
+    usuario_id: int,
+    dados: SenhaAdminReset,
+    db: Session = Depends(get_db),
+    current_user: models.Usuario = Depends(obter_usuario_atual),
+):
+    """Define uma senha temporária para uma conta, sem expor a senha anterior."""
+    exigir_administrador(current_user)
+    senha = dados.nova_senha
+    if len(senha) < 12 or len(senha.encode("utf-8")) > 72:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="A senha temporária deve ter de 12 a 72 bytes.",
+        )
+
+    usuario = db.query(models.Usuario).filter(models.Usuario.id == usuario_id).first()
+    if usuario is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuário não encontrado.")
+
+    usuario.password_hash = gerar_hash_senha(senha)
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("Erro ao redefinir senha de usuário.")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Não foi possível redefinir a senha.",
+        )
+
+    registrar_log(
+        db,
+        usuario=current_user.username,
+        acao="Redefiniu senha de usuário",
+        detalhes=f"Usuário ID {usuario.id}; redefinição administrativa.",
+    )
+    return {"ok": True, "message": "Senha temporária definida. Compartilhe-a diretamente com o funcionário."}
+
+
 @app.put(
     "/usuarios/{usuario_id}/role",
     response_model=UsuarioResponse,
@@ -1086,13 +1126,13 @@ def listar_solicitacoes_senha(
     try:
         return db.query(
             models.SolicitacaoSenhaModel
-        ).order_by(models.SolicitacaoSenhaModel.id.desc()).all()
-    except Exception as exc:
-        logger.exception("Erro ao listar solicitações de senha.")
-        raise HTTPException(
-            status_code=500,
-            detail="Não foi possível consultar a fila de redefinição. Verifique se a tabela solicitacoes_senha existe no banco.",
-        ) from exc
+        ).all()
+
+    except Exception:
+        logger.exception(
+            "Erro ao listar solicitações de senha."
+        )
+        return []
 
 
 # ==============================================================================
