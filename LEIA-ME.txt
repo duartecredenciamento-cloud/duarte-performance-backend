@@ -1,13 +1,29 @@
-CORREÇÃO DA TELA DE ACESSO — DUARTE PERFORMANCE
+ATUALIZAÇÃO DA INTERFACE — DUARTE PERFORMANCE 2.0
 
-Arquivos a substituir, preservando os mesmos caminhos:
-- backend/main.py
+O QUE MUDA
+- Operadores veem somente Lançar execução, Meus Apontamentos e Escala semanal. Tentativas de abrir outras telas pela navegação interna são desviadas para Lançar execução. Para Gestor e Visualizador, as telas liberadas também são limitadas à lista de acesso prevista para esses perfis.
+- A API já restringe a consulta de registros de Operador aos registros associados ao nome da própria conta e já impede edição/exclusão por Operador. Esta atualização mantém essas regras; não altera banco, dados, migrations, volume, configurações de hospedagem ou código de API.
+- Após a confirmação da API, o lançamento mostra um aviso verde visível e uma animação curta de bolhas, sem bibliotecas externas, sem bloquear cliques e respeitando a preferência por movimento reduzido. Erros reais continuam destacados como erros.
+- A área de destaque passa a usar a imagem oficial Duarte existente no projeto.
+
+ARQUIVOS E DESTINOS
+Para o serviço backend (interface servida pela API), substitua mantendo os caminhos:
 - backend/static/index.html
 - backend/static/app.js
 - backend/static/app.css
 
-Causa encontrada: a tela oferecia criar conta antes do login, mas a rota POST /usuarios/ exigia que o usuário já estivesse autenticado. Assim, o envio do cadastro era rejeitado pelo backend. A rota agora permite o cadastro inicial sem sessão e sempre cria a função Operador, sem aceitar privilégios enviados pelo navegador. A consulta à lista da equipe e a alteração de função permanecem protegidas para administradores.
+Para o serviço frontend independente, substitua mantendo os caminhos:
+- frontend/index.html
+- frontend/app/app.js
+- frontend/app/app.css
 
-A tela agora deixa os botões de acesso mais visíveis e inclui orientação sobre entrar, criar acesso e recuperar senha, confirmação visível do cadastro e explicação dos perfis Operador, Visualizador, Gestor e Admin.
+Publique somente no(s) serviço(s) que estão realmente em uso. Se os dois endereços servem a interface, atualize os dois para evitar diferenças visuais e de permissões. Não substitua o backend inteiro por causa deste pacote.
 
-Não requer alteração no banco, migrations, volume ou configurações de hospedagem. Após substituir e publicar o serviço backend, teste o cadastro e o login em janela anônima. O teste local não conecta ao banco de produção nem substitui esse teste após publicação.
+VALIDAÇÃO APÓS PUBLICAR
+1. Entre com uma conta Operador: confirme que só aparecem Lançar execução, Meus Apontamentos e Escala semanal.
+2. Abra Meus Apontamentos e confira que os registros são apenas os da própria conta.
+3. Tente lançar uma execução válida: o aviso verde e as bolhas devem aparecer depois da confirmação; tente também um lançamento inválido para conferir o aviso de erro.
+4. Entre com Gestor/Admin/Visualizador e confira que os acessos existentes desses perfis continuam disponíveis.
+5. Faça os testes em janela anônima ou atualize a página para carregar os arquivos publicados.
+
+Não foi feita conexão com Railway nem alteração/publicação em produção. A segurança da API deve continuar sendo a autoridade; esconder telas no navegador, isoladamente, não substitui as regras do backend.

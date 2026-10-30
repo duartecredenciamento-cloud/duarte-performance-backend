@@ -26,3 +26,18 @@
 @keyframes legendIn{from{opacity:0;transform:translateX(8px)}to{opacity:1;transform:translateX(0)}}
 @keyframes barIn{from{transform:scaleY(.12);opacity:.5}to{transform:scaleY(1);opacity:1}}
 @media(prefers-reduced-motion:reduce){#view-reports.report-refreshing .report-number,#view-reports.report-refreshing .report-grid>.panel,#view-reports.report-refreshing #reportRows tr,#view-reports .report-status-chart .donut,#view-reports .report-status-chart .donut:after,#view-reports .daily-bar,#view-reports .report-legend-pop,#view-reports .report-number:after{animation:none!important}#view-reports .report-number{transition:none!important}}
+
+/* Feedback de lançamento: poucos elementos, apenas transform/opacity e sem bloquear a interação. */
+.hero-brand-image{position:absolute;left:50%;top:47%;width:168px;height:auto;max-width:88%;border-radius:9px;box-shadow:0 16px 38px #02091470;transform:translate(-50%,-50%);}
+.toast{padding-left:36px;transition:opacity .18s ease,transform .18s ease,border-color .18s ease;}
+.toast:before{position:absolute;left:13px;top:50%;transform:translateY(-50%);font-size:14px;font-weight:800;}
+.toast.toast-success{border-color:#38c99570;background:#102b2af5;color:#e8fff6;}
+.toast.toast-success:before{content:'✓';color:#56e0ad;}
+.toast.toast-error{border-color:#ff718070;background:#321b2af5;color:#fff0f1;}
+.toast.toast-error:before{content:'!';color:#ff8994;}
+.success-bubbles{position:fixed;right:10px;bottom:8px;z-index:99;width:330px;height:150px;overflow:visible;pointer-events:none;}
+.success-bubble{position:absolute;left:var(--x);bottom:0;width:var(--size);height:var(--size);border-radius:50%;background:var(--bubble-color);opacity:0;transform:translate3d(0,0,0);}
+.success-bubbles.active .success-bubble{animation:launchBubble 760ms cubic-bezier(.18,.72,.25,1) var(--delay) both;will-change:transform,opacity;}
+@keyframes launchBubble{0%{opacity:0;transform:translate3d(0,0,0) scale(.55)}18%{opacity:.8}100%{opacity:0;transform:translate3d(0,calc(-1 * var(--rise)),0) scale(.82)}}
+@media(max-width:600px){.hero-brand-image{width:128px}.success-bubbles{right:0;width:min(330px,100vw);}}
+@media(prefers-reduced-motion:reduce){.success-bubbles.active .success-bubble{animation:none!important}.hero-brand-image{transform:translate(-50%,-50%);}}
